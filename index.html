@@ -825,7 +825,7 @@ function renderizarUsuarios(el){
   el.innerHTML = `
     <div class="cabecalho-pagina">
       <div><h2>Usuários</h2><p>Quem tem acesso ao sistema da secretaria</p></div>
-      <button class="botao terracota pequeno" id="btn-convidar">+ Convidar por e-mail</button>
+      <button class="botao terracota pequeno" id="btn-convidar">+ Criar acesso</button>
     </div>
     <div id="msg-convite"></div>
     <div class="painel">
@@ -834,12 +834,20 @@ function renderizarUsuarios(el){
   document.getElementById('btn-convidar').addEventListener('click', abrirModalConvite);
 }
 
+function gerarSenhaAleatoria(){
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  for(let i=0;i<8;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
 function abrirModalConvite(){
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
   modal.innerHTML = `
-    <div class="modal" style="max-width:420px;">
-      <div class="modal-topo"><h3>Convidar novo usuário</h3><button data-fechar>✕</button></div>
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-topo"><h3>Criar novo acesso</h3><button data-fechar>✕</button></div>
+      <p style="color:var(--texto-suave);font-size:13px;margin:-6px 0 16px;">Você define a senha inicial e avisa a pessoa diretamente (WhatsApp, presencial etc). Ela pode trocar a senha depois de entrar.</p>
       <div id="msg-modal-convite"></div>
       <form id="form-convite">
         <div class="campo"><label>Nome completo</label><input type="text" id="conv-nome" required /></div>
@@ -847,37 +855,48 @@ function abrirModalConvite(){
         <div class="campo"><label>Papel</label>
           <select id="conv-role"><option value="secretaria">Secretaria</option><option value="admin">Administrador</option></select>
         </div>
-        <button class="botao terracota" type="submit" id="btn-enviar-convite">Enviar convite por e-mail</button>
+        <div class="campo">
+          <label>Senha inicial</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="conv-senha" required minlength="6" value="${gerarSenhaAleatoria()}" />
+            <button type="button" class="botao secundario pequeno" id="btn-gerar-senha" style="white-space:nowrap;">Gerar outra</button>
+          </div>
+        </div>
+        <button class="botao terracota" type="submit" id="btn-enviar-convite">Criar acesso</button>
       </form>
     </div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.getElementById('btn-gerar-senha').addEventListener('click', () => {
+    document.getElementById('conv-senha').value = gerarSenhaAleatoria();
+  });
 
   document.getElementById('form-convite').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = document.getElementById('conv-nome').value.trim();
     const email = document.getElementById('conv-email').value.trim();
     const role = document.getElementById('conv-role').value;
+    const senha = document.getElementById('conv-senha').value;
     const btn = document.getElementById('btn-enviar-convite');
-    btn.disabled = true; btn.textContent = 'Enviando…';
+    btn.disabled = true; btn.textContent = 'Criando…';
     try{
       const { data: { session } } = await supabase.auth.getSession();
       const resp = await fetch(`${EDGE_URL}/convidar-usuario`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({ nome, email, role }),
+        body: JSON.stringify({ nome, email, role, senha }),
       });
       const json = await resp.json();
-      if(!resp.ok) throw new Error(json.error || 'Falha ao enviar convite');
+      if(!resp.ok) throw new Error(json.error || 'Falha ao criar acesso');
       modal.remove();
-      document.getElementById('msg-convite').innerHTML = `<div class="msg-ok">Convite enviado para ${esc(email)}.</div>`;
+      document.getElementById('msg-convite').innerHTML = `<div class="msg-ok">Acesso criado para ${esc(email)}. Senha inicial: <strong>${esc(senha)}</strong> — anote e informe para a pessoa, essa mensagem some ao trocar de página.</div>`;
       const { data: perfis } = await supabase.from('perfis').select('*').order('created_at');
       ESTADO.perfis = perfis || [];
       renderizarApp();
     }catch(err){
       document.getElementById('msg-modal-convite').innerHTML = `<div class="msg-erro">${esc(err.message)}</div>`;
-      btn.disabled = false; btn.textContent = 'Enviar convite por e-mail';
+      btn.disabled = false; btn.textContent = 'Criar acesso';
     }
   });
 }
