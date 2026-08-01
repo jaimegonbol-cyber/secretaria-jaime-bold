@@ -5146,6 +5146,7 @@ function renderizarOcorrencias(el){
 async function carregarOcorrencias(conteudo, elPai){
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const aluno = ESTADO.alunos.find(a => a.id === ESTADO.ocorrenciasAlunoId);
+  const turmaAluno = ESTADO.turmas.find(t => t.id === aluno?.turma_id);
   const { data, error } = await supabase.from('ocorrencias_estudantes').select('*')
     .eq('aluno_id', ESTADO.ocorrenciasAlunoId).order('data', { ascending: false }).order('criado_em', { ascending: false });
   if(error){
@@ -5169,6 +5170,8 @@ async function carregarOcorrencias(conteudo, elPai){
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="botao secundario pequeno" style="width:auto;" data-imprimir-ficha="${r.id}">Imprimir ficha</button>
             <button class="botao terracota pequeno" style="width:auto;" data-gerar-comunicado="${r.id}">Gerar comunicado</button>
+            <button class="botao secundario pequeno" style="width:auto;" data-editar-ocorrencia="${r.id}">Editar</button>
+            <button class="botao secundario pequeno" style="width:auto;color:var(--erro);border-color:var(--erro);" data-excluir-ocorrencia="${r.id}">Excluir</button>
           </div>
         </div>`;
       }).join('')
@@ -5178,7 +5181,7 @@ async function carregarOcorrencias(conteudo, elPai){
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
       <div>
         <strong>${esc(aluno?.nome || '')}</strong>
-        <div style="font-size:12.5px;color:var(--texto-suave);">Total de ocorrências registradas</div>
+        <div style="font-size:12.5px;color:var(--texto-suave);">${esc(turmaAluno?.nome || 'Sem turma')} · Total de ocorrências registradas</div>
       </div>
       <div style="text-align:center;">
         <div style="font-size:28px;font-weight:800;color:${corContador};line-height:1;">${total}</div>
@@ -5200,48 +5203,88 @@ async function carregarOcorrencias(conteudo, elPai){
       imprimirComunicadoOcorrencia(registro, aluno);
     });
   });
+  conteudo.querySelectorAll('[data-editar-ocorrencia]').forEach(b => {
+    b.addEventListener('click', () => {
+      const registro = registros.find(r => r.id === b.dataset.editarOcorrencia);
+      abrirModalNovaOcorrencia(aluno, conteudo, elPai, registro);
+    });
+  });
+  conteudo.querySelectorAll('[data-excluir-ocorrencia]').forEach(b => {
+    b.addEventListener('click', () => {
+      const registro = registros.find(r => r.id === b.dataset.excluirOcorrencia);
+      excluirOcorrencia(registro, aluno, conteudo, elPai);
+    });
+  });
 }
 
-function abrirModalNovaOcorrencia(aluno, conteudo, elPai){
+async function dataEhNaoLetiva(dataIso){
+  if(!dataIso) return false;
+  const diaSemana = new Date(dataIso + 'T00:00:00').getDay();
+  if(diaSemana === 0 || diaSemana === 6) return true;
+  const { data: feriado } = await supabase.from('feriados').select('tipo').eq('data', dataIso).maybeSingle();
+  return !!feriado && ['feriado','ponto_facultativo','recesso'].includes(feriado.tipo);
+}
+
+function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
+  const editando = !!registroExistente;
+  const marcadas = new Set(editando ? (registroExistente.qualificacoes||[]) : []);
+  const turmaAluno = ESTADO.turmas.find(t => t.id === aluno.turma_id);
   const checkboxesQualificacao = QUALIFICACOES_OCORRENCIA.map((texto, i) => `
-    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.4;margin-bottom:8px;cursor:pointer;">
-      <input type="checkbox" class="oc-qualificacao" value="${esc(texto)}" style="margin-top:3px;" />
-      <span>${esc(texto)}</span>
+    <label style="display:block;font-size:13px;line-height:1.4;margin-bottom:8px;cursor:pointer;text-align:left;padding-left:24px;text-indent:-24px;">
+      <input type="checkbox" class="oc-qualificacao" value="${esc(texto)}" style="width:14px;height:14px;margin:0 7px 0 0;padding:0;border:1px solid var(--borda);border-radius:4px;background:white;appearance:auto;-webkit-appearance:auto;vertical-align:middle;" ${marcadas.has(texto)?'checked':''} />
+      ${esc(texto)}
     </label>`).join('');
 
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
   modal.innerHTML = `
-    <div class="modal" style="max-width:640px;">
-      <div class="modal-topo"><h3>Nova ocorrência — ${esc(aluno.nome)}</h3><button data-fechar>✕</button></div>
+    <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>${editando ? 'Editar ocorrência' : 'Nova ocorrência'} — ${esc(aluno.nome)}</h3><button data-fechar>✕</button></div>
+      <p style="margin:-8px 0 14px;font-size:12.5px;color:var(--texto-suave);">Turma: <b>${esc(turmaAluno?.nome || 'Sem turma')}</b></p>
       <div id="msg-nova-ocorrencia"></div>
       <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="campo"><label>Data</label><input type="date" id="oc-data" value="${new Date().toISOString().slice(0,10)}" /></div>
-        <div class="campo"><label>Hora</label><input type="time" id="oc-hora" value="${new Date().toTimeString().slice(0,5)}" /></div>
+        <div class="campo"><label>Data (dias letivos)</label><div id="oc-data-wrap" class="seletor-data-wrap"></div></div>
+        <div class="campo"><label>Hora</label><input type="time" id="oc-hora" value="${editando ? (registroExistente.hora||'').slice(0,5) : new Date().toTimeString().slice(0,5)}" /></div>
       </div>
       <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
         <div class="campo">
           <label>Espaço</label>
-          <select id="oc-espaco"><option value="sala_de_aula">Sala de Aula</option><option value="outro">Outro</option></select>
+          <select id="oc-espaco"><option value="sala_de_aula" ${editando && registroExistente.espaco==='sala_de_aula'?'selected':''}>Sala de Aula</option><option value="outro" ${editando && registroExistente.espaco==='outro'?'selected':''}>Outro</option></select>
         </div>
-        <div class="campo" id="campo-oc-espaco-outro" style="display:none;"><label>Qual espaço?</label><input type="text" id="oc-espaco-outro" /></div>
+        <div class="campo" id="campo-oc-espaco-outro" style="display:${editando && registroExistente.espaco==='outro'?'':'none'};"><label>Qual espaço?</label><input type="text" id="oc-espaco-outro" value="${editando ? esc(registroExistente.espaco_outro||'') : ''}" /></div>
       </div>
-      <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" placeholder="Nome do professor(a) responsável pelo registro" /></div>
+      <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" placeholder="Nome do professor(a) responsável pelo registro" value="${editando ? esc(registroExistente.professor||'') : ''}" /></div>
       <div class="campo">
         <label>Qualificação da ocorrência</label>
         <div style="border:1px solid var(--borda);border-radius:8px;padding:12px;">
           ${checkboxesQualificacao}
-          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;margin-bottom:6px;cursor:pointer;">
-            <input type="checkbox" id="oc-outras-check" style="margin-top:3px;" />
-            <span>Outras ocorrências. Quais?</span>
+          <label style="display:block;font-size:13px;margin-bottom:6px;cursor:pointer;text-align:left;padding-left:24px;text-indent:-24px;line-height:1.4;">
+            <input type="checkbox" id="oc-outras-check" style="width:14px;height:14px;margin:0 7px 0 0;padding:0;border:1px solid var(--borda);border-radius:4px;background:white;appearance:auto;-webkit-appearance:auto;vertical-align:middle;" ${editando && registroExistente.outras_texto ? 'checked':''} />
+            Outras ocorrências. Quais?
           </label>
-          <input type="text" id="oc-outras-texto" placeholder="Descreva a ocorrência" style="display:none;width:100%;padding:8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;" />
+          <input type="text" id="oc-outras-texto" placeholder="Descreva a ocorrência" value="${editando ? esc(registroExistente.outras_texto||'') : ''}" style="display:${editando && registroExistente.outras_texto ? '' : 'none'};width:100%;padding:8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;" />
         </div>
       </div>
-      <div class="campo" style="margin-bottom:0;"><label>Observações</label><textarea id="oc-observacoes" rows="3" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;"></textarea></div>
-      <button class="botao terracota" id="btn-salvar-ocorrencia" style="margin-top:16px;width:auto;">Salvar e gerar ficha de ocorrência</button>
+      <div class="campo" style="margin-bottom:0;"><label>Observações</label><textarea id="oc-observacoes" rows="2" style="width:100%;padding:7px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;">${editando ? esc(registroExistente.observacoes||'') : ''}</textarea></div>
+      <button class="botao terracota" id="btn-salvar-ocorrencia" style="margin-top:16px;width:auto;">${editando ? 'Salvar alterações' : 'Salvar e gerar ficha de ocorrência'}</button>
     </div>`;
   document.body.appendChild(modal);
+  let dataAnteriorOc = editando ? registroExistente.data : new Date().toISOString().slice(0,10);
+  const seletorDataOc = criarSeletorData('oc-data-wrap', dataAnteriorOc, async (novaData) => {
+    if(novaData && novaData > new Date().toISOString().slice(0,10)){
+      alert(`A data selecionada (${formatarDataBR(novaData)}) ainda não aconteceu. Selecione a data em que a ocorrência realmente ocorreu.`);
+      seletorDataOc.definir(dataAnteriorOc);
+      return;
+    }
+    if(novaData && await dataEhNaoLetiva(novaData)){
+      const confirmado = confirm(`A data selecionada (${formatarDataBR(novaData)}) é um dia não letivo (fim de semana, feriado ou recesso). Confirma que a ocorrência realmente aconteceu nesse dia?`);
+      if(!confirmado){
+        seletorDataOc.definir(dataAnteriorOc);
+        return;
+      }
+    }
+    dataAnteriorOc = novaData;
+  }, { inputId: 'oc-data' });
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
 
@@ -5259,6 +5302,9 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai){
     const outrasTexto = document.getElementById('oc-outras-texto').value.trim();
     if(outrasCheck && !outrasTexto){ msg.innerHTML = `<div class="msg-erro">Descreva a ocorrência no campo "Outras ocorrências".</div>`; return; }
     if(!qualificacoes.length && !(outrasCheck && outrasTexto)){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos uma qualificação da ocorrência.</div>`; return; }
+    const dataParaSalvar = document.getElementById('oc-data').value;
+    if(!dataParaSalvar){ msg.innerHTML = `<div class="msg-erro">Selecione a data da ocorrência.</div>`; return; }
+    if(dataParaSalvar > new Date().toISOString().slice(0,10)){ msg.innerHTML = `<div class="msg-erro">A data da ocorrência não pode estar no futuro.</div>`; return; }
     const btn = document.getElementById('btn-salvar-ocorrencia');
     btn.disabled = true; btn.textContent = 'Salvando…';
     const dados = {
@@ -5273,12 +5319,26 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai){
       outras_texto: outrasCheck ? outrasTexto : null,
       observacoes: document.getElementById('oc-observacoes').value.trim() || null,
     };
+    if(editando){
+      const { data: registro, error } = await supabase.from('ocorrencias_estudantes').update(dados).eq('id', registroExistente.id).select().single();
+      if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar alterações'; return; }
+      modal.remove();
+      carregarOcorrencias(conteudo, elPai);
+      return;
+    }
     const { data: registro, error } = await supabase.from('ocorrencias_estudantes').insert(dados).select().single();
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar e gerar ficha de ocorrência'; return; }
     modal.remove();
     imprimirFichaOcorrencia(registro, aluno);
     carregarOcorrencias(conteudo, elPai);
   });
+}
+
+async function excluirOcorrencia(registro, aluno, conteudo, elPai){
+  if(!confirm(`Excluir a ocorrência de ${fmtData(registro.data)} de ${aluno.nome}? Esta ação não pode ser desfeita.`)) return;
+  const { error } = await supabase.from('ocorrencias_estudantes').delete().eq('id', registro.id);
+  if(error){ alert('Erro ao excluir: ' + error.message); return; }
+  carregarOcorrencias(conteudo, elPai);
 }
 
 function rotuloEspacoOcorrencia(r){
@@ -5290,10 +5350,11 @@ function imprimirFichaOcorrencia(r, aluno){
   const itensQualificacao = [...QUALIFICACOES_OCORRENCIA, '__OUTRAS__'].map(texto => {
     if(texto === '__OUTRAS__'){
       const marcado = !!r.outras_texto;
-      return `<div style="margin-bottom:5px;">( ${marcado?'X':'&nbsp;'} ) Outras Ocorrências. Quais? ${marcado ? esc(r.outras_texto) : '_________________________________'}</div>`;
+      const textoItem = `Outras Ocorrências. Quais? ${marcado ? esc(r.outras_texto) : '_________________________________'}`;
+      return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${textoItem}</div>`;
     }
     const marcado = (r.qualificacoes||[]).includes(texto);
-    return `<div style="margin-bottom:5px;">( ${marcado?'X':'&nbsp;'} ) ${esc(texto)}</div>`;
+    return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${esc(texto)}</div>`;
   }).join('');
 
   const janela = window.open('', '_blank');
@@ -5312,19 +5373,20 @@ function imprimirFichaOcorrencia(r, aluno){
       .linha-dados span{display:inline-block;}
       .caixa{border:1px solid #333;padding:10px 12px;margin-bottom:12px;}
       .caixa-titulo{font-weight:bold;margin-bottom:8px;}
+      .item-qualificacao{margin-bottom:6px;padding-left:36px;text-indent:-36px;}
       .obs-box{border:1px solid #333;min-height:80px;padding:6px 10px;margin-bottom:14px;}
-      .assinaturas{margin-top:34px;}
-      .assinaturas .linha-assinatura{border-top:1px solid #333;width:340px;margin:26px auto 4px;text-align:center;padding-top:4px;font-size:12px;}
+      .assinaturas{margin-top:46px;display:flex;justify-content:space-around;gap:24px;}
+      .assinaturas .linha-assinatura{border-top:1px solid #333;width:240px;text-align:center;padding-top:5px;font-size:12px;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
       <div class="cabecalho-doc">
         <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
-        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA — SECRETARIA DE EDUCAÇÃO<br/><b>Escola Municipal Jaime Gonçalves Bold</b></p>
+        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><b style="font-size:15px;display:inline-block;margin-top:3px;">Escola Municipal Jaime Gonçalves Bold</b></p>
       </div>
       <div class="titulo-doc">Ficha de Ocorrência Escolar</div>
 
-      <div class="linha-dados"><span><b>Aluno(a):</b> ${esc(aluno.nome)}</span></div>
+      <div class="linha-dados"><span><b>Estudante:</b> ${esc(aluno.nome)}</span></div>
       <div class="linha-dados">
         <span><b>Série/Ano:</b> ${esc(turma?.nome || '—')}</span>
         <span><b>Turma:</b> ${esc(turma?.nome || '—')}</span>
