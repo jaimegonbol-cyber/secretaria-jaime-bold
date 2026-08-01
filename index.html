@@ -314,6 +314,8 @@ let ESTADO = {
   fichaNotasTurmaId: '',
   fichaNotasAlunoId: '',
   fichaNotasAno: new Date().getFullYear(),
+  ocorrenciasTurmaId: '',
+  ocorrenciasAlunoId: '',
   histEscModo: 'individual',
   solicFiltroStatus: 'pendente',
   histAlunoId: '',
@@ -490,6 +492,7 @@ function itensNav(){
     { id:'cadastro', label:'Cadastro', icone:'▤' },
     { id:'frequencia', label:'Frequência', icone:'📅' },
     { id:'documentos', label:'Documentos', icone:'📄' },
+    { id:'ocorrencias', label:'Ocorrências', icone:'⚠️' },
   ];
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
     ? base.filter(item => ESTADO.perfil.permissoes.includes(item.id))
@@ -558,6 +561,7 @@ function renderizarApp(){
   else if(ESTADO.pagina === 'cadastro') renderizarCadastro(principal);
   else if(ESTADO.pagina === 'frequencia') renderizarFrequencia(principal);
   else if(ESTADO.pagina === 'documentos') renderizarDocumentos(principal);
+  else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(principal);
   else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(principal);
 }
 
@@ -2639,6 +2643,7 @@ const ABAS_PERMISSIVEIS = [
   { id:'cadastro', label:'Cadastro' },
   { id:'frequencia', label:'Frequência' },
   { id:'documentos', label:'Documentos' },
+  { id:'ocorrencias', label:'Ocorrências' },
 ];
 
 function renderizarUsuarios(el){
@@ -5084,6 +5089,333 @@ async function gerarDocumento(tipo, aluno, extras){
       <div class="doc-assinatura">
         <div class="linha"></div>
         ${assinaturaHtml}
+      </div>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+// ---------------------------------------------------------------
+// OCORRÊNCIAS E COMUNICADOS
+// ---------------------------------------------------------------
+const QUALIFICACOES_OCORRENCIA = [
+  'Desrespeito pela autoridade do professor ou falta de educação verbal ou gestual.',
+  'Desrespeito, ou falta de educação verbal ou gestual, relativos a algum colega ou outro membro da comunidade escolar.',
+  'Danificação de material escolar, do próprio, de colegas ou da escola, ou de mobiliário.',
+  'Utilização de equipamento tecnológico perturbador.',
+  'Captação de sons ou imagens sem autorização prévia do professor.',
+  'Não cumprimento das atividades escolares propostas.',
+  'Posse e consumo de substância aditivas.',
+];
+
+function renderizarOcorrencias(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+    .map(t => `<option value="${t.id}" ${ESTADO.ocorrenciasTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const alunosFiltrados = (ESTADO.ocorrenciasTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.ocorrenciasTurmaId) : ESTADO.alunos)
+    .slice().sort((a,b) => a.nome.localeCompare(b.nome));
+  const opcoesAlunos = alunosFiltrados.map(a => `<option value="${a.id}" ${ESTADO.ocorrenciasAlunoId===a.id?'selected':''}>${esc(a.nome)}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="painel">
+      <div class="barra" style="padding:10px 14px;flex-wrap:wrap;gap:12px;">
+        <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="oc-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div>
+        <div class="campo" style="margin:0;min-width:260px;flex:1;"><label>Estudante</label><select id="oc-aluno"><option value="">Selecione o estudante</option>${opcoesAlunos}</select></div>
+      </div>
+      <div id="oc-conteudo" style="padding:12px 14px;"></div>
+    </div>`;
+
+  document.getElementById('oc-turma').addEventListener('change', e => {
+    ESTADO.ocorrenciasTurmaId = e.target.value;
+    if(ESTADO.ocorrenciasAlunoId && !ESTADO.alunos.find(a => a.id === ESTADO.ocorrenciasAlunoId && (!ESTADO.ocorrenciasTurmaId || a.turma_id === ESTADO.ocorrenciasTurmaId))){
+      ESTADO.ocorrenciasAlunoId = '';
+    }
+    renderizarOcorrencias(el);
+  });
+  document.getElementById('oc-aluno').addEventListener('change', e => { ESTADO.ocorrenciasAlunoId = e.target.value; renderizarOcorrencias(el); });
+
+  const conteudo = document.getElementById('oc-conteudo');
+  if(!ESTADO.ocorrenciasAlunoId){
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Selecione um estudante para ver o histórico de ocorrências e registrar uma nova.</p>`;
+    return;
+  }
+  carregarOcorrencias(conteudo, el);
+}
+
+async function carregarOcorrencias(conteudo, elPai){
+  conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+  const aluno = ESTADO.alunos.find(a => a.id === ESTADO.ocorrenciasAlunoId);
+  const { data, error } = await supabase.from('ocorrencias_estudantes').select('*')
+    .eq('aluno_id', ESTADO.ocorrenciasAlunoId).order('data', { ascending: false }).order('criado_em', { ascending: false });
+  if(error){
+    conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
+    return;
+  }
+  const registros = data || [];
+  const total = registros.length;
+  const corContador = total === 0 ? '#2E7D5B' : (total <= 2 ? '#D98A1F' : 'var(--erro)');
+
+  const linhasHistorico = registros.length
+    ? registros.map(r => {
+        const tipos = [...(r.qualificacoes||[]), r.outras_texto ? `Outras: ${r.outras_texto}` : null].filter(Boolean);
+        const resumoTipos = tipos.length ? tipos[0] + (tipos.length > 1 ? ` (+${tipos.length-1})` : '') : '—';
+        return `
+        <div class="item-lista" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;margin-bottom:8px;">
+          <div style="flex:1;min-width:200px;">
+            <div style="font-weight:600;font-size:13px;">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''}</div>
+            <div style="font-size:12.5px;color:var(--texto-suave);">${esc(resumoTipos)}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="botao secundario pequeno" style="width:auto;" data-imprimir-ficha="${r.id}">Imprimir ficha</button>
+            <button class="botao terracota pequeno" style="width:auto;" data-gerar-comunicado="${r.id}">Gerar comunicado</button>
+          </div>
+        </div>`;
+      }).join('')
+    : `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma ocorrência registrada para este estudante.</p>`;
+
+  conteudo.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+      <div>
+        <strong>${esc(aluno?.nome || '')}</strong>
+        <div style="font-size:12.5px;color:var(--texto-suave);">Total de ocorrências registradas</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:${corContador};line-height:1;">${total}</div>
+      </div>
+      <button class="botao terracota" style="width:auto;" id="btn-nova-ocorrencia">+ Registrar ocorrência</button>
+    </div>
+    <div id="oc-lista">${linhasHistorico}</div>`;
+
+  document.getElementById('btn-nova-ocorrencia').addEventListener('click', () => abrirModalNovaOcorrencia(aluno, conteudo, elPai));
+  conteudo.querySelectorAll('[data-imprimir-ficha]').forEach(b => {
+    b.addEventListener('click', () => {
+      const registro = registros.find(r => r.id === b.dataset.imprimirFicha);
+      imprimirFichaOcorrencia(registro, aluno);
+    });
+  });
+  conteudo.querySelectorAll('[data-gerar-comunicado]').forEach(b => {
+    b.addEventListener('click', () => {
+      const registro = registros.find(r => r.id === b.dataset.gerarComunicado);
+      imprimirComunicadoOcorrencia(registro, aluno);
+    });
+  });
+}
+
+function abrirModalNovaOcorrencia(aluno, conteudo, elPai){
+  const checkboxesQualificacao = QUALIFICACOES_OCORRENCIA.map((texto, i) => `
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.4;margin-bottom:8px;cursor:pointer;">
+      <input type="checkbox" class="oc-qualificacao" value="${esc(texto)}" style="margin-top:3px;" />
+      <span>${esc(texto)}</span>
+    </label>`).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-topo"><h3>Nova ocorrência — ${esc(aluno.nome)}</h3><button data-fechar>✕</button></div>
+      <div id="msg-nova-ocorrencia"></div>
+      <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="campo"><label>Data</label><input type="date" id="oc-data" value="${new Date().toISOString().slice(0,10)}" /></div>
+        <div class="campo"><label>Hora</label><input type="time" id="oc-hora" value="${new Date().toTimeString().slice(0,5)}" /></div>
+      </div>
+      <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="campo">
+          <label>Espaço</label>
+          <select id="oc-espaco"><option value="sala_de_aula">Sala de Aula</option><option value="outro">Outro</option></select>
+        </div>
+        <div class="campo" id="campo-oc-espaco-outro" style="display:none;"><label>Qual espaço?</label><input type="text" id="oc-espaco-outro" /></div>
+      </div>
+      <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" placeholder="Nome do professor(a) responsável pelo registro" /></div>
+      <div class="campo">
+        <label>Qualificação da ocorrência</label>
+        <div style="border:1px solid var(--borda);border-radius:8px;padding:12px;">
+          ${checkboxesQualificacao}
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;margin-bottom:6px;cursor:pointer;">
+            <input type="checkbox" id="oc-outras-check" style="margin-top:3px;" />
+            <span>Outras ocorrências. Quais?</span>
+          </label>
+          <input type="text" id="oc-outras-texto" placeholder="Descreva a ocorrência" style="display:none;width:100%;padding:8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;" />
+        </div>
+      </div>
+      <div class="campo" style="margin-bottom:0;"><label>Observações</label><textarea id="oc-observacoes" rows="3" style="width:100%;padding:8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;"></textarea></div>
+      <button class="botao terracota" id="btn-salvar-ocorrencia" style="margin-top:16px;width:auto;">Salvar e gerar ficha de ocorrência</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  document.getElementById('oc-espaco').addEventListener('change', e => {
+    document.getElementById('campo-oc-espaco-outro').style.display = e.target.value === 'outro' ? '' : 'none';
+  });
+  document.getElementById('oc-outras-check').addEventListener('change', e => {
+    document.getElementById('oc-outras-texto').style.display = e.target.checked ? '' : 'none';
+  });
+
+  document.getElementById('btn-salvar-ocorrencia').addEventListener('click', async () => {
+    const msg = document.getElementById('msg-nova-ocorrencia');
+    const qualificacoes = Array.from(modal.querySelectorAll('.oc-qualificacao:checked')).map(c => c.value);
+    const outrasCheck = document.getElementById('oc-outras-check').checked;
+    const outrasTexto = document.getElementById('oc-outras-texto').value.trim();
+    if(outrasCheck && !outrasTexto){ msg.innerHTML = `<div class="msg-erro">Descreva a ocorrência no campo "Outras ocorrências".</div>`; return; }
+    if(!qualificacoes.length && !(outrasCheck && outrasTexto)){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos uma qualificação da ocorrência.</div>`; return; }
+    const btn = document.getElementById('btn-salvar-ocorrencia');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const dados = {
+      aluno_id: aluno.id,
+      turma_id: aluno.turma_id || null,
+      data: document.getElementById('oc-data').value,
+      hora: document.getElementById('oc-hora').value || null,
+      espaco: document.getElementById('oc-espaco').value,
+      espaco_outro: document.getElementById('oc-espaco').value === 'outro' ? document.getElementById('oc-espaco-outro').value.trim() : null,
+      professor: document.getElementById('oc-professor').value.trim() || null,
+      qualificacoes,
+      outras_texto: outrasCheck ? outrasTexto : null,
+      observacoes: document.getElementById('oc-observacoes').value.trim() || null,
+    };
+    const { data: registro, error } = await supabase.from('ocorrencias_estudantes').insert(dados).select().single();
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar e gerar ficha de ocorrência'; return; }
+    modal.remove();
+    imprimirFichaOcorrencia(registro, aluno);
+    carregarOcorrencias(conteudo, elPai);
+  });
+}
+
+function rotuloEspacoOcorrencia(r){
+  return r.espaco === 'outro' ? (r.espaco_outro || 'Outro') : 'Sala de Aula';
+}
+
+function imprimirFichaOcorrencia(r, aluno){
+  const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || aluno.turma_id));
+  const itensQualificacao = [...QUALIFICACOES_OCORRENCIA, '__OUTRAS__'].map(texto => {
+    if(texto === '__OUTRAS__'){
+      const marcado = !!r.outras_texto;
+      return `<div style="margin-bottom:5px;">( ${marcado?'X':'&nbsp;'} ) Outras Ocorrências. Quais? ${marcado ? esc(r.outras_texto) : '_________________________________'}</div>`;
+    }
+    const marcado = (r.qualificacoes||[]).includes(texto);
+    return `<div style="margin-bottom:5px;">( ${marcado?'X':'&nbsp;'} ) ${esc(texto)}</div>`;
+  }).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Ficha de Ocorrência - ${esc(aluno.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 12mm 14mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.55;}
+      .cabecalho-doc{text-align:center;padding-bottom:6px;margin-bottom:14px;}
+      .cabecalho-doc img{width:56px;height:56px;display:block;margin:0 auto 5px;}
+      .cabecalho-doc .orgao{font-size:12px;margin:0;line-height:1.3;}
+      .titulo-doc{text-align:center;font-size:16px;font-weight:bold;text-transform:uppercase;margin:0 0 16px;}
+      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
+      .linha-dados span{display:inline-block;}
+      .caixa{border:1px solid #333;padding:10px 12px;margin-bottom:12px;}
+      .caixa-titulo{font-weight:bold;margin-bottom:8px;}
+      .obs-box{border:1px solid #333;min-height:80px;padding:6px 10px;margin-bottom:14px;}
+      .assinaturas{margin-top:34px;}
+      .assinaturas .linha-assinatura{border-top:1px solid #333;width:340px;margin:26px auto 4px;text-align:center;padding-top:4px;font-size:12px;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <div class="cabecalho-doc">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA — SECRETARIA DE EDUCAÇÃO<br/><b>Escola Municipal Jaime Gonçalves Bold</b></p>
+      </div>
+      <div class="titulo-doc">Ficha de Ocorrência Escolar</div>
+
+      <div class="linha-dados"><span><b>Aluno(a):</b> ${esc(aluno.nome)}</span></div>
+      <div class="linha-dados">
+        <span><b>Série/Ano:</b> ${esc(turma?.nome || '—')}</span>
+        <span><b>Turma:</b> ${esc(turma?.nome || '—')}</span>
+        <span><b>Data:</b> ${fmtData(r.data)}</span>
+        <span><b>Hora:</b> ${r.hora ? esc(r.hora.slice(0,5)) : '—'}</span>
+      </div>
+      <div class="linha-dados">
+        <span>( ${r.espaco==='sala_de_aula'?'X':'&nbsp;'} ) Sala de Aula</span>
+        <span>( ${r.espaco==='outro'?'X':'&nbsp;'} ) Outro: ${r.espaco==='outro' ? esc(r.espaco_outro||'') : '_______________'}</span>
+      </div>
+      <div class="linha-dados"><span><b>Professor:</b> ${esc(r.professor || '—')}</span></div>
+
+      <div class="caixa">
+        <div class="caixa-titulo">QUALIFICAÇÃO DA OCORRÊNCIA</div>
+        ${itensQualificacao}
+      </div>
+
+      <div class="caixa-titulo">Observações</div>
+      <div class="obs-box">${esc(r.observacoes || '')}</div>
+
+      <p style="text-align:right;">Paulista, ${dataPorExtenso(new Date().toISOString().slice(0,10))}.</p>
+
+      <div class="assinaturas">
+        <div class="linha-assinatura">Assinatura do Estudante</div>
+        <div class="linha-assinatura">Assinatura do(a) Responsável</div>
+      </div>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+async function imprimirComunicadoOcorrencia(r, aluno){
+  await supabase.from('ocorrencias_estudantes').update({ comunicado_gerado: true }).eq('id', r.id);
+  const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || aluno.turma_id));
+  const tipos = [...(r.qualificacoes||[]), r.outras_texto].filter(Boolean);
+  const listaTipos = tipos.map(t => `<li style="margin-bottom:4px;">${esc(t)}</li>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Comunicado aos Responsáveis - ${esc(aluno.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 10mm 12mm 14mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:15px;line-height:1.6;}
+      .cabecalho-doc{text-align:center;padding-bottom:6px;margin-bottom:16px;}
+      .cabecalho-doc img{width:70px;height:70px;display:block;margin:0 auto 6px;}
+      .cabecalho-doc .orgao{font-size:15px;margin:0;line-height:1.4;}
+      .cabecalho-doc .escola{font-weight:bold;font-size:19px;}
+      .cabecalho-doc .contato{font-size:13.5px;line-height:1.6;margin:4px 0 0;}
+      .titulo-doc{text-align:center;font-size:18px;font-weight:bold;text-transform:uppercase;margin:24px 0 20px;letter-spacing:.02em;}
+      .doc-texto{text-align:justify;margin:0 0 14px;text-indent:40px;}
+      .caixa-destaque{border:1px solid #333;padding:12px 16px;margin:16px 0 20px;}
+      .doc-data{text-align:right;margin:20px 0 60px;}
+      .doc-assinatura{text-align:center;font-size:14px;}
+      .doc-assinatura .linha{border-top:1px solid #333;width:300px;margin:0 auto 6px;}
+      .ciencia{margin-top:50px;border-top:1px dashed #999;padding-top:14px;font-size:13.5px;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <div class="cabecalho-doc">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><span class="escola">Escola Municipal Jaime Gonçalves Bold</span></p>
+        <p class="contato">
+          Rua Marechal Hermes, Nº 108 – Vila Torres Galvão, Paulista/PE<br/>
+          Fone: (81) 3437-0833 / (81) 99679-8342 - CNPJ: 01933733/0001-41<br/>
+          Código INEP: 26116847 E-mail: jaime.gon.bol@edu.paulista.pe.gov.br
+        </p>
+      </div>
+      <div class="titulo-doc">Comunicado aos Pais ou Responsáveis</div>
+
+      <p class="doc-texto">Prezados(as) pais ou responsáveis pelo(a) estudante <b>${esc(aluno.nome)}</b>, da turma <b>${esc(turma?.nome || '—')}</b>, informamos que no dia <b>${fmtData(r.data)}</b>${r.hora ? ', às <b>' + esc(r.hora.slice(0,5)) + '</b>,' : ','} foi registrada uma ocorrência escolar envolvendo o(a) estudante, conforme descrito abaixo:</p>
+
+      <div class="caixa-destaque">
+        <ul style="margin:0;padding-left:20px;">${listaTipos || '<li>Ocorrência registrada — ver ficha em anexo.</li>'}</ul>
+        ${r.observacoes ? `<p style="margin-top:10px;"><b>Observações:</b> ${esc(r.observacoes)}</p>` : ''}
+      </div>
+
+      <p class="doc-texto">Solicitamos o comparecimento de um responsável a esta Unidade de Ensino, no prazo de até 2 (dois) dias letivos, para tratarmos do assunto e, juntos, buscarmos as melhores encaminhamentos para o desenvolvimento e bem-estar do(a) estudante.</p>
+
+      <p class="doc-data">Paulista, ${dataPorExtenso(new Date().toISOString().slice(0,10))}.</p>
+      <div class="doc-assinatura">
+        <div class="linha"></div>
+        <p style="margin:0;line-height:1.35;">Direção Escolar — Escola Municipal Jaime Gonçalves Bold</p>
+      </div>
+
+      <div class="ciencia">
+        Declaro estar ciente do comunicado acima e do comparecimento solicitado.<br/><br/>
+        Assinatura do(a) Responsável: ____________________________________________ &nbsp;&nbsp; Data: ____/____/______
       </div>
     </body></html>
   `);
