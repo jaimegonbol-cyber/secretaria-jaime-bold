@@ -155,8 +155,8 @@
     letter-spacing:.04em;background:#1F544A;color:#B9D9CF;padding:2px 7px;border-radius:99px;margin-top:4px;
   }
   .principal{flex:1;min-width:0;padding:6px 34px 10px;max-width:100%;overflow-y:auto;overflow-x:auto;}
-  .cabecalho-pagina{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
-  .subtabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--borda);padding-bottom:2px;}
+  .cabecalho-pagina{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:12px;}
+  .subtabs{display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--borda);padding-bottom:2px;}
   .aba-cadastro{
     background:none;border:none;padding:9px 4px;margin-right:14px;font-size:14px;font-weight:700;
     color:var(--texto-suave);border-bottom:2.5px solid transparent;cursor:pointer;
@@ -215,6 +215,7 @@
   }
   tbody td{padding:11px 16px;border-bottom:1px solid #F0ECE0;color:var(--texto);}
   tbody tr:hover{background:#FBFAF6;cursor:pointer;}
+  tbody tr:hover td.col-acoes{background:#FBFAF6;}
   tbody tr:last-child td{border-bottom:none;}
   .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11.5px;font-weight:700;}
   .pill.verde{background:#E1E9F4;color:var(--verde-escuro);}
@@ -222,7 +223,8 @@
   .pill.laranja{background:#DCE9F8;color:var(--terracota-escuro);}
   .pill.cinza{background:#EAE7DD;color:var(--texto-suave);}
   .pill.vermelho{background:#FBEAE5;color:var(--erro);}
-  .col-acoes{width:1%;white-space:nowrap;text-align:right;}
+  .col-acoes{width:1%;white-space:nowrap;text-align:right;position:sticky;right:0;background:white;box-shadow:-6px 0 6px -6px rgba(0,0,0,.12);}
+  thead th.col-acoes{background:var(--areia);}
   .btn-icone{
     background:none;border:1px solid var(--borda);border-radius:6px;padding:5px 8px;font-size:13px;
     cursor:pointer;margin-left:6px;color:var(--texto-suave);line-height:1;
@@ -249,6 +251,8 @@
   .spinner{width:18px;height:18px;border:2px solid var(--borda);border-top-color:var(--verde);border-radius:50%;animation:girar .7s linear infinite;margin-right:10px;}
   @keyframes girar{to{transform:rotate(360deg);}}
 
+  .btn-sair-mobile{display:none;}
+
   @media (max-width:760px){
     .shell{flex-direction:column;}
     .nav{width:100%;flex-direction:row;align-items:center;overflow-x:auto;}
@@ -256,6 +260,12 @@
     .nav .rodape{display:none;}
     .principal{padding:18px;}
     .grade-2{grid-template-columns:1fr;}
+    .btn-sair-mobile{
+      display:block;position:fixed;top:10px;right:10px;z-index:50;
+      background:var(--erro);color:#fff;border:none;border-radius:99px;
+      padding:8px 16px;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.25);
+      cursor:pointer;
+    }
   }
   .tabela-compacta{font-size:11.5px;}
   .tabela-compacta thead th{padding:7px 8px;font-size:10px;white-space:nowrap;}
@@ -282,25 +292,42 @@ const raiz = document.getElementById('raiz');
 const esc = (s) => (s === null || s === undefined) ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtData = (d) => { if(!d) return '—'; const [a,m,dd] = d.split('-'); return `${dd}/${m}/${a}`; };
 
+// Data de "hoje" no fuso horário LOCAL do navegador — nunca usar new Date().toISOString()
+// pra isso, pois toISOString() converte pra UTC e pode "pular" pro dia seguinte à noite
+// (ex: 21h no horário de Brasília já é 00h em UTC), fazendo hoje parecer amanhã.
+function hojeISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// Mesma ideia de hojeISO(), mas pra converter um Date qualquer (não só "agora") — usado em
+// laços que percorrem um intervalo de datas dia a dia.
+function dataObjParaISO(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 let ESTADO = {
   sessao: null,
   perfil: null,
   pagina: 'painel',
   subCadastro: 'alunos',
-  alunos: [], turmas: [], perfis: [], funcionarios: [],
+  alunos: [], turmas: [], perfis: [], funcionarios: [], funcoesCargos: [],
   buscaAlunos: '', filtroTurma: '', filtroSituacao: '',
   buscaArquivoMorto: '',
   buscaFuncionario: '',
-  freqFuncData: new Date().toISOString().slice(0,10),
+  freqFuncData: hojeISO(),
   alunoSelecionado: null,
   carregado: false,
-  subFrequencia: 'chamada',
+  subFrequencia: 'estudantes',
+  relatorioTurmaId: '',
+  subFrequenciaEstudantes: 'chamada',
   diasLetivosAno: new Date().getFullYear(),
   diasLetivos: [],
   chamadaTurma: '',
-  chamadaData: new Date().toISOString().slice(0,10),
+  chamadaData: hojeISO(),
   chamadaTipoDia: 'normal',
+  chamadaEscopo: 'turma',
   chamadaTextoOutros: '',
+  chamadaDataSincronizada: '',
   chamadaMsgSucesso: null,
   docTipo: 'declaracao_matricula',
   docAlunoId: '',
@@ -319,6 +346,7 @@ let ESTADO = {
   histEscModo: 'individual',
   solicFiltroStatus: 'pendente',
   histAlunoId: '',
+  histTurmaId: '',
 };
 
 // ---------------------------------------------------------------
@@ -468,14 +496,16 @@ function renderizarSemAcesso(){
 // DADOS
 // ---------------------------------------------------------------
 async function carregarDadosBase(){
-  const [{ data: turmas }, { data: alunos }, { data: funcionarios }] = await Promise.all([
+  const [{ data: turmas }, { data: alunos }, { data: funcionarios }, { data: funcoesCargos }] = await Promise.all([
     supabase.from('turmas').select('*').order('nome'),
     supabase.from('alunos').select('*, turmas(nome, turno, ensino)').order('nome'),
     supabase.from('funcionarios').select('*').order('nome'),
+    supabase.from('funcoes_cargos').select('*').eq('ativo', true).order('nome'),
   ]);
   ESTADO.turmas = turmas || [];
   ESTADO.alunos = alunos || [];
   ESTADO.funcionarios = funcionarios || [];
+  ESTADO.funcoesCargos = funcoesCargos || [];
   if(ESTADO.perfil.role === 'admin'){
     const { data: perfis } = await supabase.from('perfis').select('*').order('created_at');
     ESTADO.perfis = perfis || [];
@@ -493,6 +523,7 @@ function itensNav(){
     { id:'frequencia', label:'Frequência', icone:'📅' },
     { id:'documentos', label:'Documentos', icone:'📄' },
     { id:'ocorrencias', label:'Ocorrências', icone:'⚠️' },
+    { id:'relatorios', label:'Relatórios', icone:'🖨️' },
   ];
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
     ? base.filter(item => ESTADO.perfil.permissoes.includes(item.id))
@@ -523,6 +554,23 @@ const CATEGORIAS_FUNCIONARIO = [
   ['anos_iniciais', 'Anos Iniciais'],
   ['anos_finais', 'Anos Finais'],
 ];
+function rotuloSexo(valor){
+  if(valor === 'M') return 'Masculino';
+  if(valor === 'F') return 'Feminino';
+  if(valor === 'NI' || valor === 'Outro') return 'Prefiro não informar';
+  return '—';
+}
+
+// Apoio Pedagógico, Orientação e Coordenação são administrativos no cadastro, mas na prática
+// só trabalham em dias letivos (junto com professores), não em todo dia útil.
+const CARGOS_SEGUEM_DIA_LETIVO = ['apoio pedagóg', 'orientad', 'coorden'];
+function funcionarioSegueDiaUtil(f){
+  if(f.categoria !== 'administrativo') return false;
+  const funcao = (f.funcao || '').toLowerCase();
+  if(CARGOS_SEGUEM_DIA_LETIVO.some(termo => funcao.includes(termo))) return false;
+  return true;
+}
+
 function rotuloCategoria(c){
   const item = CATEGORIAS_FUNCIONARIO.find(([chave]) => chave === c);
   return item ? item[1] : '—';
@@ -548,12 +596,14 @@ function renderizarApp(){
         <button id="btn-sair-app" class="botao" style="width:auto;padding:7px 16px;font-size:13px;background:var(--erro);color:#fff;">Sair</button>
       </div>
     </nav>
+    <button id="btn-sair-mobile" class="btn-sair-mobile" title="Sair">Sair</button>
     <main class="principal" id="principal"></main>
   </div>`;
   document.querySelectorAll('.nav a[data-pagina]').forEach(a => {
     a.addEventListener('click', () => { ESTADO.pagina = a.dataset.pagina; renderizarApp(); });
   });
   document.getElementById('btn-sair-app').addEventListener('click', () => supabase.auth.signOut());
+  document.getElementById('btn-sair-mobile').addEventListener('click', () => { if(confirm('Sair do aplicativo?')) supabase.auth.signOut(); });
   document.getElementById('btn-trocar-senha').addEventListener('click', abrirModalTrocarSenha);
 
   const principal = document.getElementById('principal');
@@ -562,6 +612,7 @@ function renderizarApp(){
   else if(ESTADO.pagina === 'frequencia') renderizarFrequencia(principal);
   else if(ESTADO.pagina === 'documentos') renderizarDocumentos(principal);
   else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(principal);
+  else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(principal);
   else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(principal);
 }
 
@@ -911,10 +962,13 @@ async function carregarDocsPendentesPainel(){
 // CADASTRO (Estudantes / Professores / Disciplinas)
 // ---------------------------------------------------------------
 function renderizarCadastro(el){
+  const podeDiasLetivos = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria';
+  if(ESTADO.subCadastro === 'dias_letivos' && !podeDiasLetivos) ESTADO.subCadastro = 'alunos';
   const abas = [
     { id:'alunos', label:'Estudantes' },
     { id:'turmas', label:'Turmas' },
     { id:'funcionarios', label:'Funcionário' },
+    ...(podeDiasLetivos ? [{ id:'dias_letivos', label:'Dias Letivos' }] : []),
     { id:'arquivo_morto', label:'Arquivo Inativo' },
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subCadastro===a.id?'ativa':''}" data-aba="${a.id}">${a.label}</button>`).join('');
@@ -925,6 +979,7 @@ function renderizarCadastro(el){
   const alvo = el.querySelector('#conteudo-cadastro');
   if(ESTADO.subCadastro === 'turmas') renderizarTurmas(alvo);
   else if(ESTADO.subCadastro === 'funcionarios') renderizarFuncionarios(alvo);
+  else if(ESTADO.subCadastro === 'dias_letivos' && podeDiasLetivos) renderizarDiasLetivos(alvo);
   else if(ESTADO.subCadastro === 'arquivo_morto') renderizarArquivoMorto(alvo);
   else renderizarAlunos(alvo);
 }
@@ -980,7 +1035,7 @@ function renderizarAlunos(el){
           <option value="cancelado" ${ESTADO.filtroSituacao==='cancelado'?'selected':''}>Cancelados (arquivo inativo)</option>
         </select>
       </div>
-      ${lista.length ? `<table><thead><tr><th>Nome</th><th>Turma</th><th>Turno</th><th>Nascimento</th><th>AEE</th><th>Situação</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`
+      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Turma</th><th>Turno</th><th>Nascimento</th><th>AEE</th><th>Situação</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
         : `<div class="vazio">Nenhum estudante encontrado com esse filtro.</div>`}
     </div>`;
 
@@ -1202,6 +1257,7 @@ async function abrirModalAluno(a){
               <option value="" ${!vd('sexo')?'selected':''} disabled>Selecione…</option>
               <option value="M" ${vd('sexo')==='M'?'selected':''}>Masculino</option>
               <option value="F" ${vd('sexo')==='F'?'selected':''}>Feminino</option>
+              <option value="NI" ${vd('sexo')==='NI'?'selected':''}>Prefiro não informar</option>
             </select>
           </div>
           <div class="campo"><label>Cor/raça *</label>
@@ -1263,6 +1319,7 @@ async function abrirModalAluno(a){
         <div class="grade-2">
           <div class="campo"><label>RG</label><input type="text" id="ed-rg" value="${v('rg')}" /></div>
           <div class="campo"><label>SUS</label><input type="text" id="ed-sus" value="${v('sus')}" /></div>
+          <div class="campo"><label>NIS</label><input type="text" id="ed-nis" value="${v('nis')}" /></div>
           <div class="campo"><label>Código Educacenso</label><input type="text" id="ed-educacenso" value="${v('codigo_educacenso')}" /></div>
         </div>
         <div class="secao-titulo">Documentos entregues</div>
@@ -1413,6 +1470,7 @@ async function abrirModalAluno(a){
       cpf: campoTexto('ed-cpf'),
       rg: campoTexto('ed-rg'),
       sus: campoTexto('ed-sus'),
+      nis: campoTexto('ed-nis'),
       codigo_educacenso: campoTexto('ed-educacenso'),
       endereco: campoTexto('ed-endereco'),
       numero: campoTexto('ed-numero'),
@@ -1539,7 +1597,7 @@ async function abrirFichaAluno(id){
       <div class="ficha-linha"><span>Situação</span><span>${situacaoPill(a.situacao)}</span></div>
       <div class="ficha-linha"><span>Data de nascimento</span><span>${fmtData(a.data_nascimento)}</span></div>
       <div class="ficha-linha"><span>CPF</span><span>${esc(a.cpf||'—')}</span></div>
-      <div class="ficha-linha"><span>Sexo</span><span>${esc(a.sexo||'—')}</span></div>
+      <div class="ficha-linha"><span>Sexo</span><span>${rotuloSexo(a.sexo)}</span></div>
       <div class="ficha-linha"><span>Naturalidade</span><span>${esc(a.naturalidade||'—')}${a.uf_naturalidade?'/'+esc(a.uf_naturalidade):''}</span></div>
       <div class="ficha-linha"><span>Matrícula</span><span>${fmtData(a.data_matricula)}</span></div>
       <div class="secao-titulo">Endereço e contato</div>
@@ -1771,7 +1829,7 @@ function renderizarTurmas(el){
       <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
     </div>
     <div class="painel">
-      <table><thead><tr><th>Turma</th><th>Ensino</th><th>Turno</th><th>Estudantes</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
+      <div style="overflow-x:auto;"><table><thead><tr><th>Turma</th><th>Ensino</th><th>Turno</th><th>Estudantes</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
     </div>`;
   el.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
     if(e.target.closest('[data-editar-turma], [data-excluir-turma]')) return;
@@ -1843,13 +1901,6 @@ function abrirModalEditarTurma(turma){
 // ---------------------------------------------------------------
 // FUNÇÃO (funcionários: professores, merendeira, porteiro, etc)
 // ---------------------------------------------------------------
-const FUNCOES_SUGERIDAS = [
-  'Professor(a)', 'Coordenador(a) Pedagógico(a)', 'Diretor(a)', 'Vice-diretor(a)',
-  'Secretário(a) Escolar', 'Auxiliar de Secretaria', 'Merendeira', 'Porteiro(a)',
-  'Vigia', 'Auxiliar de Serviços Gerais', 'Inspetor(a) de Alunos', 'Psicólogo(a) Escolar',
-  'Cuidador(a) de AEE', 'Bibliotecário(a)',
-];
-
 function funcionariosFiltrados(){
   const busca = ESTADO.buscaFuncionario.trim().toLowerCase();
   return ESTADO.funcionarios.filter(f => {
@@ -1987,7 +2038,6 @@ function renderizarFuncionarios(el){
       <td>${f.vinculo ? `<span class="pill azul">${esc(rotuloVinculo(f.vinculo))}</span>` : '—'}</td>
       <td>${f.categoria ? esc(rotuloCategoria(f.categoria)) : '—'}</td>
       <td>${esc(f.telefone || '—')}</td>
-      <td>${esc(f.email || '—')}</td>
       <td>${f.ativo ? '<span class="pill verde">Ativo</span>' : '<span class="pill cinza">Inativo</span>'}</td>
       <td class="col-acoes">
         <button class="btn-icone" data-editar-func="${f.id}" title="Editar">✏️</button>
@@ -1999,20 +2049,17 @@ function renderizarFuncionarios(el){
     <div class="cabecalho-pagina">
       <div><h2>Funcionário</h2><p>${lista.length} de ${ESTADO.funcionarios.length} funcionários${ESTADO.buscaFuncionario?' (filtrado)':''} — professores, merendeiras, porteiros e demais cargos</p></div>
       <div style="display:flex;gap:10px;">
-        <button class="botao secundario pequeno" id="btn-frequencia-funcionarios" style="width:auto;">Frequência Diária</button>
         <button class="botao terracota pequeno" id="btn-novo-funcionario" style="width:auto;">+ Novo funcionário</button>
       </div>
     </div>
     <div class="painel">
       <div class="barra"><input type="text" id="busca-funcionario" placeholder="Buscar por nome ou função…" value="${esc(ESTADO.buscaFuncionario)}" /></div>
-      ${lista.length ? `<table><thead><tr><th>Nome</th><th>Função</th><th>Vínculo</th><th>Categoria</th><th>Telefone</th><th>E-mail</th><th>Status</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`
+      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Função</th><th>Vínculo</th><th>Categoria</th><th>Telefone</th><th>Status</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
         : `<div class="vazio">Nenhum funcionário cadastrado ainda.</div>`}
     </div>`;
 
   document.getElementById('busca-funcionario').addEventListener('input', (e) => { ESTADO.buscaFuncionario = e.target.value; renderizarFuncionarios(el); preservarFoco('busca-funcionario'); });
   document.getElementById('btn-novo-funcionario').addEventListener('click', () => abrirModalFuncionario(null));
-  document.getElementById('btn-frequencia-funcionarios').addEventListener('click', () => renderizarFrequenciaFuncionarios(el));
-  carregarStatusFrequenciaHoje();
   el.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
     if(e.target.closest('[data-editar-func], [data-excluir-func]')) return;
     abrirFichaFuncionario(ESTADO.funcionarios.find(f => f.id === tr.dataset.id));
@@ -2046,8 +2093,12 @@ function rotuloJustificativaFuncionario(chave){
 
 async function statusDiasFuncionarios(primeiroDiaMes, ultimoDiaMes, feriadosMes){
   const mapaFeriados = {};
-  (feriadosMes||[]).forEach(f => { mapaFeriados[f.data] = f.tipo; });
+  (feriadosMes||[]).forEach(f => { mapaFeriados[f.data] = f; });
   const { data: registrosMes } = await supabase.from('frequencia_funcionarios').select('funcionario_id, data')
+    .gte('data', primeiroDiaMes).lte('data', ultimoDiaMes);
+  const { data: feriasMes } = await supabase.from('ferias_funcionarios').select('funcionario_id, data_inicio, data_fim')
+    .lte('data_inicio', ultimoDiaMes).gte('data_fim', primeiroDiaMes);
+  const { data: convocacoesMes } = await supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes')
     .gte('data', primeiroDiaMes).lte('data', ultimoDiaMes);
   const porDia = {};
   (registrosMes||[]).forEach(r => { (porDia[r.data] = porDia[r.data] || new Set()).add(r.funcionario_id); });
@@ -2055,17 +2106,23 @@ async function statusDiasFuncionarios(primeiroDiaMes, ultimoDiaMes, feriadosMes)
   const ativos = ESTADO.funcionarios.filter(f => f.ativo);
   const [anoIni, mesIni] = primeiroDiaMes.split('-').map(Number);
   const ultimoDiaNum = new Date(anoIni, mesIni, 0).getDate();
-  const hojeIso = new Date().toISOString().slice(0,10);
+  const hojeIso = hojeISO();
   const resultado = {};
   for(let d=1; d<=ultimoDiaNum; d++){
     const iso = `${anoIni}-${String(mesIni).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     if(iso > hojeIso) continue; // dias futuros não têm status ainda
     const diaSemana = new Date(anoIni, mesIni-1, d).getDay();
     if(diaSemana === 0 || diaSemana === 6) continue; // fim de semana: mantém a cor padrão de não letivo
-    const tipoFeriado = mapaFeriados[iso];
-    if(tipoFeriado === 'feriado' || tipoFeriado === 'ponto_facultativo') continue; // ninguém tem expediente
-    const ehRecesso = tipoFeriado === 'recesso';
-    const aplicaveis = ativos.filter(f => f.categoria === 'administrativo' || !ehRecesso);
+    const feriado = mapaFeriados[iso];
+    if(feriado && (feriado.tipo === 'feriado' || feriado.tipo === 'ponto_facultativo')) continue; // ninguém tem expediente
+    const ehRecesso = !!feriado && feriado.tipo === 'recesso';
+    const ehSuspensao = !!feriado && feriado.tipo === 'suspensao_aulas';
+    const aplicaveis = ativos.filter(f => {
+      if(!funcionarioSegueDiaUtil(f) && ehRecesso && !funcionarioConvocadoNoDia(f, iso, convocacoesMes)) return false;
+      if(ehSuspensao && !turnoAfetaSuspensao(f.turno, feriado.turno_afetado)) return false;
+      if(funcionarioEmFerias(f.id, iso, feriasMes)) return false;
+      return true;
+    });
     if(!aplicaveis.length) continue;
     const registradosHoje = porDia[iso] || new Set();
     const qtdRegistrados = aplicaveis.filter(f => registradosHoje.has(f.id)).length;
@@ -2078,7 +2135,7 @@ async function carregarStatusFrequenciaHoje(){
   const btn = document.getElementById('btn-frequencia-funcionarios');
   if(!btn) return;
   btn.classList.remove('status-verde','status-laranja','status-vermelho');
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = hojeISO();
   const diaSemana = new Date(hoje + 'T00:00:00').getDay();
   if(diaSemana === 0 || diaSemana === 6){ btn.title = 'Fim de semana — sem expediente'; return; }
 
@@ -2088,8 +2145,16 @@ async function carregarStatusFrequenciaHoje(){
     return;
   }
   const ehRecesso = !!feriadoHoje && feriadoHoje.tipo === 'recesso';
+  const ehSuspensao = !!feriadoHoje && feriadoHoje.tipo === 'suspensao_aulas';
   const ativos = ESTADO.funcionarios.filter(f => f.ativo);
-  const aplicaveis = ativos.filter(f => f.categoria === 'administrativo' || !ehRecesso);
+  const { data: feriasHoje } = await supabase.from('ferias_funcionarios').select('funcionario_id, data_inicio, data_fim').lte('data_inicio', hoje).gte('data_fim', hoje);
+  const { data: convocacoesHoje } = await supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes').eq('data', hoje);
+  const aplicaveis = ativos.filter(f => {
+    if(!funcionarioSegueDiaUtil(f) && ehRecesso && !funcionarioConvocadoNoDia(f, hoje, convocacoesHoje)) return false;
+    if(ehSuspensao && !turnoAfetaSuspensao(f.turno, feriadoHoje.turno_afetado)) return false;
+    if(funcionarioEmFerias(f.id, hoje, feriasHoje)) return false;
+    return true;
+  });
   if(!aplicaveis.length){ btn.title = 'Sem funcionários com expediente hoje'; return; }
 
   const { data: registrosHoje } = await supabase.from('frequencia_funcionarios').select('funcionario_id').eq('data', hoje);
@@ -2104,11 +2169,12 @@ async function carregarStatusFrequenciaHoje(){
 function renderizarFrequenciaFuncionarios(el){
   const ativos = ESTADO.funcionarios.filter(f => f.ativo).length;
   el.innerHTML = `
-    <div class="cabecalho-pagina">
-      <div><h2>Frequência Diária de Funcionários</h2><p>${ativos} funcionários ativos</p></div>
-      <div style="display:flex;gap:10px;">
-        <button class="botao secundario pequeno" id="btn-voltar-freq-func" style="width:auto;">← Voltar</button>
-        <button class="botao secundario pequeno" id="btn-relatorio-freq-func" style="width:auto;">Gerar relatório</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+      <p style="margin:0;font-size:13px;color:var(--texto-suave);">${ativos} funcionários ativos</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="botao secundario pequeno" id="btn-bater-ponto-facial" style="width:auto;">📷 Bater Ponto (Facial)</button>
+        <button class="botao secundario pequeno" id="btn-relatorio-freq-func" style="width:auto;">Relatório do dia</button>
+        <button class="botao secundario pequeno" id="btn-relatorio-mensal-freq-func" style="width:auto;">Relatório mensal</button>
       </div>
     </div>
     <div class="painel">
@@ -2122,8 +2188,9 @@ function renderizarFrequenciaFuncionarios(el){
       </div>
     </div>`;
 
-  document.getElementById('btn-voltar-freq-func').addEventListener('click', () => renderizarFuncionarios(el));
+  document.getElementById('btn-bater-ponto-facial').addEventListener('click', () => abrirModalBaterPonto());
   document.getElementById('btn-relatorio-freq-func').addEventListener('click', () => gerarRelatorioFrequenciaFuncionarios());
+  document.getElementById('btn-relatorio-mensal-freq-func').addEventListener('click', () => gerarRelatorioMensalFrequenciaFuncionarios());
   criarSeletorData('freq-func-data', ESTADO.freqFuncData, (novaData) => { ESTADO.freqFuncData = novaData; carregarFrequenciaFuncionariosDia(el); }, { statusDiasFn: statusDiasFuncionarios });
 
   carregarFrequenciaFuncionariosDia(el);
@@ -2135,9 +2202,11 @@ async function carregarFrequenciaFuncionariosDia(el){
   listaEl.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;padding:10px 0;">Carregando…</p>`;
 
   const ativos = ESTADO.funcionarios.filter(f => f.ativo).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  const [{ data: registros, error }, { data: feriadoData }] = await Promise.all([
+  const [{ data: registros, error }, { data: feriadoData }, { data: feriasNoDia }, { data: convocacoesNoDia }] = await Promise.all([
     supabase.from('frequencia_funcionarios').select('*').eq('data', ESTADO.freqFuncData),
     supabase.from('feriados').select('*').eq('data', ESTADO.freqFuncData).maybeSingle(),
+    supabase.from('ferias_funcionarios').select('funcionario_id, data_inicio, data_fim').lte('data_inicio', ESTADO.freqFuncData).gte('data_fim', ESTADO.freqFuncData),
+    supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes, descricao').eq('data', ESTADO.freqFuncData),
   ]);
   if(error){ listaEl.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   const porFuncionario = {};
@@ -2149,11 +2218,12 @@ async function carregarFrequenciaFuncionariosDia(el){
   const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
   const bloqueiaAmbos = ehFimDeSemana || (feriadoData && (feriadoData.tipo === 'feriado' || feriadoData.tipo === 'ponto_facultativo'));
   const ehRecesso = !!feriadoData && feriadoData.tipo === 'recesso';
+  const ehSuspensao = !!feriadoData && feriadoData.tipo === 'suspensao_aulas';
   const diaUtil = !bloqueiaAmbos;
   const diaLetivo = !bloqueiaAmbos && !ehRecesso;
   let motivoBloqueio = '';
   if(ehFimDeSemana) motivoBloqueio = diaSemana === 0 ? 'Domingo' : 'Sábado';
-  else if(feriadoData) motivoBloqueio = (feriadoData.tipo === 'feriado' ? 'Feriado' : feriadoData.tipo === 'ponto_facultativo' ? 'Ponto Facultativo' : 'Recesso Escolar') + (feriadoData.descricao ? ` — ${esc(feriadoData.descricao)}` : '');
+  else if(feriadoData) motivoBloqueio = rotuloTipoFeriado(feriadoData) + (feriadoData.descricao ? ` — ${esc(feriadoData.descricao)}` : '');
 
   if(!ativos.length){
     listaEl.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;padding:10px 0;">Nenhum funcionário ativo cadastrado.</p>`;
@@ -2165,13 +2235,17 @@ async function carregarFrequenciaFuncionariosDia(el){
       <span class="pill ${diaUtil?'verde':'vermelho'}" style="margin-right:6px;">${diaUtil?'Dia útil':'Não é dia útil'}</span>
       <span class="pill ${diaLetivo?'verde':'cinza'}">${diaLetivo?'Dia letivo':'Não é dia letivo'}</span>
       ${!diaUtil || !diaLetivo ? ` — ${motivoBloqueio}` : ''}
+      ${ehSuspensao && diaUtil ? ` <span class="pill laranja">${motivoBloqueio}</span>` : ''}
       &nbsp;·&nbsp; Administrativo segue o calendário de dias úteis; professores, coordenação e apoio seguem o calendário de dias letivos.
     </p>
   ` + ativos.map(f => {
     const r = porFuncionario[f.id] || {};
     const status = r.status || 'presente';
-    const seguirDiaUtil = f.categoria === 'administrativo';
-    const diaValidoParaEste = seguirDiaUtil ? diaUtil : diaLetivo;
+    const seguirDiaUtil = funcionarioSegueDiaUtil(f);
+    const bloqueadoPorSuspensao = ehSuspensao && turnoAfetaSuspensao(f.turno, feriadoData.turno_afetado);
+    const emFerias = funcionarioEmFerias(f.id, ESTADO.freqFuncData, feriasNoDia);
+    const convocado = ehRecesso && !seguirDiaUtil && funcionarioConvocadoNoDia(f, ESTADO.freqFuncData, convocacoesNoDia);
+    const diaValidoParaEste = ((seguirDiaUtil ? diaUtil : diaLetivo) || convocado) && !bloqueadoPorSuspensao && !emFerias;
     if(!diaValidoParaEste){
       return `
       <div class="linha-freq-func-bloqueada" style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #F0ECE0;flex-wrap:wrap;opacity:.6;">
@@ -2179,13 +2253,13 @@ async function carregarFrequenciaFuncionariosDia(el){
           <div style="font-weight:600;font-size:13.5px;">${esc(f.nome)}</div>
           <div style="font-size:11.5px;color:var(--texto-suave);">${esc(f.funcao)}${f.categoria?' · '+esc(rotuloCategoria(f.categoria)):''}</div>
         </div>
-        <span class="pill cinza">${seguirDiaUtil ? 'Não é dia útil' : 'Não é dia letivo'} — sem expediente</span>
+        <span class="pill cinza">${emFerias ? '🏖️ Férias' : (bloqueadoPorSuspensao ? motivoBloqueio : (seguirDiaUtil ? 'Não é dia útil' : 'Não é dia letivo'))} — sem expediente</span>
       </div>`;
     }
     return `
     <div class="linha-freq-func" data-func-id="${f.id}" data-status-atual="${status}" style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #F0ECE0;flex-wrap:wrap;">
       <div style="flex:1;min-width:190px;">
-        <div style="font-weight:600;font-size:13.5px;">${esc(f.nome)}</div>
+        <div style="font-weight:600;font-size:13.5px;">${esc(f.nome)}${convocado ? ' <span class="pill laranja" style="font-size:10.5px;">📋 Convocado(a)</span>' : ''}</div>
         <div style="font-size:11.5px;color:var(--texto-suave);">${esc(f.funcao)}${f.categoria?' · '+esc(rotuloCategoria(f.categoria)):''}</div>
       </div>
       <div style="display:flex;gap:6px;">
@@ -2254,9 +2328,11 @@ async function carregarFrequenciaFuncionariosDia(el){
 }
 
 async function gerarRelatorioFrequenciaFuncionarios(){
-  const [{ data: registros, error }, { data: feriadoData }] = await Promise.all([
+  const [{ data: registros, error }, { data: feriadoData }, { data: feriasNoDia }, { data: convocacoesNoDia }] = await Promise.all([
     supabase.from('frequencia_funcionarios').select('*').eq('data', ESTADO.freqFuncData),
     supabase.from('feriados').select('*').eq('data', ESTADO.freqFuncData).maybeSingle(),
+    supabase.from('ferias_funcionarios').select('funcionario_id, data_inicio, data_fim').lte('data_inicio', ESTADO.freqFuncData).gte('data_fim', ESTADO.freqFuncData),
+    supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes').eq('data', ESTADO.freqFuncData),
   ]);
   if(error){ alert('Erro ao gerar relatório: ' + error.message); return; }
 
@@ -2264,9 +2340,17 @@ async function gerarRelatorioFrequenciaFuncionarios(){
   const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
   const bloqueiaAmbos = ehFimDeSemana || (feriadoData && (feriadoData.tipo === 'feriado' || feriadoData.tipo === 'ponto_facultativo'));
   const ehRecesso = !!feriadoData && feriadoData.tipo === 'recesso';
+  const ehSuspensao = !!feriadoData && feriadoData.tipo === 'suspensao_aulas';
   const diaUtil = !bloqueiaAmbos;
   const diaLetivo = !bloqueiaAmbos && !ehRecesso;
-  const temExpediente = (f) => (f.categoria === 'administrativo') ? diaUtil : diaLetivo;
+  const temExpediente = (f) => {
+    const seguirDiaUtil = funcionarioSegueDiaUtil(f);
+    const convocado = ehRecesso && !seguirDiaUtil && funcionarioConvocadoNoDia(f, ESTADO.freqFuncData, convocacoesNoDia);
+    if(!((seguirDiaUtil ? diaUtil : diaLetivo) || convocado)) return false;
+    if(ehSuspensao && turnoAfetaSuspensao(f.turno, feriadoData.turno_afetado)) return false;
+    if(funcionarioEmFerias(f.id, ESTADO.freqFuncData, feriasNoDia)) return false;
+    return true;
+  };
 
   const ativos = ESTADO.funcionarios.filter(f => f.ativo);
   const porFuncionarioId = {};
@@ -2374,6 +2458,127 @@ async function gerarRelatorioFrequenciaFuncionarios(){
   setTimeout(() => janela.print(), 400);
 }
 
+async function gerarRelatorioMensalFrequenciaFuncionarios(){
+  const [ano, mes] = ESTADO.freqFuncData.split('-').map(Number);
+  const primeiroDiaMes = `${ano}-${String(mes).padStart(2,'0')}-01`;
+  const ultimoDiaNum = new Date(ano, mes, 0).getDate();
+  const ultimoDiaMes = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDiaNum).padStart(2,'0')}`;
+  const hojeIso = hojeISO();
+  const ultimoDiaConsiderado = ultimoDiaMes < hojeIso ? ultimoDiaMes : hojeIso;
+
+  const [{ data: registrosMes, error }, { data: feriadosMes }, { data: feriasMes }, { data: convocacoesMes }] = await Promise.all([
+    supabase.from('frequencia_funcionarios').select('*').gte('data', primeiroDiaMes).lte('data', ultimoDiaMes),
+    supabase.from('feriados').select('*').gte('data', primeiroDiaMes).lte('data', ultimoDiaMes),
+    supabase.from('ferias_funcionarios').select('funcionario_id, data_inicio, data_fim').lte('data_inicio', ultimoDiaMes).gte('data_fim', primeiroDiaMes),
+    supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes').gte('data', primeiroDiaMes).lte('data', ultimoDiaMes),
+  ]);
+  if(error){ alert('Erro ao gerar relatório mensal: ' + error.message); return; }
+
+  const mapaFeriados = {};
+  (feriadosMes||[]).forEach(f => { mapaFeriados[f.data] = f; });
+
+  const dias = [];
+  for(let d=1; d<=ultimoDiaNum; d++){
+    const iso = `${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if(iso > ultimoDiaConsiderado) break;
+    const diaSemana = new Date(ano, mes-1, d).getDay();
+    const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
+    const feriado = mapaFeriados[iso];
+    const bloqueiaAmbos = ehFimDeSemana || (feriado && (feriado.tipo === 'feriado' || feriado.tipo === 'ponto_facultativo'));
+    const ehRecesso = !!feriado && feriado.tipo === 'recesso';
+    const ehSuspensao = !!feriado && feriado.tipo === 'suspensao_aulas';
+    dias.push({ iso, diaUtil: !bloqueiaAmbos, diaLetivo: !bloqueiaAmbos && !ehRecesso, ehRecesso, ehSuspensao, turnoAfetado: feriado ? feriado.turno_afetado : null });
+  }
+
+  const ativos = ESTADO.funcionarios.filter(f => f.ativo);
+  const registrosPorFuncDia = {};
+  (registrosMes||[]).forEach(r => {
+    registrosPorFuncDia[r.funcionario_id] = registrosPorFuncDia[r.funcionario_id] || {};
+    registrosPorFuncDia[r.funcionario_id][r.data] = r;
+  });
+
+  const linhasCalculadas = ativos.slice().sort((a,b) => {
+    const catA = a.categoria || 'zzz', catB = b.categoria || 'zzz';
+    if(catA !== catB) return catA.localeCompare(catB);
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  }).map(f => {
+    const temExpedienteDia = (dia) => {
+      const seguirDiaUtil = funcionarioSegueDiaUtil(f);
+      const convocado = dia.ehRecesso && !seguirDiaUtil && funcionarioConvocadoNoDia(f, dia.iso, convocacoesMes);
+      if(!((seguirDiaUtil ? dia.diaUtil : dia.diaLetivo) || convocado)) return false;
+      if(dia.ehSuspensao && turnoAfetaSuspensao(f.turno, dia.turnoAfetado)) return false;
+      if(funcionarioEmFerias(f.id, dia.iso, feriasMes)) return false;
+      return true;
+    };
+    let comExpediente=0, presentes=0, faltas=0, faltasJust=0, diasAtestado=0, semRegistro=0;
+    dias.forEach(dia => {
+      if(!temExpedienteDia(dia)) return;
+      comExpediente++;
+      const r = (registrosPorFuncDia[f.id]||{})[dia.iso];
+      if(!r){ semRegistro++; return; }
+      if(r.status === 'presente') presentes++;
+      else if(r.status === 'falta') faltas++;
+      else if(r.status === 'falta_justificada'){
+        faltasJust++;
+        if(r.tipo_justificativa === 'atestado' && r.quantidade_dias_atestado) diasAtestado += r.quantidade_dias_atestado;
+      }
+    });
+    return { f, comExpediente, presentes, faltas, faltasJust, diasAtestado, semRegistro };
+  });
+
+  const linhasHtml = linhasCalculadas.map(l => `<tr>
+      <td style="text-align:left;padding-left:6px;">${esc(l.f.nome)}</td>
+      <td style="text-align:left;padding-left:6px;">${esc(l.f.funcao)}</td>
+      <td>${l.f.categoria ? esc(rotuloCategoria(l.f.categoria)) : '—'}</td>
+      <td>${l.comExpediente}</td>
+      <td style="color:#1f6b39;font-weight:700;">${l.presentes}</td>
+      <td style="color:#b4432e;font-weight:700;">${l.faltas}</td>
+      <td style="color:#9a5b12;font-weight:700;">${l.faltasJust}</td>
+      <td>${l.diasAtestado || '—'}</td>
+      <td>${l.semRegistro > 0 ? l.semRegistro : '—'}</td>
+    </tr>`).join('');
+
+  const totais = linhasCalculadas.reduce((acc,l) => {
+    acc.comExpediente+=l.comExpediente; acc.presentes+=l.presentes; acc.faltas+=l.faltas;
+    acc.faltasJust+=l.faltasJust; acc.diasAtestado+=l.diasAtestado; acc.semRegistro+=l.semRegistro;
+    return acc;
+  }, { comExpediente:0, presentes:0, faltas:0, faltasJust:0, diasAtestado:0, semRegistro:0 });
+
+  const nomeMes = MESES_PT[mes-1];
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8" />
+    <title>Frequência Mensal de Funcionários - ${nomeMes} de ${ano}</title>
+    <style>
+      @page{size:A4;margin:14mm;}
+      *{box-sizing:border-box;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:10.5px;line-height:1.4;}
+      h1{font-size:16px;text-align:center;margin:0 0 2px;}
+      p.sub{text-align:center;color:#555;font-size:11.5px;margin:0 0 16px;}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px;}
+      th, td{border:1px solid #333;padding:5px 4px;text-align:center;}
+      th{background:#f2f2f2;font-size:9.6px;}
+      tfoot td{font-weight:700;background:#fafafa;}
+    </style>
+    </head><body>
+      <h1>Frequência Mensal de Funcionários</h1>
+      <p class="sub">Escola Municipal Jaime Gonçalves Bold · ${nomeMes} de ${ano}${ultimoDiaConsiderado < ultimoDiaMes ? ' (parcial, até ' + formatarDataBR(ultimoDiaConsiderado) + ')' : ''}</p>
+
+      <table>
+        <thead><tr><th>Nome</th><th>Função</th><th>Categoria</th><th>Dias com expediente</th><th>Presenças</th><th>Faltas</th><th>Faltas Just.</th><th>Dias atestado</th><th>Sem registro</th></tr></thead>
+        <tbody>${linhasHtml}</tbody>
+        <tfoot><tr>
+          <td colspan="3" style="text-align:left;padding-left:8px;">TOTAL</td>
+          <td>${totais.comExpediente}</td><td>${totais.presentes}</td><td>${totais.faltas}</td><td>${totais.faltasJust}</td>
+          <td>${totais.diasAtestado || '—'}</td><td>${totais.semRegistro || '—'}</td>
+        </tr></tfoot>
+      </table>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
 function abrirFichaFuncionario(f){
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
@@ -2390,7 +2595,7 @@ function abrirFichaFuncionario(f){
       <div class="ficha-linha"><span>Data de nascimento</span><span>${fmtData(f.data_nascimento)}</span></div>
       <div class="ficha-linha"><span>CPF</span><span>${esc(f.cpf||'—')}</span></div>
       <div class="ficha-linha"><span>RG</span><span>${esc(f.rg||'—')}${f.orgao_expedidor?' / '+esc(f.orgao_expedidor):''}${f.rg_uf?' / '+esc(f.rg_uf):''}</span></div>
-      <div class="ficha-linha"><span>Sexo</span><span>${esc(f.sexo||'—')}</span></div>
+      <div class="ficha-linha"><span>Sexo</span><span>${rotuloSexo(f.sexo)}</span></div>
       <div class="ficha-linha"><span>Cor/raça</span><span>${esc(f.cor_raca||'—')}</span></div>
       <div class="ficha-linha"><span>Estado civil</span><span>${esc(f.estado_civil||'—')}</span></div>
       <div class="ficha-linha"><span>Nacionalidade</span><span>${esc(f.nacionalidade||'—')}</span></div>
@@ -2417,8 +2622,13 @@ function abrirFichaFuncionario(f){
       <div class="ficha-linha"><span>PIS/PASEP</span><span>${esc(f.pis_pasep||'—')}</span></div>
       <div class="ficha-linha"><span>Título de eleitor</span><span>${esc(f.titulo_eleitor||'—')}${f.zona?' · Zona '+esc(f.zona):''}${f.secao?' · Seção '+esc(f.secao):''}</span></div>
       <div class="ficha-linha"><span>Fator RH</span><span>${esc(f.fator_rh||'—')}</span></div>
-      <div style="margin-top:22px;display:flex;gap:10px;justify-content:flex-end;">
+      <div class="ficha-linha"><span>Reconhecimento facial</span><span>${f.face_descriptor ? '✅ Rosto cadastrado' : '— Não cadastrado'}</span></div>
+      <div class="ficha-linha"><span>Termo de consentimento facial</span><span>${f.termo_facial_aceito_em ? '✅ Aceito em ' + fmtData(f.termo_facial_aceito_em.slice(0,10)) : '— Não aceito'}</span></div>
+      <div style="margin-top:22px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
         <button class="botao secundario pequeno" data-fechar>Fechar</button>
+        ${ESTADO.perfil.role === 'admin' ? `<button class="botao secundario pequeno" data-excluir-func-ficha style="color:var(--erro);border-color:var(--erro);">Excluir</button>` : ''}
+        <button class="botao secundario pequeno" data-cadastrar-rosto>📷 ${f.face_descriptor ? 'Recadastrar rosto' : 'Cadastrar rosto'}</button>
+        <button class="botao secundario pequeno" data-gerenciar-ferias>🏖️ Férias</button>
         <button class="botao terracota pequeno" data-editar>Editar</button>
       </div>
     </div>`;
@@ -2426,16 +2636,429 @@ function abrirFichaFuncionario(f){
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
   modal.querySelector('[data-editar]').addEventListener('click', () => { modal.remove(); abrirModalFuncionario(f); });
+  modal.querySelector('[data-cadastrar-rosto]').addEventListener('click', () => abrirModalCadastrarRosto(f));
+  modal.querySelector('[data-gerenciar-ferias]').addEventListener('click', () => abrirModalFerias(f));
+  const btnExcluirFicha = modal.querySelector('[data-excluir-func-ficha]');
+  if(btnExcluirFicha){
+    btnExcluirFicha.addEventListener('click', async () => {
+      if(!confirm(`Excluir o funcionário ${f.nome}? Esta ação não pode ser desfeita.`)) return;
+      const { error } = await supabase.from('funcionarios').delete().eq('id', f.id);
+      if(error){ alert('Erro ao excluir: ' + error.message); return; }
+      modal.remove();
+      await carregarDadosBase();
+      renderizarApp();
+    });
+  }
+}
+
+// ---------------------------------------------------------------
+// RECONHECIMENTO FACIAL — BATER PONTO (protótipo)
+// ---------------------------------------------------------------
+let FACE_API_PROMESSA = null;
+const FACE_API_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+const FACE_API_LIMIAR_DISTANCIA = 0.5; // quanto menor, mais rígido o reconhecimento (0.5 é um valor conservador)
+
+function carregarFaceApi(){
+  if(FACE_API_PROMESSA) return FACE_API_PROMESSA;
+  FACE_API_PROMESSA = (async () => {
+    if(!window.faceapi){
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Não foi possível carregar a biblioteca de reconhecimento facial. Verifique sua conexão com a internet.'));
+        document.head.appendChild(script);
+      });
+    }
+    await Promise.all([
+      window.faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODEL_URL),
+      window.faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODEL_URL),
+      window.faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODEL_URL),
+    ]);
+    return window.faceapi;
+  })();
+  return FACE_API_PROMESSA;
+}
+
+function distanciaDescritores(a, b){
+  let soma = 0;
+  for(let i = 0; i < a.length; i++) soma += (a[i] - b[i]) ** 2;
+  return Math.sqrt(soma);
+}
+
+async function detectarDescritorNoVideo(faceapi, video){
+  const deteccao = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks().withFaceDescriptor();
+  return deteccao ? Array.from(deteccao.descriptor) : null;
+}
+
+const TERMO_CONSENTIMENTO_FACIAL = `Pelo presente termo, eu, funcionário(a) da Escola Municipal Jaime Gonçalves Bold, autorizo a captura e o armazenamento de dados biométricos faciais (um conjunto de medidas numéricas do meu rosto, e não uma fotografia), para uso exclusivo no registro de frequência ("bater ponto") por reconhecimento facial no sistema Secretaria Escolar.
+
+Declaro estar ciente de que:
+1. O dado facial é considerado dado pessoal sensível, nos termos da Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD);
+2. O uso desse dado se limita exclusivamente ao registro de minha própria frequência funcional, não sendo compartilhado com terceiros nem usado para qualquer outra finalidade;
+3. Posso solicitar, a qualquer momento, a exclusão do meu cadastro facial junto à direção da escola, sem qualquer prejuízo, retornando ao registro de frequência pelo método convencional;
+4. Os dados ficam armazenados de forma segura no sistema da secretaria escolar, sob responsabilidade da direção da unidade.`;
+
+function abrirModalCadastrarRosto(funcionario){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-topo"><h3>Cadastrar rosto — ${esc(funcionario.nome)}</h3><button data-fechar>✕</button></div>
+      <div id="etapa-termo">
+        <div style="border:1px solid var(--borda);border-radius:8px;padding:14px 16px;max-height:220px;overflow-y:auto;font-size:12.5px;line-height:1.55;color:var(--texto);white-space:pre-line;background:var(--areia);">${esc(TERMO_CONSENTIMENTO_FACIAL)}</div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;margin:14px 0;cursor:pointer;text-align:left;">
+          <input type="checkbox" id="chk-aceite-termo" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;" />
+          Li e concordo com o termo de consentimento acima para uso de reconhecimento facial.
+        </label>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button class="botao secundario pequeno" id="btn-imprimir-termo" style="width:auto;">🖨️ Imprimir termo para assinar</button>
+          <button class="botao terracota pequeno" id="btn-aceitar-termo" style="width:auto;" disabled>Aceitar e continuar</button>
+        </div>
+      </div>
+      <div id="etapa-camera" style="display:none;text-align:center;">
+        <p style="font-size:13px;color:var(--texto-suave);margin-bottom:10px;">Posicione o rosto bem iluminado, olhando para a câmera, e clique em capturar.</p>
+        <div id="face-status" style="font-size:13px;margin-bottom:10px;"></div>
+        <video id="face-video" autoplay muted playsinline style="width:100%;max-width:340px;border-radius:12px;background:#111;transform:scaleX(-1);"></video>
+        <div style="margin-top:14px;display:flex;gap:10px;justify-content:center;">
+          <button class="botao secundario pequeno" data-fechar>Cancelar</button>
+          <button class="botao terracota pequeno" id="btn-capturar-rosto" style="width:auto;" disabled>Capturar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => { encerrarCameraDoModal(); modal.remove(); }));
+  modal.addEventListener('click', (e) => { if(e.target === modal){ encerrarCameraDoModal(); modal.remove(); } });
+
+  let stream = null;
+  function encerrarCameraDoModal(){
+    if(stream) stream.getTracks().forEach(t => t.stop());
+  }
+
+  modal.querySelector('#btn-imprimir-termo').addEventListener('click', () => imprimirTermoConsentimentoFacial(funcionario));
+  modal.querySelector('#chk-aceite-termo').addEventListener('change', (e) => {
+    modal.querySelector('#btn-aceitar-termo').disabled = !e.target.checked;
+  });
+  modal.querySelector('#btn-aceitar-termo').addEventListener('click', async () => {
+    const btnAceitar = modal.querySelector('#btn-aceitar-termo');
+    btnAceitar.disabled = true; btnAceitar.textContent = 'Registrando…';
+    const agora = new Date().toISOString();
+    await supabase.from('funcionarios').update({ termo_facial_aceito_em: agora }).eq('id', funcionario.id);
+    funcionario.termo_facial_aceito_em = agora;
+    modal.querySelector('#etapa-termo').style.display = 'none';
+    modal.querySelector('#etapa-camera').style.display = '';
+    iniciarCameraCadastro();
+  });
+
+  function iniciarCameraCadastro(){
+    const video = modal.querySelector('#face-video');
+    const status = modal.querySelector('#face-status');
+    const btnCapturar = modal.querySelector('#btn-capturar-rosto');
+    (async () => {
+      try{
+        status.textContent = 'Carregando reconhecimento facial…';
+        const faceapi = await carregarFaceApi();
+        status.textContent = 'Solicitando acesso à câmera…';
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        video.srcObject = stream;
+        status.textContent = 'Pronto — posicione o rosto e capture.';
+        btnCapturar.disabled = false;
+        btnCapturar.addEventListener('click', async () => {
+          btnCapturar.disabled = true;
+          status.textContent = 'Analisando rosto…';
+          const descritor = await detectarDescritorNoVideo(faceapi, video);
+          if(!descritor){
+            status.textContent = 'Não foi possível identificar um rosto. Tente novamente com melhor iluminação.';
+            btnCapturar.disabled = false;
+            return;
+          }
+          const { error } = await supabase.from('funcionarios').update({
+            face_descriptor: descritor, face_cadastrado_em: new Date().toISOString(),
+          }).eq('id', funcionario.id);
+          if(error){ status.textContent = 'Erro ao salvar: ' + error.message; btnCapturar.disabled = false; return; }
+          funcionario.face_descriptor = descritor;
+          status.innerHTML = `<span style="color:#2E7D32;">✅ Rosto cadastrado com sucesso!</span>`;
+          encerrarCameraDoModal();
+          setTimeout(() => modal.remove(), 1200);
+          await carregarDadosBase();
+        });
+      } catch(erro){
+        status.textContent = erro.message || 'Não foi possível acessar a câmera.';
+      }
+    })();
+  }
+}
+
+function imprimirTermoConsentimentoFacial(funcionario){
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Termo de Consentimento - Reconhecimento Facial - ${esc(funcionario.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 20mm 18mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.6;}
+      .cabecalho-doc{text-align:center;padding-bottom:6px;margin-bottom:18px;}
+      .cabecalho-doc img{width:60px;height:60px;display:block;margin:0 auto 6px;}
+      .cabecalho-doc .orgao{font-size:12px;margin:0;line-height:1.35;}
+      .cabecalho-doc .escola{font-weight:bold;font-size:15px;}
+      .titulo-doc{text-align:center;font-size:16px;font-weight:bold;text-transform:uppercase;margin:0 0 20px;}
+      .dados-func{margin-bottom:18px;}
+      .dados-func p{margin:2px 0;}
+      .corpo-termo{white-space:pre-line;text-align:justify;margin-bottom:36px;}
+      .assinaturas{margin-top:50px;display:flex;justify-content:space-around;gap:24px;}
+      .assinaturas .linha-assinatura{border-top:1px solid #333;width:260px;text-align:center;padding-top:5px;font-size:12px;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <div class="cabecalho-doc">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><span class="escola">Escola Municipal Jaime Gonçalves Bold</span></p>
+      </div>
+      <div class="titulo-doc">Termo de Consentimento — Reconhecimento Facial</div>
+      <div class="dados-func">
+        <p><b>Funcionário(a):</b> ${esc(funcionario.nome)}</p>
+        <p><b>Função:</b> ${esc(funcionario.funcao || '—')}</p>
+        <p><b>Matrícula:</b> ${esc(funcionario.matricula || '—')}</p>
+      </div>
+      <div class="corpo-termo">${esc(TERMO_CONSENTIMENTO_FACIAL)}</div>
+      <p style="text-align:right;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
+      <div class="assinaturas">
+        <div class="linha-assinatura">Assinatura do(a) Funcionário(a)</div>
+        <div class="linha-assinatura">Assinatura da Direção Escolar</div>
+      </div>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+function abrirModalBaterPonto(){
+  const cadastrados = ESTADO.funcionarios.filter(f => f.ativo && f.face_descriptor);
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;text-align:center;">
+      <div class="modal-topo"><h3>📷 Bater Ponto — Reconhecimento Facial</h3><button data-fechar>✕</button></div>
+      ${!cadastrados.length ? `<p style="color:var(--erro);font-size:13.5px;">Nenhum funcionário tem rosto cadastrado ainda. Cadastre pela ficha de cada funcionário antes de usar o bater ponto.</p>`
+        : `<p style="font-size:13px;color:var(--texto-suave);margin-bottom:10px;">Olhe para a câmera para registrar sua presença de hoje.</p>
+      <div id="face-status" style="font-size:13.5px;font-weight:600;margin-bottom:10px;min-height:20px;"></div>
+      <video id="face-video" autoplay muted playsinline style="width:100%;max-width:340px;border-radius:12px;background:#111;transform:scaleX(-1);"></video>`}
+      <div style="margin-top:14px;">
+        <button class="botao secundario pequeno" data-fechar style="width:auto;">Fechar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  let stream = null;
+  let intervalo = null;
+  function encerrar(){
+    if(stream) stream.getTracks().forEach(t => t.stop());
+    if(intervalo) clearInterval(intervalo);
+  }
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => { encerrar(); modal.remove(); }));
+  modal.addEventListener('click', (e) => { if(e.target === modal){ encerrar(); modal.remove(); } });
+
+  if(!cadastrados.length) return;
+
+  const video = modal.querySelector('#face-video');
+  const status = modal.querySelector('#face-status');
+  let processando = false;
+  let jaRegistrouAgora = null;
+
+  (async () => {
+    try{
+      status.textContent = 'Carregando reconhecimento facial…';
+      const faceapi = await carregarFaceApi();
+      status.textContent = 'Solicitando acesso à câmera…';
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      video.srcObject = stream;
+      status.textContent = 'Procurando rosto…';
+
+      intervalo = setInterval(async () => {
+        if(processando || jaRegistrouAgora) return;
+        processando = true;
+        try{
+          const descritor = await detectarDescritorNoVideo(faceapi, video);
+          if(!descritor){ status.textContent = 'Procurando rosto…'; processando = false; return; }
+          let melhor = null, menorDistancia = Infinity;
+          cadastrados.forEach(f => {
+            const d = distanciaDescritores(descritor, f.face_descriptor);
+            if(d < menorDistancia){ menorDistancia = d; melhor = f; }
+          });
+          if(melhor && menorDistancia <= FACE_API_LIMIAR_DISTANCIA){
+            jaRegistrouAgora = melhor;
+            status.innerHTML = `Reconhecendo <b>${esc(melhor.nome)}</b>…`;
+            await registrarPresencaPorReconhecimento(melhor, status);
+          } else {
+            status.textContent = 'Rosto não reconhecido. Cadastre-o antes ou tente novamente.';
+          }
+        } catch(e){ /* ignora erro pontual de um frame */ }
+        processando = false;
+      }, 1200);
+    } catch(erro){
+      status.textContent = erro.message || 'Não foi possível acessar a câmera.';
+    }
+  })();
+}
+
+async function registrarPresencaPorReconhecimento(funcionario, statusEl){
+  const hoje = hojeISO();
+  const { error } = await supabase.from('frequencia_funcionarios').upsert({
+    funcionario_id: funcionario.id, data: hoje, status: 'presente', registrado_por: ESTADO.perfil.id,
+  }, { onConflict: 'funcionario_id,data' });
+  if(error){
+    statusEl.innerHTML = `<span style="color:var(--erro);">Erro ao registrar: ${esc(error.message)}</span>`;
+    return;
+  }
+  const agora = new Date();
+  const hora = `${String(agora.getHours()).padStart(2,'0')}:${String(agora.getMinutes()).padStart(2,'0')}`;
+  statusEl.innerHTML = `<span style="color:#2E7D32;">✅ Bem-vindo(a), ${esc(funcionario.nome)}! Presença registrada às ${hora}.</span>`;
+}
+
+// ---------------------------------------------------------------
+// FÉRIAS DE FUNCIONÁRIOS
+// ---------------------------------------------------------------
+function funcionarioEmFerias(funcionarioId, dataIso, feriasLista){
+  return (feriasLista||[]).some(fp => fp.funcionario_id === funcionarioId && dataIso >= fp.data_inicio && dataIso <= fp.data_fim);
+}
+
+// Verifica se a função do funcionário foi convocada pra ter expediente num dia que normalmente
+// seria não letivo (ex: reunião pedagógica no recesso, planejamento no início do ano letivo).
+function funcionarioConvocadoNoDia(funcionario, dataIso, convocacoesLista){
+  return (convocacoesLista||[]).some(c => c.data === dataIso && (c.funcoes||[]).includes(funcionario.funcao));
+}
+
+async function abrirModalFerias(funcionario){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-topo"><h3>🏖️ Férias — ${esc(funcionario.nome)}</h3><button data-fechar>✕</button></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin-bottom:12px;">Nos dias marcados como férias, o funcionário não aparece na chamada de frequência.</p>
+      <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="campo"><label>Início</label><div id="ferias-inicio-container" class="seletor-data-wrap"></div></div>
+        <div class="campo"><label>Término</label><div id="ferias-fim-container" class="seletor-data-wrap"></div></div>
+      </div>
+      <div id="msg-ferias"></div>
+      <button class="botao terracota pequeno" id="btn-add-ferias" style="width:auto;margin-bottom:16px;">+ Adicionar período</button>
+      <div id="lista-ferias"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  criarSeletorData('ferias-inicio-container', '', null, { inputId: 'ferias-inicio', permiteLimpar:false, rotuloVazio:'Selecione' });
+  criarSeletorData('ferias-fim-container', '', null, { inputId: 'ferias-fim', permiteLimpar:false, rotuloVazio:'Selecione' });
+
+  async function recarregarLista(){
+    const lista = modal.querySelector('#lista-ferias');
+    const { data, error } = await supabase.from('ferias_funcionarios').select('*').eq('funcionario_id', funcionario.id).order('data_inicio', { ascending: false });
+    if(error){ lista.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    const periodos = data || [];
+    lista.innerHTML = periodos.length
+      ? periodos.map(p => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #F0ECE0;font-size:13px;">
+          <span>${formatarDataBR(p.data_inicio)} até ${formatarDataBR(p.data_fim)}</span>
+          <button class="botao secundario pequeno" style="width:auto;color:var(--erro);border-color:var(--erro);" data-remover-ferias="${p.id}">Remover</button>
+        </div>`).join('')
+      : `<p style="color:var(--texto-suave);font-size:13px;">Nenhum período de férias registrado.</p>`;
+    lista.querySelectorAll('[data-remover-ferias]').forEach(b => b.addEventListener('click', async () => {
+      if(!confirm('Remover este período de férias?')) return;
+      await supabase.from('ferias_funcionarios').delete().eq('id', b.dataset.removerFerias);
+      recarregarLista();
+    }));
+  }
+  recarregarLista();
+
+  modal.querySelector('#btn-add-ferias').addEventListener('click', async () => {
+    const msg = modal.querySelector('#msg-ferias');
+    const inicio = document.getElementById('ferias-inicio').value;
+    const fim = document.getElementById('ferias-fim').value;
+    if(!inicio || !fim){ msg.innerHTML = `<div class="msg-erro">Selecione a data de início e de término.</div>`; return; }
+    if(fim < inicio){ msg.innerHTML = `<div class="msg-erro">A data de término não pode ser antes da data de início.</div>`; return; }
+    msg.innerHTML = '';
+    const { error } = await supabase.from('ferias_funcionarios').insert({
+      funcionario_id: funcionario.id, data_inicio: inicio, data_fim: fim, criado_por: ESTADO.perfil.id,
+    });
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    SELETORES_DATA['ferias-inicio-container'].definir('');
+    SELETORES_DATA['ferias-fim-container'].definir('');
+    recarregarLista();
+  });
+}
+
+function abrirModalGerenciarFuncoes(aoFechar){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-topo"><h3>Gerenciar funções/cargos</h3><button data-fechar>✕</button></div>
+      <div id="msg-funcoes-cargos"></div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <input type="text" id="nova-funcao-cargo" placeholder="Ex: Fonoaudiólogo(a)" style="flex:1;" />
+        <button class="botao terracota pequeno" id="btn-add-funcao-cargo" style="width:auto;">Adicionar</button>
+      </div>
+      <div id="lista-funcoes-cargos"></div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  function fecharEAtualizar(){
+    modal.remove();
+    if(aoFechar) aoFechar();
+  }
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', fecharEAtualizar));
+  modal.addEventListener('click', (e) => { if(e.target === modal) fecharEAtualizar(); });
+
+  function renderizarLista(){
+    const lista = modal.querySelector('#lista-funcoes-cargos');
+    const ordenadas = ESTADO.funcoesCargos.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    lista.innerHTML = ordenadas.length ? ordenadas.map(f => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #F0ECE0;font-size:13.5px;">
+        <span>${esc(f.nome)}</span>
+        <button class="botao secundario pequeno" style="width:auto;color:var(--erro);border-color:var(--erro);" data-remover-funcao="${f.id}">Remover</button>
+      </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma função cadastrada.</p>`;
+    lista.querySelectorAll('[data-remover-funcao]').forEach(b => b.addEventListener('click', async () => {
+      if(!confirm('Remover esta função da lista? Funcionários que já usam esse valor não serão alterados.')) return;
+      await supabase.from('funcoes_cargos').update({ ativo: false }).eq('id', b.dataset.removerFuncao);
+      ESTADO.funcoesCargos = ESTADO.funcoesCargos.filter(f => f.id !== b.dataset.removerFuncao);
+      renderizarLista();
+    }));
+  }
+  renderizarLista();
+
+  modal.querySelector('#btn-add-funcao-cargo').addEventListener('click', async () => {
+    const msg = modal.querySelector('#msg-funcoes-cargos');
+    const input = modal.querySelector('#nova-funcao-cargo');
+    const nome = input.value.trim();
+    if(!nome){ msg.innerHTML = `<div class="msg-erro">Digite o nome da função.</div>`; return; }
+    if(ESTADO.funcoesCargos.some(f => f.nome.toLowerCase() === nome.toLowerCase())){
+      msg.innerHTML = `<div class="msg-erro">Essa função já está na lista.</div>`; return;
+    }
+    msg.innerHTML = '';
+    const { data, error } = await supabase.from('funcoes_cargos').insert({ nome }).select().single();
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    ESTADO.funcoesCargos.push(data);
+    input.value = '';
+    renderizarLista();
+  });
 }
 
 function abrirModalFuncionario(funcionario){
   const editando = !!funcionario;
-  const opcoesFuncao = FUNCOES_SUGERIDAS.map(f => `<option value="${esc(f)}"></option>`).join('');
   const v = (campo) => editando ? esc(funcionario[campo]||'') : '';
   const vd = (campo) => editando ? (funcionario[campo]||'') : '';
   const opcoesSelect = (lista, valorAtual, comVazio) => (comVazio!==false?`<option value="">—</option>`:'') +
     lista.map(([chave, nome]) => `<option value="${chave}" ${vd_eq(valorAtual, chave)?'selected':''}>${nome}</option>`).join('');
   function vd_eq(atual, chave){ return atual === chave; }
+
+  const funcaoAtual = vd('funcao');
+  const funcaoNoCatalogo = ESTADO.funcoesCargos.some(f => f.nome.toLowerCase() === funcaoAtual.toLowerCase());
+  const opcoesFuncao = ESTADO.funcoesCargos.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(f => `<option value="${esc(f.nome)}" ${f.nome.toLowerCase()===funcaoAtual.toLowerCase()?'selected':''}>${esc(f.nome)}</option>`).join('');
+  const opcaoForaCatalogo = (funcaoAtual && !funcaoNoCatalogo)
+    ? `<option value="${esc(funcaoAtual)}" selected>${esc(funcaoAtual)} (cadastro atual)</option>` : '';
 
   const opcoesEscolaridade = [
     ['ensino_fundamental_completo','Ensino Fundamental completo'],
@@ -2468,14 +3091,18 @@ function abrirModalFuncionario(funcionario){
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
           <div class="campo"><label>Categoria</label><select id="func-categoria">${opcoesSelect(CATEGORIAS_FUNCIONARIO, vd('categoria'))}</select></div>
           <div class="campo"><label>Função</label>
-            <input type="text" id="func-funcao" list="lista-funcoes" value="${v('funcao')}" placeholder="Ex: Professor(a), Merendeira, Porteiro(a)…" required />
-            <datalist id="lista-funcoes">${opcoesFuncao}</datalist>
+            <select id="func-funcao" required>
+              <option value="" disabled ${!funcaoAtual?'selected':''}>Selecione…</option>
+              ${opcoesFuncao}
+              ${opcaoForaCatalogo}
+            </select>
+            ${ESTADO.perfil.role === 'admin' ? `<a href="#" id="link-gerenciar-funcoes" style="font-size:12px;display:inline-block;margin-top:4px;color:var(--terracota-escuro);">+ Gerenciar lista de funções</a>` : ''}
           </div>
         </div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">
           <div class="campo"><label>Data de nasc.</label><input type="date" id="func-data-nascimento" value="${v('data_nascimento')}" /></div>
           <div class="campo"><label>Sexo</label><select id="func-sexo">
-            <option value="">—</option><option value="M" ${vd('sexo')==='M'?'selected':''}>M</option><option value="F" ${vd('sexo')==='F'?'selected':''}>F</option><option value="Outro" ${vd('sexo')==='Outro'?'selected':''}>Outro</option>
+            <option value="">—</option><option value="M" ${vd('sexo')==='M'?'selected':''}>Masculino</option><option value="F" ${vd('sexo')==='F'?'selected':''}>Feminino</option><option value="NI" ${vd('sexo')==='NI'||vd('sexo')==='Outro'?'selected':''}>Prefiro não informar</option>
           </select></div>
           <div class="campo"><label>Raça/Cor</label><select id="func-cor-raca">
             <option value="">—</option>
@@ -2560,12 +3187,41 @@ function abrirModalFuncionario(funcionario){
           <div class="campo"><label>Carga horária</label><input type="number" id="func-carga-horaria" value="${v('carga_horaria')}" /></div>
         </div>
         ${editando ? `<div class="campo"><label><input type="checkbox" id="func-ativo" ${funcionario.ativo?'checked':''} style="width:auto;margin-right:6px;" />Ativo</label></div>` : ''}
-        <button class="botao terracota" type="submit" id="btn-salvar-funcionario">${editando ? 'Salvar alterações' : 'Salvar funcionário'}</button>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button class="botao terracota" type="submit" id="btn-salvar-funcionario" style="width:auto;">${editando ? 'Salvar alterações' : 'Salvar funcionário'}</button>
+          ${editando && ESTADO.perfil.role === 'admin' ? `<button class="botao secundario" type="button" id="btn-excluir-funcionario" style="width:auto;color:var(--erro);border-color:var(--erro);">Excluir funcionário</button>` : ''}
+        </div>
       </form>
     </div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  const linkGerenciarFuncoes = document.getElementById('link-gerenciar-funcoes');
+  if(linkGerenciarFuncoes){
+    linkGerenciarFuncoes.addEventListener('click', (e) => {
+      e.preventDefault();
+      abrirModalGerenciarFuncoes(() => {
+        const selFuncao = document.getElementById('func-funcao');
+        if(!selFuncao) return;
+        const valorAtual = selFuncao.value;
+        const opcoesAtualizadas = ESTADO.funcoesCargos.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+          .map(f => `<option value="${esc(f.nome)}" ${f.nome===valorAtual?'selected':''}>${esc(f.nome)}</option>`).join('');
+        selFuncao.innerHTML = `<option value="" disabled>Selecione…</option>${opcoesAtualizadas}`;
+        if(ESTADO.funcoesCargos.some(f => f.nome === valorAtual)) selFuncao.value = valorAtual;
+      });
+    });
+  }
+  const btnExcluirForm = document.getElementById('btn-excluir-funcionario');
+  if(btnExcluirForm){
+    btnExcluirForm.addEventListener('click', async () => {
+      if(!confirm(`Excluir o funcionário ${funcionario.nome}? Esta ação não pode ser desfeita.`)) return;
+      const { error } = await supabase.from('funcionarios').delete().eq('id', funcionario.id);
+      if(error){ alert('Erro ao excluir: ' + error.message); return; }
+      modal.remove();
+      await carregarDadosBase();
+      renderizarApp();
+    });
+  }
 
   document.getElementById('func-portador-necessidades').addEventListener('change', (e) => {
     document.getElementById('func-campo-necessidades-qual').style.display = e.target.value === 'sim' ? '' : 'none';
@@ -2644,6 +3300,7 @@ const ABAS_PERMISSIVEIS = [
   { id:'frequencia', label:'Frequência' },
   { id:'documentos', label:'Documentos' },
   { id:'ocorrencias', label:'Ocorrências' },
+  { id:'relatorios', label:'Relatórios' },
 ];
 
 function renderizarUsuarios(el){
@@ -2667,7 +3324,7 @@ function renderizarUsuarios(el){
     </div>
     <div id="msg-convite"></div>
     <div class="painel">
-      <table><thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
+      <div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
     </div>
     <div id="modal-permissoes-area"></div>`;
   document.getElementById('btn-convidar').addEventListener('click', abrirModalConvite);
@@ -2882,7 +3539,7 @@ function criarSeletorData(containerId, dataInicialIso, onSelecionar, opcoes){
   const permiteLimpar = !!opcoes.permiteLimpar;
   const rotuloVazio = opcoes.rotuloVazio || 'Selecione a data';
   let dataSelecionada = dataInicialIso || '';
-  const base = dataSelecionada || new Date().toISOString().slice(0,10);
+  const base = dataSelecionada || hojeISO();
   const [anoIni, mesIni] = base.split('-').map(Number);
   let mesExibido = mesIni; // 1-12
   let anoExibido = anoIni;
@@ -2931,7 +3588,7 @@ function criarSeletorData(containerId, dataInicialIso, onSelecionar, opcoes){
       mapaStatusDias = await opcoes.statusDiasFn(primeiroDiaMes, ultimoDiaMes, feriadosMes||[]);
     }
 
-    const hojeIso = new Date().toISOString().slice(0,10);
+    const hojeIso = hojeISO();
     const primeiroDiaSemana = new Date(anoExibido, mesExibido-1, 1).getDay(); // 0=domingo
     const celulas = [];
     for(let i=0;i<primeiroDiaSemana;i++) celulas.push(null);
@@ -3039,35 +3696,76 @@ function criarSeletorData(containerId, dataInicialIso, onSelecionar, opcoes){
   return controlador;
 }
 
+function podeVerFrequenciaFuncionarios(){
+  return ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria';
+}
+
 function renderizarFrequencia(el){
+  const podeFuncionarios = podeVerFrequenciaFuncionarios();
+  if(ESTADO.subFrequencia === 'funcionarios' && !podeFuncionarios) ESTADO.subFrequencia = 'estudantes';
+  const abasTopo = [
+    { id:'estudantes', label:'Estudantes' },
+    ...(podeFuncionarios ? [{ id:'funcionarios', label:'Funcionários' }] : []),
+  ];
+  const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subFrequencia===a.id?'ativa':''}" data-aba-freq="${a.id}">${a.label}</button>`).join('');
+  el.innerHTML = `
+    <div class="cabecalho-pagina" style="margin-bottom:10px;"><div><h2>Frequência</h2><p>Chamada diária, histórico e frequência de funcionários</p></div></div>
+    ${abasTopo.length > 1 ? `<div class="subtabs" style="margin-bottom:10px;">${barraTopo}</div>` : ''}
+    <div id="conteudo-frequencia-topo"></div>`;
+  el.querySelectorAll('[data-aba-freq]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.subFrequencia = b.dataset.abaFreq; renderizarFrequencia(el);
+  }));
+  const alvoTopo = el.querySelector('#conteudo-frequencia-topo');
+  if(ESTADO.subFrequencia === 'funcionarios' && podeFuncionarios) renderizarFrequenciaFuncionarios(alvoTopo);
+  else renderizarFrequenciaEstudantes(alvoTopo);
+}
+
+function renderizarFrequenciaEstudantes(el){
   const abas = [
     { id:'chamada', label:'Chamada diária' },
-    { id:'dias_letivos', label:'Dias letivos' },
     { id:'historico', label:'Histórico' },
   ];
-  const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subFrequencia===a.id?'ativa':''}" data-aba="${a.id}">${a.label}</button>`).join('');
+  const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subFrequenciaEstudantes===a.id?'ativa':''}" data-aba="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
-    <div class="cabecalho-pagina" style="margin-bottom:10px;"><div><h2>Frequência</h2><p>Dias letivos e chamada diária dos estudantes</p></div></div>
     <div class="subtabs" style="margin-bottom:10px;">${barra}</div>
     <div id="conteudo-frequencia"></div>`;
   el.querySelectorAll('.aba-cadastro').forEach(b => b.addEventListener('click', () => {
-    ESTADO.subFrequencia = b.dataset.aba; renderizarFrequencia(el);
+    ESTADO.subFrequenciaEstudantes = b.dataset.aba; renderizarFrequenciaEstudantes(el);
   }));
   const alvo = el.querySelector('#conteudo-frequencia');
-  if(ESTADO.subFrequencia === 'chamada') renderizarChamada(alvo);
-  else if(ESTADO.subFrequencia === 'historico') renderizarHistoricoFrequencia(alvo);
-  else renderizarDiasLetivos(alvo);
+  if(ESTADO.subFrequenciaEstudantes === 'historico') renderizarHistoricoFrequencia(alvo);
+  else renderizarChamada(alvo);
+}
+
+function rotuloTipoFeriado(f){
+  if(f.tipo === 'feriado') return 'Feriado';
+  if(f.tipo === 'ponto_facultativo') return 'Ponto Facultativo';
+  if(f.tipo === 'recesso') return 'Recesso Escolar';
+  if(f.tipo === 'suspensao_aulas') return 'Suspensão de Aulas' + (f.turno_afetado === 'manha' ? ' (Manhã)' : f.turno_afetado === 'tarde' ? ' (Tarde)' : ' (Dia todo)');
+  return f.tipo;
+}
+
+// Retorna true se um dia com Suspensão de Aulas (turno_afetado) afeta o turno informado (texto livre, ex: "Manhã").
+// turnoAfetado null/undefined = dia todo, afeta qualquer turno.
+function turnoAfetaSuspensao(turnoTexto, turnoAfetado){
+  if(!turnoAfetado) return true;
+  const t = (turnoTexto || '').toLowerCase();
+  if(turnoAfetado === 'manha') return t.includes('manh');
+  if(turnoAfetado === 'tarde') return t.includes('tard');
+  return true;
 }
 
 async function renderizarDiasLetivos(el){
   el.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const ano = ESTADO.diasLetivosAno;
-  const podeEditar = ESTADO.perfil.role === 'admin';
-  const [{ data }, { data: feriadosData }] = await Promise.all([
+  const podeEditar = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria';
+  const [{ data }, { data: feriadosData }, { data: convocacoesData }] = await Promise.all([
     supabase.from('dias_letivos').select('*').eq('ano_letivo', ano),
     supabase.from('feriados').select('*').order('data'),
+    supabase.from('convocacoes_dia_nao_letivo').select('*').order('data'),
   ]);
   ESTADO.feriados = feriadosData || [];
+  ESTADO.convocacoes = convocacoesData || [];
   const porMes = {};
   (data||[]).forEach(d => { porMes[d.mes] = d.quantidade_dias; });
   const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -3080,12 +3778,14 @@ async function renderizarDiasLetivos(el){
   const linhasFeriados = feriadosDoAno.map(f => `
     <tr data-id="${f.id}">
       <td>${formatarDataBR(f.data)}</td>
-      <td>${f.tipo === 'feriado' ? 'Feriado' : f.tipo === 'ponto_facultativo' ? 'Ponto Facultativo' : 'Recesso Escolar'}</td>
+      <td>${rotuloTipoFeriado(f)}</td>
       <td>${esc(f.descricao || '')}</td>
-      <td>${ESTADO.perfil.role === 'admin' ? `<button class="botao secundario pequeno" data-remover-feriado="${f.id}" style="width:auto;padding:4px 10px;">Remover</button>` : ''}</td>
+      <td>${ESTADO.perfil.role === 'admin' ? `
+        <button class="botao secundario pequeno" data-editar-feriado="${f.id}" style="width:auto;padding:4px 10px;">Editar</button>
+        <button class="botao secundario pequeno" data-remover-feriado="${f.id}" style="width:auto;padding:4px 10px;color:var(--erro);border-color:var(--erro);">Remover</button>` : ''}</td>
     </tr>`).join('');
   el.innerHTML = `
-    ${!podeEditar ? `<p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">Somente o Administrador pode editar os dias letivos e os feriados. Esta tela está em modo de visualização.</p>` : ''}
+    ${!podeEditar ? `<p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">Somente a Secretaria (ou Administrador) pode editar os dias letivos e os feriados. Esta tela está em modo de visualização.</p>` : ''}
     <div class="painel">
       <div class="barra" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:10px 14px;">
         <strong style="font-size:14px;">Dias letivos por mês</strong>
@@ -3105,17 +3805,43 @@ async function renderizarDiasLetivos(el){
     <div class="painel" style="margin-top:10px;">
       <div class="barra" style="padding:10px 14px;"><strong style="font-size:14px;">Feriados e Pontos Facultativos — ${ano}</strong></div>
       <div style="padding:10px 14px;">
-        ${podeEditar ? `<div class="grade-2" style="grid-template-columns:140px 140px 170px 1fr auto;gap:8px;align-items:end;">
+        ${podeEditar ? `<div class="grade-2" style="grid-template-columns:140px 140px 170px 150px 1fr auto;gap:8px;align-items:end;">
           <div class="campo" style="margin-bottom:0;"><label>Data início</label><div id="fer-data-container" class="seletor-data-wrap"></div></div>
           <div class="campo" style="margin-bottom:0;"><label>Data fim (opcional)</label><div id="fer-data-fim-container" class="seletor-data-wrap"></div></div>
-          <div class="campo" style="margin-bottom:0;"><label>Tipo</label><select id="fer-tipo"><option value="feriado">Feriado</option><option value="ponto_facultativo">Ponto Facultativo</option><option value="recesso">Recesso Escolar</option></select></div>
-          <div class="campo" style="margin-bottom:0;"><label>Descrição</label><input type="text" id="fer-descricao" placeholder="Ex: Recesso de julho" /></div>
+          <div class="campo" style="margin-bottom:0;"><label>Tipo</label><select id="fer-tipo"><option value="feriado">Feriado</option><option value="ponto_facultativo">Ponto Facultativo</option><option value="recesso">Recesso Escolar</option><option value="suspensao_aulas">Suspensão de Aulas</option></select></div>
+          <div class="campo" id="campo-fer-turno" style="margin-bottom:0;display:none;"><label>Turno afetado</label><select id="fer-turno"><option value="">Dia todo</option><option value="manha">Manhã</option><option value="tarde">Tarde</option></select></div>
+          <div class="campo" style="margin-bottom:0;"><label>Descrição</label><input type="text" id="fer-descricao" placeholder="Ex: Chuvas fortes" /></div>
           <button class="botao terracota pequeno" id="btn-add-feriado" style="width:auto;height:38px;">Adicionar</button>
         </div>` : ''}
         <div id="msg-feriados" style="margin-top:6px;"></div>
         ${feriadosDoAno.length
           ? `<table style="margin-top:6px;"><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th></th></tr></thead><tbody>${linhasFeriados}</tbody></table>`
           : `<p style="color:var(--texto-suave);font-size:13.5px;margin-top:6px;">Nenhum feriado/ponto facultativo cadastrado em ${ano}.</p>`}
+      </div>
+    </div>
+    <div class="painel" style="margin-top:10px;">
+      <div class="barra" style="padding:10px 14px;"><strong style="font-size:14px;">Convocações em Dias Não Letivos</strong></div>
+      <div style="padding:10px 14px;">
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 12px;">Use isso quando algum cargo precisa comparecer mesmo num dia não letivo — ex: reunião pedagógica no recesso, planejamento no início do ano letivo. Só as funções marcadas ficam com expediente nesse dia; as demais continuam sem expediente normalmente.</p>
+        ${podeEditar ? `
+        <div class="grade-2" style="grid-template-columns:160px 1fr;gap:12px;">
+          <div class="campo"><label>Data</label><div id="conv-data-container" class="seletor-data-wrap"></div></div>
+          <div class="campo"><label>Descrição</label><input type="text" id="conv-descricao" placeholder="Ex: Reunião pedagógica de início de ano" /></div>
+        </div>
+        <div class="campo">
+          <label>Funções convocadas</label>
+          <div style="border:1px solid var(--borda);border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;">
+            ${ESTADO.funcoesCargos.slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `
+              <label style="display:block;font-size:13px;margin-bottom:6px;cursor:pointer;text-align:left;">
+                <input type="checkbox" class="chk-funcao-convocada" value="${esc(f.nome)}" style="width:14px;height:14px;margin-right:6px;vertical-align:middle;" />
+                ${esc(f.nome)}
+              </label>`).join('')}
+          </div>
+        </div>
+        <div id="msg-convocacoes"></div>
+        <button class="botao terracota pequeno" id="btn-add-convocacao" style="width:auto;margin-bottom:12px;">+ Adicionar convocação</button>
+        ` : ''}
+        <div id="lista-convocacoes">${renderizarListaConvocacoes(podeEditar)}</div>
       </div>
     </div>`;
   document.getElementById('dl-ano').addEventListener('change', (e) => {
@@ -3125,6 +3851,9 @@ async function renderizarDiasLetivos(el){
   if(podeEditar){
     criarSeletorData('fer-data-container', '', null, { inputId:'fer-data', permiteLimpar:false, rotuloVazio:'Selecione a data' });
     criarSeletorData('fer-data-fim-container', '', null, { inputId:'fer-data-fim', permiteLimpar:true, rotuloVazio:'(opcional)' });
+    document.getElementById('fer-tipo').addEventListener('change', (e) => {
+      document.getElementById('campo-fer-turno').style.display = e.target.value === 'suspensao_aulas' ? '' : 'none';
+    });
   }
   if(podeEditar){
   document.getElementById('btn-salvar-dias-letivos').addEventListener('click', async () => {
@@ -3148,6 +3877,7 @@ async function renderizarDiasLetivos(el){
     if(!dataInicio){ msg.innerHTML = `<div class="msg-erro">Informe a data.</div>`; return; }
     if(dataFim && dataFim < dataInicio){ msg.innerHTML = `<div class="msg-erro">A data fim deve ser igual ou posterior à data início.</div>`; return; }
     const tipo = document.getElementById('fer-tipo').value;
+    const turnoAfetado = tipo === 'suspensao_aulas' ? (document.getElementById('fer-turno').value || null) : null;
     const descricao = document.getElementById('fer-descricao').value.trim() || null;
     const btn = document.getElementById('btn-add-feriado');
     btn.disabled = true; btn.textContent = 'Adicionando…';
@@ -3155,7 +3885,7 @@ async function renderizarDiasLetivos(el){
     let cursor = new Date(dataInicio + 'T00:00:00');
     const fim = new Date((dataFim || dataInicio) + 'T00:00:00');
     while(cursor <= fim){
-      registros.push({ data: cursor.toISOString().slice(0,10), tipo, descricao });
+      registros.push({ data: dataObjParaISO(cursor), tipo, descricao, turno_afetado: turnoAfetado });
       cursor.setDate(cursor.getDate() + 1);
     }
     const { error } = await supabase.from('feriados').upsert(registros, { onConflict: 'data' });
@@ -3167,18 +3897,144 @@ async function renderizarDiasLetivos(el){
     await supabase.from('feriados').delete().eq('id', b.dataset.removerFeriado);
     renderizarDiasLetivos(el);
   }));
+  el.querySelectorAll('[data-editar-feriado]').forEach(b => b.addEventListener('click', () => {
+    const feriado = feriadosDoAno.find(f => f.id === b.dataset.editarFeriado);
+    if(feriado) abrirModalEditarFeriado(feriado, el);
+  }));
+
+  if(podeEditar){
+    criarSeletorData('conv-data-container', '', null, { inputId:'conv-data', permiteLimpar:false, rotuloVazio:'Selecione a data' });
+    document.getElementById('btn-add-convocacao').addEventListener('click', async () => {
+      const msg = document.getElementById('msg-convocacoes');
+      const dataConv = document.getElementById('conv-data').value;
+      const descricao = document.getElementById('conv-descricao').value.trim() || null;
+      const funcoesMarcadas = Array.from(el.querySelectorAll('.chk-funcao-convocada:checked')).map(c => c.value);
+      if(!dataConv){ msg.innerHTML = `<div class="msg-erro">Informe a data.</div>`; return; }
+      if(!funcoesMarcadas.length){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos uma função convocada.</div>`; return; }
+      const btn = document.getElementById('btn-add-convocacao');
+      btn.disabled = true; btn.textContent = 'Adicionando…';
+      const { error } = await supabase.from('convocacoes_dia_nao_letivo').insert({
+        data: dataConv, funcoes: funcoesMarcadas, descricao, criado_por: ESTADO.perfil.id,
+      });
+      if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '+ Adicionar convocação'; return; }
+      renderizarDiasLetivos(el);
+    });
+  }
+  el.querySelectorAll('[data-remover-convocacao]').forEach(b => b.addEventListener('click', async () => {
+    if(!confirm('Remover esta convocação?')) return;
+    await supabase.from('convocacoes_dia_nao_letivo').delete().eq('id', b.dataset.removerConvocacao);
+    renderizarDiasLetivos(el);
+  }));
+}
+
+function abrirModalEditarFeriado(feriado, elPai){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-topo"><h3>Editar dia</h3><button data-fechar>✕</button></div>
+      <div id="msg-editar-feriado"></div>
+      <div class="campo"><label>Data</label><div id="edfer-data-container" class="seletor-data-wrap"></div></div>
+      <div class="campo"><label>Tipo</label>
+        <select id="edfer-tipo">
+          <option value="feriado" ${feriado.tipo==='feriado'?'selected':''}>Feriado</option>
+          <option value="ponto_facultativo" ${feriado.tipo==='ponto_facultativo'?'selected':''}>Ponto Facultativo</option>
+          <option value="recesso" ${feriado.tipo==='recesso'?'selected':''}>Recesso Escolar</option>
+          <option value="suspensao_aulas" ${feriado.tipo==='suspensao_aulas'?'selected':''}>Suspensão de Aulas</option>
+        </select>
+      </div>
+      <div class="campo" id="campo-edfer-turno" style="display:${feriado.tipo==='suspensao_aulas'?'':'none'};">
+        <label>Turno afetado</label>
+        <select id="edfer-turno">
+          <option value="" ${!feriado.turno_afetado?'selected':''}>Dia todo</option>
+          <option value="manha" ${feriado.turno_afetado==='manha'?'selected':''}>Manhã</option>
+          <option value="tarde" ${feriado.turno_afetado==='tarde'?'selected':''}>Tarde</option>
+        </select>
+      </div>
+      <div class="campo" style="margin-bottom:0;"><label>Descrição</label><input type="text" id="edfer-descricao" value="${esc(feriado.descricao||'')}" /></div>
+      <button class="botao terracota pequeno" id="btn-salvar-editar-feriado" style="width:auto;margin-top:14px;">Salvar alterações</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  criarSeletorData('edfer-data-container', feriado.data, null, { inputId:'edfer-data', permiteLimpar:false, rotuloVazio:'Selecione a data' });
+  document.getElementById('edfer-tipo').addEventListener('change', (e) => {
+    document.getElementById('campo-edfer-turno').style.display = e.target.value === 'suspensao_aulas' ? '' : 'none';
+  });
+
+  document.getElementById('btn-salvar-editar-feriado').addEventListener('click', async () => {
+    const msg = document.getElementById('msg-editar-feriado');
+    const novaData = document.getElementById('edfer-data').value;
+    const novoTipo = document.getElementById('edfer-tipo').value;
+    const novoTurno = novoTipo === 'suspensao_aulas' ? (document.getElementById('edfer-turno').value || null) : null;
+    const novaDescricao = document.getElementById('edfer-descricao').value.trim() || null;
+    if(!novaData){ msg.innerHTML = `<div class="msg-erro">Informe a data.</div>`; return; }
+    const btn = document.getElementById('btn-salvar-editar-feriado');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error } = await supabase.from('feriados').update({
+      data: novaData, tipo: novoTipo, turno_afetado: novoTurno, descricao: novaDescricao,
+    }).eq('id', feriado.id);
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar alterações'; return; }
+    modal.remove();
+    renderizarDiasLetivos(elPai);
+  });
+}
+
+function renderizarListaConvocacoes(podeEditar){
+  const lista = (ESTADO.convocacoes||[]).slice().sort((a,b) => a.data.localeCompare(b.data));
+  if(!lista.length) return `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhuma convocação cadastrada.</p>`;
+  return `<table><thead><tr><th>Data</th><th>Funções convocadas</th><th>Descrição</th>${podeEditar?'<th></th>':''}</tr></thead><tbody>
+    ${lista.map(c => `
+      <tr>
+        <td>${formatarDataBR(c.data)}</td>
+        <td>${(c.funcoes||[]).map(f => `<span class="pill azul" style="margin:2px;">${esc(f)}</span>`).join('')}</td>
+        <td>${esc(c.descricao || '—')}</td>
+        ${podeEditar ? `<td><button class="botao secundario pequeno" data-remover-convocacao="${c.id}" style="width:auto;padding:4px 10px;">Remover</button></td>` : ''}
+      </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// Um estudante deixa de ter frequência a PARTIR da data de transferência/cancelamento (inclusive).
+// Datas anteriores a essa continuam normalmente, preservando o histórico já registrado.
+function alunoTemFrequenciaNaData(aluno, dataIso){
+  if(aluno.situacao === 'transferido' || aluno.situacao === 'cancelado'){
+    if(!aluno.data_situacao) return false; // sem data registrada: mantém oculto por segurança
+    return dataIso < aluno.data_situacao;
+  }
+  return true;
 }
 
 async function renderizarChamada(el){
   const podeRegistrar = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'coordenacao';
   const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.chamadaTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  // Sincroniza o "Tipo do dia" com o que já está salvo no banco (só na primeira vez que essa
+  // data é aberta na sessão — depois disso, respeita a escolha manual do usuário na tela).
+  if(ESTADO.chamadaDataSincronizada !== ESTADO.chamadaData){
+    const statusEmMassaSet = ['feriado','ponto_facultativo','suspensao_aulas','outros'];
+    const { data: registroExistente } = await supabase.from('frequencia').select('status, texto_outros')
+      .eq('data', ESTADO.chamadaData).limit(1).maybeSingle();
+    if(registroExistente && statusEmMassaSet.includes(registroExistente.status)){
+      ESTADO.chamadaTipoDia = registroExistente.status;
+      ESTADO.chamadaTextoOutros = registroExistente.texto_outros || '';
+    } else {
+      ESTADO.chamadaTipoDia = 'normal';
+      ESTADO.chamadaTextoOutros = '';
+    }
+    ESTADO.chamadaDataSincronizada = ESTADO.chamadaData;
+  }
+
   const { data: feriadosData } = await supabase.from('feriados').select('*').eq('data', ESTADO.chamadaData).maybeSingle();
   const diaSemana = new Date(ESTADO.chamadaData + 'T00:00:00').getDay();
   const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
-  const diaNaoLetivo = ehFimDeSemana || !!feriadosData;
+  const turmaSelecionada = ESTADO.turmas.find(t => t.id === ESTADO.chamadaTurma);
+  const suspensaoAfetaTurma = !feriadosData || feriadosData.tipo !== 'suspensao_aulas' || !turmaSelecionada
+    || turnoAfetaSuspensao(turmaSelecionada.turno, feriadosData.turno_afetado);
+  const diaNaoLetivo = ehFimDeSemana || (!!feriadosData && suspensaoAfetaTurma);
   let motivoNaoLetivo = '';
   if(ehFimDeSemana) motivoNaoLetivo = diaSemana === 0 ? 'domingo' : 'sábado';
-  else if(feriadosData) motivoNaoLetivo = (feriadosData.tipo === 'feriado' ? 'Feriado' : feriadosData.tipo === 'ponto_facultativo' ? 'Ponto Facultativo' : 'Recesso Escolar') + (feriadosData.descricao ? ` — ${esc(feriadosData.descricao)}` : '');
+  else if(feriadosData) motivoNaoLetivo = rotuloTipoFeriado(feriadosData) + (feriadosData.descricao ? ` — ${esc(feriadosData.descricao)}` : '');
 
   el.innerHTML = `
     <div class="painel">
@@ -3193,6 +4049,7 @@ async function renderizarChamada(el){
             <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="ch-tipo-dia" value="normal" ${ESTADO.chamadaTipoDia==='normal'?'checked':''} style="width:auto;" />Dia letivo normal</label>
             <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="ch-tipo-dia" value="feriado" ${ESTADO.chamadaTipoDia==='feriado'?'checked':''} style="width:auto;" />Feriado</label>
             <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="ch-tipo-dia" value="ponto_facultativo" ${ESTADO.chamadaTipoDia==='ponto_facultativo'?'checked':''} style="width:auto;" />Ponto Facultativo</label>
+            <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="ch-tipo-dia" value="suspensao_aulas" ${ESTADO.chamadaTipoDia==='suspensao_aulas'?'checked':''} style="width:auto;" />Suspensão de Aulas</label>
             <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="ch-tipo-dia" value="outros" ${ESTADO.chamadaTipoDia==='outros'?'checked':''} style="width:auto;" />Outros</label>
           </div>
         </div>
@@ -3207,16 +4064,30 @@ async function renderizarChamada(el){
 
   const conteudo = document.getElementById('ch-conteudo');
 
-  // Feriado / Ponto Facultativo / Outros -> aplica a TODOS os estudantes no dia
+  // Feriado / Ponto Facultativo / Outros -> aplica em massa (turma selecionada ou toda a escola)
   if(ESTADO.chamadaTipoDia !== 'normal'){
-    const rotulos = { feriado:'Feriado', ponto_facultativo:'Ponto Facultativo', outros:'Outros' };
+    const rotulos = { feriado:'Feriado', ponto_facultativo:'Ponto Facultativo', suspensao_aulas:'Suspensão de Aulas', outros:'Outros' };
+    const turmaAtual = ESTADO.turmas.find(t => t.id === ESTADO.chamadaTurma);
+    if(!turmaAtual && ESTADO.chamadaEscopo === 'turma') ESTADO.chamadaEscopo = 'todas';
+    const alvoDescricao = ESTADO.chamadaEscopo === 'turma' && turmaAtual
+      ? `os estudantes da turma <strong>${esc(turmaAtual.nome)} · ${esc(turmaAtual.turno)}</strong>`
+      : `<strong>todos os estudantes da escola</strong>`;
     conteudo.innerHTML = `
-      <p style="font-size:13.5px;color:var(--texto-suave);margin-bottom:12px;">Ao aplicar, <strong>todos os estudantes cadastrados</strong> serão marcados como <strong>${rotulos[ESTADO.chamadaTipoDia]}</strong> na data ${formatarDataBR(ESTADO.chamadaData)}.</p>
+      ${turmaAtual ? `<div class="campo" style="max-width:420px;margin-bottom:10px;">
+        <label>Aplicar para</label>
+        <select id="ch-escopo">
+          <option value="turma" ${ESTADO.chamadaEscopo==='turma'?'selected':''}>Somente a turma selecionada (${esc(turmaAtual.nome)} · ${esc(turmaAtual.turno)})</option>
+          <option value="todas" ${ESTADO.chamadaEscopo==='todas'?'selected':''}>Todas as turmas da escola</option>
+        </select>
+      </div>` : ''}
+      <p style="font-size:13.5px;color:var(--texto-suave);margin-bottom:12px;">Ao aplicar, ${alvoDescricao} serão marcados como <strong>${rotulos[ESTADO.chamadaTipoDia]}</strong> na data ${formatarDataBR(ESTADO.chamadaData)}.</p>
       ${ESTADO.chamadaTipoDia === 'outros' ? `<div class="campo" style="max-width:420px;"><label>Descrição</label><input type="text" id="ch-texto-outros" value="${esc(ESTADO.chamadaTextoOutros)}" placeholder="Ex: Recesso escolar" /></div>` : ''}
       ${podeRegistrar
-        ? `<button class="botao terracota pequeno" id="btn-aplicar-todos" style="margin-top:12px;width:auto;">Aplicar a todos os estudantes</button>`
+        ? `<button class="botao terracota pequeno" id="btn-aplicar-todos" style="margin-top:12px;width:auto;">Aplicar</button>`
         : `<p style="margin-top:10px;color:var(--erro);font-size:13.5px;">Apenas Coordenação/Apoio Escolar ou Administrador podem registrar a chamada.</p>`}
     `;
+    const seletorEscopo = document.getElementById('ch-escopo');
+    if(seletorEscopo) seletorEscopo.addEventListener('change', e => { ESTADO.chamadaEscopo = e.target.value; renderizarChamada(el); });
     if(podeRegistrar){
       document.getElementById('btn-aplicar-todos').addEventListener('click', async () => {
         const btn = document.getElementById('btn-aplicar-todos');
@@ -3224,7 +4095,10 @@ async function renderizarChamada(el){
         const campoTexto = document.getElementById('ch-texto-outros');
         const texto = ESTADO.chamadaTipoDia === 'outros' ? ((campoTexto && campoTexto.value.trim()) || null) : null;
         ESTADO.chamadaTextoOutros = texto || '';
-        const linhas = ESTADO.alunos.filter(a => a.situacao !== 'transferido' && a.situacao !== 'cancelado').map(a => ({
+        const aplicarSoNaTurma = ESTADO.chamadaEscopo === 'turma' && turmaAtual;
+        const linhas = ESTADO.alunos
+          .filter(a => (!aplicarSoNaTurma || a.turma_id === ESTADO.chamadaTurma) && alunoTemFrequenciaNaData(a, ESTADO.chamadaData))
+          .map(a => ({
           aluno_id: a.id,
           turma_id: a.turma_id || null,
           data: ESTADO.chamadaData,
@@ -3236,8 +4110,8 @@ async function renderizarChamada(el){
         const msg = document.getElementById('msg-chamada');
         const { error } = await supabase.from('frequencia').upsert(linhas, { onConflict: 'aluno_id,data' });
         if(error) msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
-        else msg.innerHTML = `<div class="msg-ok">Frequência aplicada para todos os estudantes.</div>`;
-        btn.disabled = false; btn.textContent = 'Aplicar a todos os estudantes';
+        else msg.innerHTML = `<div class="msg-ok">Frequência aplicada para ${aplicarSoNaTurma ? 'a turma ' + esc(turmaAtual.nome) : 'todos os estudantes da escola'}.</div>`;
+        btn.disabled = false; btn.textContent = 'Aplicar';
       });
     }
     return;
@@ -3257,7 +4131,7 @@ async function renderizarChamada(el){
     return;
   }
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando chamada…</p>`;
-  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === ESTADO.chamadaTurma && a.situacao !== 'transferido' && a.situacao !== 'cancelado');
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === ESTADO.chamadaTurma && alunoTemFrequenciaNaData(a, ESTADO.chamadaData));
   let registros = [];
   if(alunosTurma.length){
     const resp = await supabase.from('frequencia').select('*').eq('data', ESTADO.chamadaData).in('aluno_id', alunosTurma.map(a => a.id));
@@ -3265,6 +4139,9 @@ async function renderizarChamada(el){
   }
   const porAluno = {};
   registros.forEach(r => { porAluno[r.aluno_id] = r; });
+  const statusEmMassa = ['feriado','ponto_facultativo','suspensao_aulas','outros'];
+  const registroEmMassa = registros.find(r => statusEmMassa.includes(r.status));
+  const rotulosEmMassa = { feriado:'Feriado', ponto_facultativo:'Ponto Facultativo', suspensao_aulas:'Suspensão de Aulas', outros:'Outros' };
 
   const linhas = alunosTurma.map(a => {
     const reg = porAluno[a.id];
@@ -3286,6 +4163,7 @@ async function renderizarChamada(el){
   }).join('');
 
   conteudo.innerHTML = `
+    ${registroEmMassa ? `<div class="msg-erro" style="margin-bottom:12px;">Este dia já tem um lançamento em massa registrado como <b>"${rotulosEmMassa[registroEmMassa.status] || registroEmMassa.status}"</b> (aplicado a todos os estudantes de uma vez, não pela chamada individual) — por isso nenhuma opção aparece marcada abaixo. Se você preencher e salvar a chamada individual agora, o registro de cada estudante marcado abaixo vai <b>substituir</b> esse lançamento em massa.</div>` : ''}
     ${alunosTurma.length
       ? `<table style="font-size:13px;"><thead><tr><th style="padding:6px 12px;">Estudante</th><th style="padding:6px 12px;">Situação</th><th style="padding:6px 12px;">Nº dias (se justificada)</th></tr></thead><tbody>${linhas}</tbody></table>`
       : `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum estudante nessa turma.</p>`}
@@ -3316,7 +4194,7 @@ async function renderizarChamada(el){
         if(status === 'falta_justificada' && nDias > 1){
           for(let i=1;i<nDias;i++){
             const d = new Date(dataBase); d.setDate(d.getDate()+i);
-            linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:d.toISOString().slice(0,10), status:'falta_justificada', registrado_por:ESTADO.perfil.id, dias_justificados:nDias, texto_outros:null });
+            linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:dataObjParaISO(d), status:'falta_justificada', registrado_por:ESTADO.perfil.id, dias_justificados:nDias, texto_outros:null });
           }
         }
       }
@@ -3335,17 +4213,29 @@ async function renderizarChamada(el){
 }
 
 async function renderizarHistoricoFrequencia(el){
-  const opcoesAlunos = ESTADO.alunos.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+    .map(t => `<option value="${t.id}" ${ESTADO.histTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const alunosFiltrados = (ESTADO.histTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.histTurmaId) : ESTADO.alunos)
+    .slice().sort((a,b) => a.nome.localeCompare(b.nome));
+  const opcoesAlunos = alunosFiltrados
     .map(a => `<option value="${a.id}" ${ESTADO.histAlunoId===a.id?'selected':''}>${esc(a.nome)}</option>`).join('');
 
   el.innerHTML = `
     <div class="painel">
-      <div class="barra" style="padding:10px 14px;">
-        <div class="campo" style="margin:0;min-width:280px;"><label>Estudante</label><select id="hist-aluno"><option value="">Selecione o estudante</option>${opcoesAlunos}</select></div>
+      <div class="barra" style="padding:10px 14px;flex-wrap:wrap;gap:12px;">
+        <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="hist-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div>
+        <div class="campo" style="margin:0;min-width:280px;flex:1;"><label>Estudante</label><select id="hist-aluno"><option value="">Selecione o estudante</option>${opcoesAlunos}</select></div>
       </div>
       <div id="hist-conteudo" style="padding:12px 14px;"></div>
     </div>`;
 
+  document.getElementById('hist-turma').addEventListener('change', e => {
+    ESTADO.histTurmaId = e.target.value;
+    if(ESTADO.histAlunoId && !ESTADO.alunos.find(a => a.id === ESTADO.histAlunoId && (!ESTADO.histTurmaId || a.turma_id === ESTADO.histTurmaId))){
+      ESTADO.histAlunoId = '';
+    }
+    renderizarHistoricoFrequencia(el);
+  });
   document.getElementById('hist-aluno').addEventListener('change', e => { ESTADO.histAlunoId = e.target.value; renderizarHistoricoFrequencia(el); });
 
   const conteudo = document.getElementById('hist-conteudo');
@@ -3356,20 +4246,60 @@ async function renderizarHistoricoFrequencia(el){
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
 
   const { data: historico } = await supabase.from('frequencia_mensal_historico').select('*').eq('aluno_id', ESTADO.histAlunoId).order('ano_letivo').order('mes');
-  if(!historico || !historico.length){
-    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum histórico de frequência encontrado para este estudante.</p>`;
-    return;
-  }
   const { data: diasLetivosTodos } = await supabase.from('dias_letivos').select('*');
   const mapaDias = {};
   (diasLetivosTodos||[]).forEach(d => { mapaDias[`${d.ano_letivo}-${d.mes}`] = d.quantidade_dias; });
 
-  const linhas = historico.map(h => {
-    const totalDias = mapaDias[`${h.ano_letivo}-${h.mes}`];
-    const percentual = totalDias ? Math.max(0, Math.round(((totalDias - h.faltas) / totalDias) * 100)) : null;
+  const mapaHistorico = {};
+  (historico||[]).forEach(h => { mapaHistorico[`${h.ano_letivo}-${h.mes}`] = h.faltas; });
+
+  // Além dos meses já importados para o histórico, completa automaticamente os meses mais
+  // recentes (que ainda não foram "fechados" no histórico) calculando as faltas ao vivo
+  // a partir da Chamada Diária já registrada.
+  const hoje = new Date();
+  const anoAtual = hoje.getFullYear();
+  const mesAtual = hoje.getMonth() + 1;
+  const anosRelevantes = new Set((historico||[]).map(h => h.ano_letivo));
+  anosRelevantes.add(anoAtual);
+
+  const chavesParaExibir = [];
+  Array.from(anosRelevantes).sort((a,b) => a-b).forEach(ano => {
+    for(let mes = 1; mes <= 12; mes++){
+      const chave = `${ano}-${mes}`;
+      const temHistorico = chave in mapaHistorico;
+      const temDiasLetivos = (mapaDias[chave] || 0) > 0;
+      const jaOcorreu = ano < anoAtual || (ano === anoAtual && mes <= mesAtual);
+      if(temHistorico || (temDiasLetivos && jaOcorreu)) chavesParaExibir.push({ ano, mes });
+    }
+  });
+
+  if(!chavesParaExibir.length){
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum histórico de frequência encontrado para este estudante.</p>`;
+    return;
+  }
+
+  const linhasCalculadas = await Promise.all(chavesParaExibir.map(async ({ano, mes}) => {
+    const chave = `${ano}-${mes}`;
+    let faltas;
+    if(chave in mapaHistorico){
+      faltas = mapaHistorico[chave];
+    } else {
+      const ultimoDia = new Date(ano, mes, 0).getDate();
+      const inicio = `${ano}-${String(mes).padStart(2,'0')}-01`;
+      const fim = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
+      const { data: faltasAoVivo } = await supabase.from('frequencia').select('status')
+        .eq('aluno_id', ESTADO.histAlunoId).gte('data', inicio).lte('data', fim).in('status', ['falta','falta_justificada']);
+      faltas = (faltasAoVivo||[]).length;
+    }
+    return { ano, mes, faltas };
+  }));
+
+  const linhas = linhasCalculadas.map(({ano, mes, faltas}) => {
+    const totalDias = mapaDias[`${ano}-${mes}`];
+    const percentual = totalDias ? Math.max(0, Math.round(((totalDias - faltas) / totalDias) * 100)) : null;
     return `<tr>
-      <td>${MESES_EXTENSO[h.mes-1]}/${h.ano_letivo}</td>
-      <td>${h.faltas}</td>
+      <td>${MESES_EXTENSO[mes-1]}/${ano}</td>
+      <td>${faltas}</td>
       <td>${totalDias ?? '—'}</td>
       <td>${percentual !== null ? percentual + '%' : '—'}</td>
     </tr>`;
@@ -3377,7 +4307,7 @@ async function renderizarHistoricoFrequencia(el){
 
   conteudo.innerHTML = `
     <table><thead><tr><th>Mês</th><th>Faltas</th><th>Dias letivos</th><th>% Frequência</th></tr></thead><tbody>${linhas}</tbody></table>
-    <p style="color:var(--texto-suave);font-size:12px;margin-top:8px;">O percentual só é calculado quando os dias letivos do mês estão cadastrados na aba "Dias letivos".</p>
+    <p style="color:var(--texto-suave);font-size:12px;margin-top:8px;">O percentual só é calculado quando os dias letivos do mês estão cadastrados na aba "Dias letivos". Meses recentes que ainda não foram consolidados são calculados automaticamente a partir da Chamada Diária.</p>
   `;
 }
 // ---------------------------------------------------------------
@@ -3456,7 +4386,7 @@ function renderizarDeclaracoes(el){
         </div>
         <div id="doc-extra"></div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;">
-          <div class="campo"><label>Data do documento</label><input type="date" id="doc-data" value="${new Date().toISOString().slice(0,10)}" /></div>
+          <div class="campo"><label>Data do documento</label><input type="date" id="doc-data" value="${hojeISO()}" /></div>
           <div class="campo"><label>Assinatura</label>
             <select id="doc-assinatura">
               <option value="gestora" ${ESTADO.docAssinatura==='gestora'?'selected':''}>Rosineide de Araújo Santos Vieira — Gestora Escolar</option>
@@ -4094,7 +5024,7 @@ async function gerarFichaNotasDocumento(aluno, registro){
         ( ${exameEsp.situacao==='plena'?'X':'&nbsp;'} ) PROGRESSÃO PLENA &nbsp;&nbsp; ( ${exameEsp.situacao==='retido'?'X':'&nbsp;'} ) RETIDO
       </p>
 
-      <p class="doc-data">Paulista, ${dataPorExtenso(new Date().toISOString().slice(0,10))}.</p>
+      <p class="doc-data">Paulista, ${dataPorExtenso(hojeISO())}.</p>
       <div class="assinaturas-duplas">
         <div>Secretário(a) escolar</div>
         <div>Gestor(a) escolar</div>
@@ -4681,7 +5611,7 @@ async function gerarHistoricoEscolarDocumento(aluno, anos){
         <div class="diagonal-nao-cursada"></div>
       </div>
 
-      <p class="doc-data">Paulista, ${dataPorExtenso(new Date().toISOString().slice(0,10))}.</p>
+      <p class="doc-data">Paulista, ${dataPorExtenso(hojeISO())}.</p>
       <div class="assinaturas-duplas">
         <div>Rosemary Martins Feitosa<br/>Matrícula: 10.577<br/>Secretário(a) Escolar</div>
         <div>Rosineide de Araújo S. Vieira<br/>Matrícula: 11.206<br/>Gestor(a) Escolar</div>
@@ -4757,7 +5687,7 @@ function abrirModalNovaSolicitacao(elLista){
         <div class="campo"><label>Nome do solicitante</label><input type="text" id="sol-solicitante" placeholder="Ex: nome do responsável" /></div>
         <div class="campo"><label>Telefone do solicitante</label><input type="text" id="sol-telefone" placeholder="Ex: (81) 9xxxx-xxxx" /></div>
       </div>
-      <div class="campo"><label>Data da solicitação</label><input type="date" id="sol-data" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="campo"><label>Data da solicitação</label><input type="date" id="sol-data" value="${hojeISO()}" /></div>
       <div class="campo" style="margin-bottom:0;"><label>Observações</label><input type="text" id="sol-obs" /></div>
       <button class="botao terracota pequeno" id="btn-salvar-solicitacao" style="margin-top:16px;width:auto;">Registrar solicitação</button>
     </div>`;
@@ -4797,7 +5727,7 @@ function abrirModalNovaSolicitacao(elLista){
       turma_id: document.getElementById('sol-turma').value || null,
       telefone_solicitante: document.getElementById('sol-telefone').value.trim() || null,
       nome_solicitante: solicitante,
-      data_solicitacao: document.getElementById('sol-data').value || new Date().toISOString().slice(0,10),
+      data_solicitacao: document.getElementById('sol-data').value || hojeISO(),
       observacoes: document.getElementById('sol-obs').value.trim() || null,
       registrado_por: ESTADO.perfil.id,
     };
@@ -5217,12 +6147,15 @@ async function carregarOcorrencias(conteudo, elPai){
   });
 }
 
-async function dataEhNaoLetiva(dataIso){
+async function dataEhNaoLetiva(dataIso, turnoTurma){
   if(!dataIso) return false;
   const diaSemana = new Date(dataIso + 'T00:00:00').getDay();
   if(diaSemana === 0 || diaSemana === 6) return true;
-  const { data: feriado } = await supabase.from('feriados').select('tipo').eq('data', dataIso).maybeSingle();
-  return !!feriado && ['feriado','ponto_facultativo','recesso'].includes(feriado.tipo);
+  const { data: feriado } = await supabase.from('feriados').select('tipo, turno_afetado').eq('data', dataIso).maybeSingle();
+  if(!feriado) return false;
+  if(['feriado','ponto_facultativo','recesso'].includes(feriado.tipo)) return true;
+  if(feriado.tipo === 'suspensao_aulas') return turnoAfetaSuspensao(turnoTurma, feriado.turno_afetado);
+  return false;
 }
 
 function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
@@ -5269,14 +6202,14 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
       <button class="botao terracota" id="btn-salvar-ocorrencia" style="margin-top:16px;width:auto;">${editando ? 'Salvar alterações' : 'Salvar e gerar ficha de ocorrência'}</button>
     </div>`;
   document.body.appendChild(modal);
-  let dataAnteriorOc = editando ? registroExistente.data : new Date().toISOString().slice(0,10);
+  let dataAnteriorOc = editando ? registroExistente.data : hojeISO();
   const seletorDataOc = criarSeletorData('oc-data-wrap', dataAnteriorOc, async (novaData) => {
-    if(novaData && novaData > new Date().toISOString().slice(0,10)){
+    if(novaData && novaData > hojeISO()){
       alert(`A data selecionada (${formatarDataBR(novaData)}) ainda não aconteceu. Selecione a data em que a ocorrência realmente ocorreu.`);
       seletorDataOc.definir(dataAnteriorOc);
       return;
     }
-    if(novaData && await dataEhNaoLetiva(novaData)){
+    if(novaData && await dataEhNaoLetiva(novaData, turmaAluno?.turno)){
       const confirmado = confirm(`A data selecionada (${formatarDataBR(novaData)}) é um dia não letivo (fim de semana, feriado ou recesso). Confirma que a ocorrência realmente aconteceu nesse dia?`);
       if(!confirmado){
         seletorDataOc.definir(dataAnteriorOc);
@@ -5304,7 +6237,7 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
     if(!qualificacoes.length && !(outrasCheck && outrasTexto)){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos uma qualificação da ocorrência.</div>`; return; }
     const dataParaSalvar = document.getElementById('oc-data').value;
     if(!dataParaSalvar){ msg.innerHTML = `<div class="msg-erro">Selecione a data da ocorrência.</div>`; return; }
-    if(dataParaSalvar > new Date().toISOString().slice(0,10)){ msg.innerHTML = `<div class="msg-erro">A data da ocorrência não pode estar no futuro.</div>`; return; }
+    if(dataParaSalvar > hojeISO()){ msg.innerHTML = `<div class="msg-erro">A data da ocorrência não pode estar no futuro.</div>`; return; }
     const btn = document.getElementById('btn-salvar-ocorrencia');
     btn.disabled = true; btn.textContent = 'Salvando…';
     const dados = {
@@ -5407,7 +6340,7 @@ function imprimirFichaOcorrencia(r, aluno){
       <div class="caixa-titulo">Observações</div>
       <div class="obs-box">${esc(r.observacoes || '')}</div>
 
-      <p style="text-align:right;">Paulista, ${dataPorExtenso(new Date().toISOString().slice(0,10))}.</p>
+      <p style="text-align:right;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
 
       <div class="assinaturas">
         <div class="linha-assinatura">Assinatura do Estudante</div>
@@ -5469,7 +6402,7 @@ async function imprimirComunicadoOcorrencia(r, aluno){
 
       <p class="doc-texto">Solicitamos o comparecimento de um responsável a esta Unidade de Ensino, no prazo de até 2 (dois) dias letivos, para tratarmos do assunto e, juntos, buscarmos as melhores encaminhamentos para o desenvolvimento e bem-estar do(a) estudante.</p>
 
-      <p class="doc-data">Paulista, ${dataPorExtenso(new Date().toISOString().slice(0,10))}.</p>
+      <p class="doc-data">Paulista, ${dataPorExtenso(hojeISO())}.</p>
       <div class="doc-assinatura">
         <div class="linha"></div>
         <p style="margin:0;line-height:1.35;">Direção Escolar — Escola Municipal Jaime Gonçalves Bold</p>
@@ -5479,6 +6412,285 @@ async function imprimirComunicadoOcorrencia(r, aluno){
         Declaro estar ciente do comunicado acima e do comparecimento solicitado.<br/><br/>
         Assinatura do(a) Responsável: ____________________________________________ &nbsp;&nbsp; Data: ____/____/______
       </div>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+// ---------------------------------------------------------------
+// RELATÓRIOS — impressão de documentos por turma
+// ---------------------------------------------------------------
+function calcularIdade(dataNascISO){
+  if(!dataNascISO) return '—';
+  const hoje = new Date();
+  const nasc = new Date(dataNascISO + 'T00:00:00');
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const aindaNaoFezAniversario = (hoje.getMonth() < nasc.getMonth()) ||
+    (hoje.getMonth() === nasc.getMonth() && hoje.getDate() < nasc.getDate());
+  if(aindaNaoFezAniversario) idade--;
+  if(idade < 0) return '—';
+  return `${idade} ano${idade === 1 ? '' : 's'}`;
+}
+
+function anotacaoSituacaoAluno(aluno){
+  const feminino = aluno.sexo === 'F';
+  if(aluno.situacao === 'transferido') return feminino ? ' (TRANSFERIDA)' : ' (TRANSFERIDO)';
+  if(aluno.situacao === 'cancelado') return feminino ? ' (CANCELADA)' : ' (CANCELADO)';
+  return '';
+}
+
+function cabecalhoImpressaoTurma(titulo, turma){
+  const ano = new Date().getFullYear();
+  return `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
+      <tr>
+        <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:52px;height:52px;" /></td>
+        <td style="text-align:center;">
+          <div style="font-size:15px;font-weight:800;color:#1D4E9B;letter-spacing:.02em;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+          <div style="font-size:15px;font-weight:800;color:#111;margin-top:2px;">${esc(titulo)} - ${ano}</div>
+        </td>
+        <td style="width:64px;text-align:right;"><img src="${LOGO_DATA_URL}" style="width:52px;height:52px;" /></td>
+      </tr>
+    </table>
+    <div style="text-align:center;font-size:19px;font-weight:800;color:#B4432E;margin:4px 0 16px;">${esc(turma.nome)}</div>
+  `;
+}
+
+function renderizarRelatorios(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  el.innerHTML = `
+    <div class="cabecalho-pagina"><div><h2>Relatórios</h2><p>Documentos para impressão, organizados por turma</p></div></div>
+    <div class="painel">
+      <div style="padding:16px;">
+        <div class="campo" style="max-width:340px;"><label>Turma</label><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;">
+          <button class="botao terracota pequeno" id="btn-rel-lista-pasta" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Lista de Pasta de Estudante</button>
+          <button class="botao secundario pequeno" id="btn-rel-ata" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ ATA de Presença</button>
+          <button class="botao secundario pequeno" id="btn-rel-frequencia" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Frequência de Estudantes</button>
+        </div>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin-top:14px;">
+          <b>Lista de Pasta de Estudante</b> — nome, AEE, data de nascimento, idade e telefone, para arquivo da pasta da turma.<br/>
+          <b>ATA de Presença</b> — nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.<br/>
+          <b>Frequência de Estudantes</b> — percentual de frequência mês a mês (Fevereiro a Dezembro) e média anual, com AEE, Bolsa Família e NIS.
+        </p>
+      </div>
+    </div>`;
+
+  const sel = document.getElementById('rel-turma');
+  const btnLista = document.getElementById('btn-rel-lista-pasta');
+  const btnAta = document.getElementById('btn-rel-ata');
+  const btnFrequencia = document.getElementById('btn-rel-frequencia');
+  sel.addEventListener('change', (e) => {
+    ESTADO.relatorioTurmaId = e.target.value;
+    const temTurma = !!ESTADO.relatorioTurmaId;
+    btnLista.disabled = !temTurma;
+    btnAta.disabled = !temTurma;
+    btnFrequencia.disabled = !temTurma;
+  });
+  btnLista.addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
+  btnAta.addEventListener('click', () => imprimirAtaPresenca(ESTADO.relatorioTurmaId));
+  btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
+}
+
+function imprimirListaPastaEstudantes(turmaId){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const linhas = alunosTurma.map((a, i) => `
+    <tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}${anotacaoSituacaoAluno(a)}</td>
+      <td style="text-align:center;">${a.aee ? 'SIM' : 'NÃO'}</td>
+      <td style="text-align:center;">${a.data_nascimento ? formatarDataBR(a.data_nascimento) : '—'}</td>
+      <td style="text-align:center;">${calcularIdade(a.data_nascimento)}</td>
+      <td style="text-align:center;">${esc(a.telefone || '—')}</td>
+    </tr>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Relação de Estudantes - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 10mm 12mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:11.5px;text-transform:uppercase;padding:6px 4px;border:1px solid #15325C;}
+      table.lista tbody td{padding:5px 4px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      ${cabecalhoImpressaoTurma('RELAÇÃO DE ESTUDANTES', turma)}
+      <table class="lista">
+        <thead><tr>
+          <th style="width:6%;">NUM</th>
+          <th style="width:42%;">NOME</th>
+          <th style="width:10%;">AEE</th>
+          <th style="width:14%;">DATA NASC.</th>
+          <th style="width:12%;">IDADE</th>
+          <th style="width:16%;">FONE</th>
+        </tr></thead>
+        <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
+      </table>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+function imprimirAtaPresenca(turmaId){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const linhas = alunosTurma.map((a, i) => `
+    <tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}${anotacaoSituacaoAluno(a)}</td>
+      <td style="text-align:center;">${a.data_nascimento ? formatarDataBR(a.data_nascimento) : '—'}</td>
+      <td></td>
+    </tr>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Ata de Presença - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 10mm 12mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:11.5px;text-transform:uppercase;padding:6px 4px;border:1px solid #15325C;}
+      table.lista tbody td{padding:9px 4px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      ${cabecalhoImpressaoTurma('ATA DE PRESENÇA', turma)}
+      <table class="lista">
+        <thead><tr>
+          <th style="width:6%;">NUM</th>
+          <th style="width:42%;">NOME</th>
+          <th style="width:14%;">DATA NASC.</th>
+          <th style="width:38%;">ASSINATURA</th>
+        </tr></thead>
+        <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
+      </table>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+  setTimeout(() => janela.print(), 400);
+}
+
+async function imprimirFrequenciaEstudantes(turmaId){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  if(!alunosTurma.length){ alert('Esta turma não tem estudantes cadastrados.'); return; }
+
+  const ano = new Date().getFullYear();
+  const hoje = new Date();
+  const mesAtual = hoje.getFullYear() === ano ? hoje.getMonth() + 1 : 12;
+  const meses = [2,3,4,5,6,7,8,9,10,11,12]; // ano letivo: fevereiro a dezembro
+
+  const { data: diasLetivosAno } = await supabase.from('dias_letivos').select('mes, quantidade_dias').eq('ano_letivo', ano);
+  const mapaDias = {};
+  (diasLetivosAno||[]).forEach(d => { mapaDias[d.mes] = d.quantidade_dias; });
+
+  const alunoIds = alunosTurma.map(a => a.id);
+  const { data: historicoTurma } = await supabase.from('frequencia_mensal_historico').select('aluno_id, mes, faltas').eq('ano_letivo', ano).in('aluno_id', alunoIds);
+  const mapaHistorico = {};
+  (historicoTurma||[]).forEach(h => { mapaHistorico[`${h.aluno_id}-${h.mes}`] = h.faltas; });
+
+  const mesesAoVivo = meses.filter(m => m <= mesAtual);
+  const { data: faltasAoVivo } = await supabase.from('frequencia').select('aluno_id, data')
+    .in('aluno_id', alunoIds).gte('data', `${ano}-02-01`).lte('data', `${ano}-12-31`).in('status', ['falta','falta_justificada']);
+  const mapaFaltasAoVivo = {};
+  (faltasAoVivo||[]).forEach(f => {
+    const mes = parseInt(f.data.slice(5,7), 10);
+    const chave = `${f.aluno_id}-${mes}`;
+    mapaFaltasAoVivo[chave] = (mapaFaltasAoVivo[chave] || 0) + 1;
+  });
+
+  function ultimoDiaMes(mes){ return new Date(ano, mes, 0).getDate(); }
+
+  function dadosDoMes(aluno, mes){
+    const totalDias = mapaDias[mes];
+    if(!totalDias) return null;
+    const dataFimMes = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDiaMes(mes)).padStart(2,'0')}`;
+    if(!alunoTemFrequenciaNaData(aluno, dataFimMes)) return null;
+    const chave = `${aluno.id}-${mes}`;
+    const temHistorico = chave in mapaHistorico;
+    if(!temHistorico && !mesesAoVivo.includes(mes)) return null;
+    const faltas = temHistorico ? mapaHistorico[chave] : (mapaFaltasAoVivo[chave] || 0);
+    return { totalDias, faltas };
+  }
+
+  function percentual(dados){
+    if(!dados) return null;
+    return Math.max(0, Math.round(((dados.totalDias - dados.faltas) / dados.totalDias) * 100));
+  }
+
+  function celPercentual(p){
+    if(p === null) return `<td></td>`;
+    const baixo = p < 75;
+    return `<td style="text-align:center;${baixo?'background:#F6C6C0;color:#7A1E12;font-weight:700;':''}">${p}%</td>`;
+  }
+
+  const linhas = alunosTurma.map((a, i) => {
+    let somaDias = 0, somaFaltas = 0;
+    const celulasMeses = meses.map(mes => {
+      const dados = dadosDoMes(a, mes);
+      if(dados){ somaDias += dados.totalDias; somaFaltas += dados.faltas; }
+      return celPercentual(percentual(dados));
+    }).join('');
+    const anual = somaDias ? Math.max(0, Math.round(((somaDias - somaFaltas) / somaDias) * 100)) : null;
+    return `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}${anotacaoSituacaoAluno(a)}</td>
+      <td style="text-align:center;">${a.aee ? 'SIM' : 'NÃO'}</td>
+      <td style="text-align:center;${a.bolsa_familia?'background:#CFE0F5;':''}">${a.bolsa_familia ? 'SIM' : ''}</td>
+      <td style="text-align:center;">${esc(a.nis || '—')}</td>
+      ${celulasMeses}
+      ${celPercentual(anual)}
+    </tr>`;
+  }).join('');
+
+  const cabecalhosMeses = meses.map(m => `<th style="width:5.5%;">${MESES_EXTENSO[m-1].slice(0,3).toUpperCase()}</th>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Frequência de Estudantes - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4 landscape; margin: 8mm 10mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:10.5px;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:9.5px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;white-space:nowrap;}
+      table.lista tbody td{padding:4px 3px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      ${cabecalhoImpressaoTurma('FREQUÊNCIA DE ESTUDANTES', turma)}
+      <table class="lista">
+        <thead><tr>
+          <th style="width:4%;">NUM</th>
+          <th style="width:20%;">ESTUDANTE</th>
+          <th style="width:5%;">AEE</th>
+          <th style="width:7%;">FAMÍLIA</th>
+          <th style="width:8%;">NIS</th>
+          ${cabecalhosMeses}
+          <th style="width:6%;">ANUAL</th>
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
     </body></html>
   `);
   janela.document.close();
