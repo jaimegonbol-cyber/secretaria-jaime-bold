@@ -5172,8 +5172,13 @@ async function preencherSeriesAutomaticamente(aluno){
   if(numeroAtual < 1 || numeroAtual > 9) return { ok:false, motivo:'fora_do_fundamental' };
 
   const anoVigente = new Date().getFullYear();
-  const { data: existentes } = await supabase.from('historico_escolar_anual').select('id, ano_civil, carga_horaria_anual').eq('aluno_id', aluno.id);
+  const { data: existentes } = await supabase.from('historico_escolar_anual').select('id, ano_civil, serie, carga_horaria_anual').eq('aluno_id', aluno.id);
   const mapaExistentes = new Map((existentes||[]).map(r => [r.ano_civil, r]));
+  // Números de série que o estudante JÁ TEM registrados (em qualquer ano civil) — importante para não
+  // recriar uma série "fantasma" quando o estudante repetiu de ano (a série real já está
+  // registrada em outro ano civil diferente do que a fórmula sequencial esperaria).
+  const numeroDaSerie = (texto) => { const m = (texto||'').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
+  const numerosJaRegistrados = new Set((existentes||[]).map(r => numeroDaSerie(r.serie)).filter(n => n !== null));
 
   const linhasNovas = [];
   const atualizacoesCarga = [];
@@ -5181,9 +5186,10 @@ async function preencherSeriesAutomaticamente(aluno){
     const anoCivil = anoVigente - (numeroAtual - numero);
     const cargaHoraria = numero <= 5 ? '800 h' : '1080 h';
     const existente = mapaExistentes.get(anoCivil);
-    if(!existente){
+    const jaTemEssaSerie = numerosJaRegistrados.has(numero);
+    if(!existente && !jaTemEssaSerie){
       linhasNovas.push({ aluno_id: aluno.id, ano_civil: anoCivil, serie: `${numero}º ANO`, carga_horaria_anual: cargaHoraria });
-    } else if(!existente.carga_horaria_anual || !existente.carga_horaria_anual.trim()){
+    } else if(existente && (!existente.carga_horaria_anual || !existente.carga_horaria_anual.trim())){
       atualizacoesCarga.push({ id: existente.id, carga_horaria_anual: cargaHoraria });
     }
   }
