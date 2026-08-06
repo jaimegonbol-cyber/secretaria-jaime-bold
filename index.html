@@ -4009,12 +4009,17 @@ async function renderizarChamada(el){
   const podeRegistrar = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'coordenacao';
   const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.chamadaTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
 
-  // Sincroniza o "Tipo do dia" com o que já está salvo no banco (só na primeira vez que essa
-  // data é aberta na sessão — depois disso, respeita a escolha manual do usuário na tela).
-  if(ESTADO.chamadaDataSincronizada !== ESTADO.chamadaData){
+  // Sincroniza o "Tipo do dia" com o que já está salvo no banco (refaz sempre que a turma OU a
+  // data mudar — nunca deixa uma seleção "Outros"/descrição de uma turma ou data anterior grudada).
+  const chaveSincronizacaoChamada = `${ESTADO.chamadaTurma}|${ESTADO.chamadaData}`;
+  if(ESTADO.chamadaDataSincronizada !== chaveSincronizacaoChamada){
     const statusEmMassaSet = ['feriado','ponto_facultativo','suspensao_aulas','outros'];
-    const { data: registroExistente } = await supabase.from('frequencia').select('status, texto_outros')
-      .eq('data', ESTADO.chamadaData).limit(1).maybeSingle();
+    let registroExistente = null;
+    if(ESTADO.chamadaTurma){
+      const resp = await supabase.from('frequencia').select('status, texto_outros')
+        .eq('data', ESTADO.chamadaData).eq('turma_id', ESTADO.chamadaTurma).limit(1).maybeSingle();
+      registroExistente = resp.data;
+    }
     if(registroExistente && statusEmMassaSet.includes(registroExistente.status)){
       ESTADO.chamadaTipoDia = registroExistente.status;
       ESTADO.chamadaTextoOutros = registroExistente.texto_outros || '';
@@ -4022,7 +4027,7 @@ async function renderizarChamada(el){
       ESTADO.chamadaTipoDia = 'normal';
       ESTADO.chamadaTextoOutros = '';
     }
-    ESTADO.chamadaDataSincronizada = ESTADO.chamadaData;
+    ESTADO.chamadaDataSincronizada = chaveSincronizacaoChamada;
   }
 
   const { data: feriadosData } = await supabase.from('feriados').select('*').eq('data', ESTADO.chamadaData).maybeSingle();
@@ -4147,6 +4152,7 @@ async function renderizarChamada(el){
     const reg = porAluno[a.id];
     const status = reg?.status || 'presente';
     const dias = reg?.dias_justificados || '';
+    const motivo = reg?.motivo_justificativa || '';
     const disabled = podeRegistrar ? '' : 'disabled';
     return `
       <tr data-aluno="${a.id}">
@@ -4159,15 +4165,17 @@ async function renderizarChamada(el){
           </div>
         </td>
         <td style="padding:5px 12px;"><input type="number" min="1" max="60" class="input-dias-justificados" data-aluno="${a.id}" value="${dias}" placeholder="dias" ${disabled} style="width:70px;padding:4px 6px;${status==='falta_justificada'?'':'visibility:hidden;'}" /></td>
+        <td style="padding:5px 12px;"><input type="text" class="input-motivo-justificativa" data-aluno="${a.id}" value="${esc(motivo)}" placeholder="Motivo (ex: atestado médico)" ${disabled} style="width:220px;padding:4px 6px;${status==='falta_justificada'?'':'visibility:hidden;'}" /></td>
       </tr>`;
   }).join('');
 
   conteudo.innerHTML = `
     ${registroEmMassa ? `<div class="msg-erro" style="margin-bottom:12px;">Este dia já tem um lançamento em massa registrado como <b>"${rotulosEmMassa[registroEmMassa.status] || registroEmMassa.status}"</b> (aplicado a todos os estudantes de uma vez, não pela chamada individual) — por isso nenhuma opção aparece marcada abaixo. Se você preencher e salvar a chamada individual agora, o registro de cada estudante marcado abaixo vai <b>substituir</b> esse lançamento em massa.</div>` : ''}
     ${alunosTurma.length
-      ? `<table style="font-size:13px;"><thead><tr><th style="padding:6px 12px;">Estudante</th><th style="padding:6px 12px;">Situação</th><th style="padding:6px 12px;">Nº dias (se justificada)</th></tr></thead><tbody>${linhas}</tbody></table>`
+      ? `<table style="font-size:13px;"><thead><tr><th style="padding:6px 12px;">Estudante</th><th style="padding:6px 12px;">Situação</th><th style="padding:6px 12px;">Nº dias (se justificada)</th><th style="padding:6px 12px;">Motivo (se justificada)</th></tr></thead><tbody>${linhas}</tbody></table>`
       : `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum estudante nessa turma.</p>`}
     ${!podeRegistrar ? `<p style="margin-top:10px;color:var(--erro);font-size:13.5px;">Apenas Coordenação/Apoio Escolar ou Administrador podem registrar a chamada.</p>` : ''}
+    ${podeRegistrar && alunosTurma.length ? `<p style="font-size:12px;color:var(--texto-suave);margin-top:8px;">Ao informar mais de 1 dia numa falta justificada, os dias seguintes são preenchidos automaticamente com o mesmo motivo, em contagem regressiva (ex: 3, 2, 1 dia restante).</p>` : ''}
     ${podeRegistrar && alunosTurma.length ? `<button class="botao terracota pequeno" id="btn-salvar-chamada" style="margin-top:12px;width:auto;">Salvar chamada</button>` : ''}
   `;
 
@@ -4175,7 +4183,10 @@ async function renderizarChamada(el){
     r.addEventListener('change', (e) => {
       const alunoId = e.target.name.replace('st-','');
       const campoDias = conteudo.querySelector(`.input-dias-justificados[data-aluno="${alunoId}"]`);
-      if(campoDias) campoDias.style.visibility = e.target.value === 'falta_justificada' ? 'visible' : 'hidden';
+      const campoMotivo = conteudo.querySelector(`.input-motivo-justificativa[data-aluno="${alunoId}"]`);
+      const visivel = e.target.value === 'falta_justificada' ? 'visible' : 'hidden';
+      if(campoDias) campoDias.style.visibility = visivel;
+      if(campoMotivo) campoMotivo.style.visibility = visivel;
     });
   });
 
@@ -4189,12 +4200,17 @@ async function renderizarChamada(el){
         const radioMarcado = conteudo.querySelector(`input[name="st-${a.id}"]:checked`);
         const status = radioMarcado ? radioMarcado.value : 'presente';
         const campoDias = conteudo.querySelector(`.input-dias-justificados[data-aluno="${a.id}"]`);
+        const campoMotivo = conteudo.querySelector(`.input-motivo-justificativa[data-aluno="${a.id}"]`);
         const nDias = status === 'falta_justificada' ? (parseInt(campoDias.value, 10) || 1) : null;
-        linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:ESTADO.chamadaData, status, registrado_por:ESTADO.perfil.id, dias_justificados:nDias, texto_outros:null });
+        const motivo = status === 'falta_justificada' ? (campoMotivo.value.trim() || null) : null;
+        // contagem regressiva: o primeiro dia mostra o total de dias, e cada dia seguinte mostra
+        // quantos dias ainda restam (ex: falta justificada de 3 dias → 3, 2, 1)
+        linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:ESTADO.chamadaData, status, registrado_por:ESTADO.perfil.id, dias_justificados:nDias, motivo_justificativa:motivo, texto_outros:null });
         if(status === 'falta_justificada' && nDias > 1){
           for(let i=1;i<nDias;i++){
             const d = new Date(dataBase); d.setDate(d.getDate()+i);
-            linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:dataObjParaISO(d), status:'falta_justificada', registrado_por:ESTADO.perfil.id, dias_justificados:nDias, texto_outros:null });
+            const diasRestantes = nDias - i;
+            linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:dataObjParaISO(d), status:'falta_justificada', registrado_por:ESTADO.perfil.id, dias_justificados:diasRestantes, motivo_justificativa:motivo, texto_outros:null });
           }
         }
       }
@@ -4321,19 +4337,25 @@ function dataPorExtenso(iso){
 
 async function calcularPercentualFrequencia(alunoId, ano, mes){
   const { data: dl } = await supabase.from('dias_letivos').select('quantidade_dias').eq('ano_letivo', ano).eq('mes', mes).maybeSingle();
-  const totalDias = dl?.quantidade_dias || 0;
-  if(!totalDias) return null;
+  const totalDiasBase = dl?.quantidade_dias || 0;
+  if(!totalDiasBase) return null;
   const { data: hist } = await supabase.from('frequencia_mensal_historico').select('faltas').eq('aluno_id', alunoId).eq('ano_letivo', ano).eq('mes', mes).maybeSingle();
-  let totalFaltas;
+  let totalFaltas, totalDias;
   if(hist){
+    // histórico fechado manualmente: não há como saber quantos dias foram "Outros" dia a dia, então usa o total base
     totalFaltas = hist.faltas;
+    totalDias = totalDiasBase;
   } else {
     const ultimoDia = new Date(ano, mes, 0).getDate();
     const inicio = `${ano}-${String(mes).padStart(2,'0')}-01`;
     const fim = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
-    const { data: faltas } = await supabase.from('frequencia').select('status').eq('aluno_id', alunoId).gte('data', inicio).lte('data', fim).in('status', ['falta','falta_justificada']);
-    totalFaltas = (faltas||[]).length;
+    const { data: registros } = await supabase.from('frequencia').select('status').eq('aluno_id', alunoId).gte('data', inicio).lte('data', fim).in('status', ['falta','falta_justificada','outros']);
+    totalFaltas = (registros||[]).filter(r => r.status === 'falta' || r.status === 'falta_justificada').length;
+    // dias "Outros" saem do denominador, igual acontece com feriados (não entram na quantidade de dias letivos)
+    const diasOutros = (registros||[]).filter(r => r.status === 'outros').length;
+    totalDias = Math.max(0, totalDiasBase - diasOutros);
   }
+  if(!totalDias) return null;
   return Math.max(0, Math.round(((totalDias - totalFaltas) / totalDias) * 100));
 }
 
@@ -6614,31 +6636,43 @@ async function imprimirFrequenciaEstudantes(turmaId){
   (historicoTurma||[]).forEach(h => { mapaHistorico[`${h.aluno_id}-${h.mes}`] = h.faltas; });
 
   const mesesAoVivo = meses.filter(m => m <= mesAtual);
-  const { data: faltasAoVivo } = await supabase.from('frequencia').select('aluno_id, data')
-    .in('aluno_id', alunoIds).gte('data', `${ano}-02-01`).lte('data', `${ano}-12-31`).in('status', ['falta','falta_justificada']);
+  const { data: registrosAoVivo } = await supabase.from('frequencia').select('aluno_id, data, status')
+    .in('aluno_id', alunoIds).gte('data', `${ano}-02-01`).lte('data', `${ano}-12-31`).in('status', ['falta','falta_justificada','outros']);
   const mapaFaltasAoVivo = {};
-  (faltasAoVivo||[]).forEach(f => {
-    const mes = parseInt(f.data.slice(5,7), 10);
-    const chave = `${f.aluno_id}-${mes}`;
-    mapaFaltasAoVivo[chave] = (mapaFaltasAoVivo[chave] || 0) + 1;
+  const mapaOutrosAoVivo = {};
+  (registrosAoVivo||[]).forEach(r => {
+    const mes = parseInt(r.data.slice(5,7), 10);
+    const chave = `${r.aluno_id}-${mes}`;
+    if(r.status === 'outros'){
+      mapaOutrosAoVivo[chave] = (mapaOutrosAoVivo[chave] || 0) + 1;
+    } else {
+      mapaFaltasAoVivo[chave] = (mapaFaltasAoVivo[chave] || 0) + 1;
+    }
   });
 
   function ultimoDiaMes(mes){ return new Date(ano, mes, 0).getDate(); }
 
   function dadosDoMes(aluno, mes){
-    const totalDias = mapaDias[mes];
-    if(!totalDias) return null;
+    const totalDiasBase = mapaDias[mes];
+    if(!totalDiasBase) return null;
     const dataFimMes = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDiaMes(mes)).padStart(2,'0')}`;
     if(!alunoTemFrequenciaNaData(aluno, dataFimMes)) return null;
     const chave = `${aluno.id}-${mes}`;
     const temHistorico = chave in mapaHistorico;
     if(!temHistorico && !mesesAoVivo.includes(mes)) return null;
-    const faltas = temHistorico ? mapaHistorico[chave] : (mapaFaltasAoVivo[chave] || 0);
+    if(temHistorico){
+      // histórico fechado manualmente: não há detalhe de dias "Outros" dia a dia, usa o total base
+      return { totalDias: totalDiasBase, faltas: mapaHistorico[chave] };
+    }
+    // dias "Outros" saem do denominador, igual acontece com feriados
+    const diasOutros = mapaOutrosAoVivo[chave] || 0;
+    const totalDias = Math.max(0, totalDiasBase - diasOutros);
+    const faltas = mapaFaltasAoVivo[chave] || 0;
     return { totalDias, faltas };
   }
 
   function percentual(dados){
-    if(!dados) return null;
+    if(!dados || !dados.totalDias) return null;
     return Math.max(0, Math.round(((dados.totalDias - dados.faltas) / dados.totalDias) * 100));
   }
 
