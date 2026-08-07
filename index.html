@@ -4335,6 +4335,18 @@ function dataPorExtenso(iso){
   return `${parseInt(dia,10)} de ${MESES_EXTENSO[parseInt(mes,10)-1].toLowerCase()} de ${ano}`;
 }
 
+// Monta o trecho "filho(a) de PAI e MÃE" dos documentos. Se um dos dois (geralmente o pai)
+// não estiver cadastrado, mostra só o nome de quem está cadastrado — sem deixar uma linha
+// em branco (____) do lado do nome que existe.
+function formatarFiliacao(nomePai, nomeMae){
+  const pai = (nomePai || '').trim();
+  const mae = (nomeMae || '').trim();
+  if(pai && mae) return `<b>${esc(pai)}</b> e <b>${esc(mae)}</b>`;
+  if(mae) return `<b>${esc(mae)}</b>`;
+  if(pai) return `<b>${esc(pai)}</b>`;
+  return '<b>____________________</b>';
+}
+
 async function calcularPercentualFrequencia(alunoId, ano, mes){
   const { data: dl } = await supabase.from('dias_letivos').select('quantidade_dias').eq('ano_letivo', ano).eq('mes', mes).maybeSingle();
   const totalDiasBase = dl?.quantidade_dias || 0;
@@ -5436,8 +5448,8 @@ async function gerarHistoricoEscolarDocumento(aluno, anos){
   const { data: vinculos } = await supabase.from('aluno_responsavel').select('tipo, responsaveis(nome)').eq('aluno_id', aluno.id);
   const mae = (vinculos||[]).find(v => v.tipo === 'mae');
   const pai = (vinculos||[]).find(v => v.tipo === 'pai');
-  const nomeMae = mae?.responsaveis?.nome || '____________________';
-  const nomePai = pai?.responsaveis?.nome || '____________________';
+  const nomeMae = mae?.responsaveis?.nome || '';
+  const nomePai = pai?.responsaveis?.nome || '';
   const ultimoRegistro = anos[anos.length-1] || null;
   const estaCursandoAnoAtual = ultimoRegistro?.progressao === 'cursando';
   const registroConcluido = estaCursandoAnoAtual ? anos[anos.length-2] : ultimoRegistro;
@@ -5575,7 +5587,7 @@ async function gerarHistoricoEscolarDocumento(aluno, anos){
       </div>
 
       <div class="certifica">
-        Certificamos que <b>${esc(aluno.nome)}</b><br/>filho(a) de <b>${esc(nomePai)}</b> e <b>${esc(nomeMae)}</b>.<br/>
+        Certificamos que <b>${esc(aluno.nome)}</b><br/>filho(a) de ${formatarFiliacao(nomePai, nomeMae)}.<br/>
         Nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b> na Cidade: <b>${esc(aluno.naturalidade || '—')}</b><br/>
         Nacionalidade: <b>BRASILEIRA</b> &nbsp; R.G nº: <b>${esc(aluno.rg || '—')}</b><br/>
         Concluiu o: <b>${esc(serieMaisRecente)}</b> do Ensino Fundamental/Educação de Jovens e Adultos, nos termos da Lei Federal nº 9.394/1996.${textoSituacaoAtual}
@@ -5966,8 +5978,8 @@ async function gerarDocumento(tipo, aluno, extras){
   const mae = (vinculos||[]).find(v => v.tipo === 'mae');
   const pai = (vinculos||[]).find(v => v.tipo === 'pai');
   const turma = ESTADO.turmas.find(t => t.id === aluno.turma_id);
-  const nomeMae = mae?.responsaveis?.nome || '____________________';
-  const nomePai = pai?.responsaveis?.nome || '____________________';
+  const nomeMae = mae?.responsaveis?.nome || '';
+  const nomePai = pai?.responsaveis?.nome || '';
   const turno = (turma?.turno || '').toLowerCase();
   const ensino = turma?.ensino || '';
   const nomeTurma = turma?.nome || '';
@@ -5986,10 +5998,10 @@ async function gerarDocumento(tipo, aluno, extras){
 
   let corpo = '';
   if(tipo === 'declaracao_matricula'){
-    corpo = `<p class="doc-texto">Declaramos para os devidos fins que o(a) estudante <b>${esc(aluno.nome)}</b> filho(a) de <b>${esc(nomePai)}</b> e <b>${esc(nomeMae)}</b>, nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b>, está devidamente matriculado(a) nesta Unidade de Ensino, na turma do <b>${esc(nomeTurma)}</b> do <b>${esc(ensino)}</b> no turno da <b>${esc(turno)}</b> no ano corrente.</p>`;
+    corpo = `<p class="doc-texto">Declaramos para os devidos fins que o(a) estudante <b>${esc(aluno.nome)}</b> filho(a) de ${formatarFiliacao(nomePai, nomeMae)}, nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b>, está devidamente matriculado(a) nesta Unidade de Ensino, na turma do <b>${esc(nomeTurma)}</b> do <b>${esc(ensino)}</b> no turno da <b>${esc(turno)}</b> no ano corrente.</p>`;
   } else if(tipo === 'declaracao_frequencia'){
     const linhasMeses = extras.meses.map(m => `<p style="margin:2px 0;">${esc(m.nome)}: <b>${esc(m.percentual)}</b></p>`).join('');
-    corpo = `<p class="doc-texto">Declaramos para os devidos fins que o(a) estudante <b>${esc(aluno.nome)}</b> filho(a) de <b>${esc(nomePai)}</b> e <b>${esc(nomeMae)}</b>, nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b>, está devidamente matriculado(a) nesta Unidade de Ensino, na turma <b>${esc(nomeTurma)}</b> do ${esc(ensino).toLowerCase()} no turno da <b>${esc(turno)}</b> no ano corrente, obtendo como percentual de frequência:</p>
+    corpo = `<p class="doc-texto">Declaramos para os devidos fins que o(a) estudante <b>${esc(aluno.nome)}</b> filho(a) de ${formatarFiliacao(nomePai, nomeMae)}, nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b>, está devidamente matriculado(a) nesta Unidade de Ensino, na turma <b>${esc(nomeTurma)}</b> do ${esc(ensino).toLowerCase()} no turno da <b>${esc(turno)}</b> no ano corrente, obtendo como percentual de frequência:</p>
       <div style="margin:10px 0 0 0;text-align:left;">${linhasMeses}</div>`;
   } else if(tipo === 'declaracao_provisoria'){
     corpo = `
@@ -6007,7 +6019,7 @@ async function gerarDocumento(tipo, aluno, extras){
           <td style="border:1px solid #333;padding:6px 8px;"><div style="font-size:10.5px;color:#555;">CÓDIGO INEP</div><b>26116847</b></td>
         </tr>
       </table>
-      <p class="doc-texto">Declaramos que o(a) estudante <b>${esc(aluno.nome)}</b> filho(a) de <b>${esc(nomePai)}</b> e <b>${esc(nomeMae)}</b>, nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b>, natural de <b>${esc(aluno.naturalidade || '____________')}</b> UF <b>${esc(aluno.uf_naturalidade || '__')}</b>, tem direito à matrícula no(a) <b>${esc(serieTexto)}</b>${ensinoTexto}.</p>
+      <p class="doc-texto">Declaramos que o(a) estudante <b>${esc(aluno.nome)}</b> filho(a) de ${formatarFiliacao(nomePai, nomeMae)}, nascido(a) em <b>${dataPorExtenso(aluno.data_nascimento)}</b>, natural de <b>${esc(aluno.naturalidade || '____________')}</b> UF <b>${esc(aluno.uf_naturalidade || '__')}</b>, tem direito à matrícula no(a) <b>${esc(serieTexto)}</b>${ensinoTexto}.</p>
       <p class="doc-texto">O(A) Gestor(a) desta Unidade de Ensino compromete-se a fornecer no prazo de 30 (trinta) dias, o Histórico Escolar do(a) referido(a) estudante atendendo as exigências prescritas no artigo 24, inciso VII da Lei Federal nº 9.394/1996, assumindo plena responsabilidade pelas informações contidas neste documento, expedido sem emendas e rasuras.</p>`;
   }
 
