@@ -347,6 +347,10 @@ let ESTADO = {
   solicFiltroStatus: 'pendente',
   histAlunoId: '',
   histTurmaId: '',
+  subAvaliacoes: 'fluencia',
+  fluenciaTurmaId: '',
+  fluenciaAno: new Date().getFullYear(),
+  fluenciaMsgSucesso: null,
 };
 
 // ---------------------------------------------------------------
@@ -523,6 +527,7 @@ function itensNav(){
     { id:'frequencia', label:'Frequência', icone:'📅' },
     { id:'documentos', label:'Documentos', icone:'📄' },
     { id:'ocorrencias', label:'Ocorrências', icone:'⚠️' },
+    { id:'avaliacoes', label:'Avaliações', icone:'📊' },
     { id:'relatorios', label:'Relatórios', icone:'🖨️' },
   ];
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
@@ -612,6 +617,7 @@ function renderizarApp(){
   else if(ESTADO.pagina === 'frequencia') renderizarFrequencia(principal);
   else if(ESTADO.pagina === 'documentos') renderizarDocumentos(principal);
   else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(principal);
+  else if(ESTADO.pagina === 'avaliacoes') renderizarAvaliacoes(principal);
   else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(principal);
   else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(principal);
 }
@@ -3300,6 +3306,7 @@ const ABAS_PERMISSIVEIS = [
   { id:'frequencia', label:'Frequência' },
   { id:'documentos', label:'Documentos' },
   { id:'ocorrencias', label:'Ocorrências' },
+  { id:'avaliacoes', label:'Avaliações' },
   { id:'relatorios', label:'Relatórios' },
 ];
 
@@ -6498,6 +6505,254 @@ function cabecalhoImpressaoTurma(titulo, turma){
   `;
 }
 
+// ---------------------------------------------------------------
+// AVALIAÇÕES
+// ---------------------------------------------------------------
+const NIVEIS_FLUENCIA = [
+  [1, 'Não Leitor', '#F6C6C0'],
+  [2, 'Leitor de Sílabas', '#FBDDA6'],
+  [3, 'Leitor de Palavras', '#FCF0A6'],
+  [4, 'Leitor de Frases', '#DCEDB4'],
+  [5, 'Leitor de Texto s/ Fluência', '#BFE3C4'],
+  [6, 'Leitor de Texto c/ Fluência', '#8FD19E'],
+];
+function rotuloNivelFluencia(v){
+  const item = NIVEIS_FLUENCIA.find(n => n[0] === Number(v));
+  return item ? item[1] : '';
+}
+function corNivelFluencia(v){
+  const item = NIVEIS_FLUENCIA.find(n => n[0] === Number(v));
+  return item ? item[2] : '#fff';
+}
+function opcoesNivelFluencia(selecionado){
+  const vazio = `<option value="">—</option>`;
+  const opcoes = NIVEIS_FLUENCIA.map(([v,l]) => `<option value="${v}" ${Number(selecionado)===v?'selected':''}>${v} · ${esc(l)}</option>`).join('');
+  return vazio + opcoes;
+}
+
+function renderizarAvaliacoes(el){
+  const abasTopo = [
+    { id:'fluencia', label:'Avaliação de Fluência' },
+  ];
+  const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
+  el.innerHTML = `
+    <div class="cabecalho-pagina" style="margin-bottom:10px;"><div><h2>Avaliações</h2><p>Avaliações pedagógicas por turma</p></div></div>
+    ${abasTopo.length > 1 ? `<div class="subtabs" style="margin-bottom:10px;">${barraTopo}</div>` : ''}
+    <div id="conteudo-avaliacoes-topo"></div>`;
+  el.querySelectorAll('[data-aba-aval]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.subAvaliacoes = b.dataset.abaAval; renderizarAvaliacoes(el);
+  }));
+  const alvoTopo = el.querySelector('#conteudo-avaliacoes-topo');
+  renderizarAvaliacaoFluencia(alvoTopo);
+}
+
+async function renderizarAvaliacaoFluencia(el){
+  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.fluenciaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const anoAtual = new Date().getFullYear();
+  const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a => `<option value="${a}" ${ESTADO.fluenciaAno===a?'selected':''}>${a}</option>`).join('');
+
+  const legenda = NIVEIS_FLUENCIA.map(([v,l,cor]) => `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;margin-right:14px;"><span style="width:12px;height:12px;border-radius:3px;background:${cor};display:inline-block;border:1px solid rgba(0,0,0,.15);"></span>${v} · ${esc(l)}</span>`).join('');
+
+  const msgSucesso = ESTADO.fluenciaMsgSucesso;
+  ESTADO.fluenciaMsgSucesso = null;
+
+  el.innerHTML = `
+    <div class="painel">
+      <div class="barra" style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:10px 14px;">
+        <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="flu-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
+        <div class="campo" style="margin:0;min-width:120px;"><label>Ano letivo</label><select id="flu-ano">${opcoesAno}</select></div>
+      </div>
+      <div style="padding:10px 14px;">
+        <div style="margin-bottom:12px;">${legenda}</div>
+        ${msgSucesso ? `<div class="msg-ok" style="margin-bottom:10px;">${esc(msgSucesso)}</div>` : ''}
+        <div id="flu-conteudo"></div>
+      </div>
+    </div>`;
+
+  document.getElementById('flu-turma').addEventListener('change', e => { ESTADO.fluenciaTurmaId = e.target.value; renderizarAvaliacaoFluencia(el); });
+  document.getElementById('flu-ano').addEventListener('change', e => { ESTADO.fluenciaAno = Number(e.target.value); renderizarAvaliacaoFluencia(el); });
+
+  const conteudo = document.getElementById('flu-conteudo');
+  if(!ESTADO.fluenciaTurmaId){
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Selecione uma turma para lançar a avaliação de fluência.</p>`;
+    return;
+  }
+  conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === ESTADO.fluenciaTurmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  if(!alunosTurma.length){
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum estudante nesta turma.</p>`;
+    return;
+  }
+  const { data: registros, error: erroCarregar } = await supabase.from('avaliacoes_fluencia').select('*')
+    .eq('ano_letivo', ESTADO.fluenciaAno).in('aluno_id', alunosTurma.map(a => a.id));
+  if(erroCarregar){
+    conteudo.innerHTML = `<div class="msg-erro">${esc(erroCarregar.message)}</div>`;
+    return;
+  }
+  const porAluno = {};
+  (registros||[]).forEach(r => { porAluno[r.aluno_id] = r; });
+
+  function celulaSelect(alunoId, campo, valor){
+    return `<td style="padding:4px 6px;">
+      <select class="sel-fluencia" data-aluno="${alunoId}" data-campo="${campo}" style="width:100%;padding:4px 4px;background:${corNivelFluencia(valor)};">
+        ${opcoesNivelFluencia(valor)}
+      </select>
+    </td>`;
+  }
+
+  const linhas = alunosTurma.map((a, i) => {
+    const reg = porAluno[a.id] || {};
+    return `<tr data-aluno="${a.id}">
+      <td style="padding:5px 8px;text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="padding:5px 8px;font-size:13px;">${esc(a.nome)}</td>
+      <td style="padding:5px 8px;text-align:center;">${a.aee ? 'SIM' : 'NÃO'}</td>
+      ${celulaSelect(a.id, 'diagnostica', reg.diagnostica)}
+      ${celulaSelect(a.id, 'formativa1', reg.formativa1)}
+      ${celulaSelect(a.id, 'formativa2', reg.formativa2)}
+      ${celulaSelect(a.id, 'formativa3', reg.formativa3)}
+    </tr>`;
+  }).join('');
+
+  conteudo.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="font-size:13px;width:100%;">
+        <thead><tr>
+          <th style="padding:6px 8px;">Nº</th>
+          <th style="padding:6px 8px;text-align:left;">Estudante</th>
+          <th style="padding:6px 8px;">AEE</th>
+          <th style="padding:6px 8px;">Diagnóstica</th>
+          <th style="padding:6px 8px;">Formativa 1</th>
+          <th style="padding:6px 8px;">Formativa 2</th>
+          <th style="padding:6px 8px;">Formativa 3</th>
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+      <button class="botao terracota pequeno" id="btn-salvar-fluencia" style="width:auto;">Salvar avaliação de fluência</button>
+      <button class="botao secundario pequeno" id="btn-imprimir-fluencia" style="width:auto;">🖨️ Imprimir</button>
+    </div>
+    <div id="msg-fluencia" style="margin-top:8px;"></div>`;
+
+  document.getElementById('btn-imprimir-fluencia').addEventListener('click', () => {
+    imprimirAvaliacaoFluencia(ESTADO.fluenciaTurmaId, ESTADO.fluenciaAno, alunosTurma, porAluno);
+  });
+
+  conteudo.querySelectorAll('.sel-fluencia').forEach(sel => {
+    sel.addEventListener('change', () => { sel.style.background = corNivelFluencia(sel.value); });
+  });
+
+  document.getElementById('btn-salvar-fluencia').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-salvar-fluencia');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const porAlunoNovo = {};
+    conteudo.querySelectorAll('.sel-fluencia').forEach(sel => {
+      const alunoId = sel.dataset.aluno;
+      const campo = sel.dataset.campo;
+      porAlunoNovo[alunoId] = porAlunoNovo[alunoId] || {};
+      porAlunoNovo[alunoId][campo] = sel.value ? Number(sel.value) : null;
+    });
+    const linhasSalvar = alunosTurma.map(a => ({
+      aluno_id: a.id,
+      turma_id: ESTADO.fluenciaTurmaId,
+      ano_letivo: ESTADO.fluenciaAno,
+      diagnostica: porAlunoNovo[a.id]?.diagnostica ?? null,
+      formativa1: porAlunoNovo[a.id]?.formativa1 ?? null,
+      formativa2: porAlunoNovo[a.id]?.formativa2 ?? null,
+      formativa3: porAlunoNovo[a.id]?.formativa3 ?? null,
+      registrado_por: ESTADO.perfil.id,
+      updated_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase.from('avaliacoes_fluencia').upsert(linhasSalvar, { onConflict: 'aluno_id,ano_letivo' });
+    const msg = document.getElementById('msg-fluencia');
+    if(error){
+      msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
+      btn.disabled = false; btn.textContent = 'Salvar avaliação de fluência';
+    } else {
+      ESTADO.fluenciaMsgSucesso = 'Avaliação de fluência salva com sucesso.';
+      renderizarAvaliacaoFluencia(el);
+    }
+  });
+}
+
+function imprimirAvaliacaoFluencia(turmaId, ano, alunosTurma, porAluno){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma || !alunosTurma.length) return;
+
+  function celImpressao(valor){
+    if(!valor) return `<td></td>`;
+    return `<td style="text-align:center;font-weight:700;background:${corNivelFluencia(valor)};">${valor}</td>`;
+  }
+
+  const linhas = alunosTurma.map((a, i) => {
+    const reg = porAluno[a.id] || {};
+    return `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:6px;white-space:nowrap;">${esc(a.nome)}${anotacaoSituacaoAluno(a)}</td>
+      <td style="text-align:center;">${a.aee ? 'SIM' : 'NÃO'}</td>
+      ${celImpressao(reg.diagnostica)}
+      ${celImpressao(reg.formativa1)}
+      ${celImpressao(reg.formativa2)}
+      ${celImpressao(reg.formativa3)}
+    </tr>`;
+  }).join('');
+
+  const legenda = NIVEIS_FLUENCIA.map(([v,l,cor]) => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;"><span style="width:10px;height:10px;border-radius:2px;background:${cor};display:inline-block;border:1px solid rgba(0,0,0,.2);"></span>${v} · ${esc(l)}</span>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Avaliação de Fluência - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 9mm 11mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11.5px;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:10.5px;text-transform:uppercase;padding:5px 4px;border:1px solid #15325C;}
+      table.lista tbody td{padding:4px 4px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      .legenda{font-size:10px;margin:6px 0 8px;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <div id="capa">
+        ${cabecalhoImpressaoTurma(`AVALIAÇÃO DE FLUÊNCIA - ${ano}`, turma)}
+        <div class="legenda">${legenda}</div>
+        <table class="lista">
+          <thead><tr>
+            <th style="width:5%;">NUM</th>
+            <th style="width:38%;">NOME</th>
+            <th style="width:8%;">AEE</th>
+            <th style="width:12%;">DIAG</th>
+            <th style="width:12%;">FORM 1</th>
+            <th style="width:12%;">FORM 2</th>
+            <th style="width:12%;">FORM 3</th>
+          </tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>
+    <script>
+      window.onload = function(){
+        var capa = document.getElementById('capa');
+        var alturaPaginaPx = 277 * (96/25.4); // A4 (297mm) menos margens de 9mm+9mm, a 96dpi
+        var alturaConteudo = capa.scrollHeight;
+        if(alturaConteudo > alturaPaginaPx){
+          var escala = alturaPaginaPx / alturaConteudo;
+          capa.style.transformOrigin = 'top left';
+          capa.style.transform = 'scale(' + escala + ')';
+          capa.style.width = (100/escala) + '%';
+        }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
 function renderizarRelatorios(el){
   const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
@@ -6554,33 +6809,48 @@ function imprimirListaPastaEstudantes(turmaId){
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Relação de Estudantes - ${esc(turma.nome)}</title>
     <style>
-      @page{ size: A4; margin: 10mm 12mm; }
+      @page{ size: A4; margin: 9mm 11mm; }
       *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:10.5px;}
       table.lista{width:100%;border-collapse:collapse;}
-      table.lista thead th{background:#15325C;color:#fff;font-size:11.5px;text-transform:uppercase;padding:6px 4px;border:1px solid #15325C;}
-      table.lista tbody td{padding:5px 4px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:10px;text-transform:uppercase;padding:3px 3px;border:1px solid #15325C;}
+      table.lista tbody td{padding:1.5px 3px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
-      ${cabecalhoImpressaoTurma('RELAÇÃO DE ESTUDANTES', turma)}
-      <table class="lista">
-        <thead><tr>
-          <th style="width:6%;">NUM</th>
-          <th style="width:42%;">NOME</th>
-          <th style="width:10%;">AEE</th>
-          <th style="width:14%;">DATA NASC.</th>
-          <th style="width:12%;">IDADE</th>
-          <th style="width:16%;">FONE</th>
-        </tr></thead>
-        <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
-      </table>
+      <div id="capa">
+        ${cabecalhoImpressaoTurma('RELAÇÃO DE ESTUDANTES', turma)}
+        <table class="lista">
+          <thead><tr>
+            <th style="width:6%;">NUM</th>
+            <th style="width:42%;">NOME</th>
+            <th style="width:10%;">AEE</th>
+            <th style="width:14%;">DATA NASC.</th>
+            <th style="width:12%;">IDADE</th>
+            <th style="width:16%;">FONE</th>
+          </tr></thead>
+          <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
+        </table>
+      </div>
+    <script>
+      window.onload = function(){
+        var capa = document.getElementById('capa');
+        var alturaPaginaPx = 279 * (96/25.4); // A4 (297mm) menos margens de 9mm+9mm, a 96dpi
+        var alturaConteudo = capa.scrollHeight;
+        if(alturaConteudo > alturaPaginaPx){
+          var escala = alturaPaginaPx / alturaConteudo;
+          capa.style.transformOrigin = 'top left';
+          capa.style.transform = 'scale(' + escala + ')';
+          capa.style.width = (100/escala) + '%';
+        }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+    <\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
 }
 
 function imprimirAtaPresenca(turmaId){
