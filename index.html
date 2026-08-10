@@ -7072,7 +7072,7 @@ iniciar();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
       // se o sw.js não estiver publicado ainda, o sistema continua funcionando normalmente,
       // só a instalação como app fica indisponível até o arquivo ser publicado junto
     });
