@@ -180,6 +180,7 @@
   .botao-status.ativo.verde{background:#E1F0E4;border-color:#BFE2CC;color:#1f6b39;}
   .botao-status.ativo.vermelho{background:#FBEAE5;border-color:#F0C8BC;color:var(--erro);}
   .botao-status.ativo.laranja{background:#FCEEDD;border-color:#F0D6B0;color:#9a5b12;}
+  .botao-status.ativo.azul{background:#DCEBF8;border-color:#B7D4EC;color:#1D5B8C;}
   #btn-frequencia-funcionarios.status-verde{background:#E1F0E4;border-color:#BFE2CC;color:#1f6b39;font-weight:700;}
   #btn-frequencia-funcionarios.status-laranja{background:#FCEEDD;border-color:#F0D6B0;color:#9a5b12;font-weight:700;}
   #btn-frequencia-funcionarios.status-vermelho{background:#FBEAE5;border-color:#F0C8BC;color:var(--erro);font-weight:700;}
@@ -2272,6 +2273,7 @@ async function carregarFrequenciaFuncionariosDia(el){
         <button type="button" class="botao-status ${status==='presente'?'ativo verde':''}" data-status="presente" style="width:auto;padding:6px 12px;font-size:12.5px;">Presente</button>
         <button type="button" class="botao-status ${status==='falta'?'ativo vermelho':''}" data-status="falta" style="width:auto;padding:6px 12px;font-size:12.5px;">Falta</button>
         <button type="button" class="botao-status ${status==='falta_justificada'?'ativo laranja':''}" data-status="falta_justificada" style="width:auto;padding:6px 12px;font-size:12.5px;">Falta Justificada</button>
+        <button type="button" class="botao-status ${status==='licenca'?'ativo azul':''}" data-status="licenca" style="width:auto;padding:6px 12px;font-size:12.5px;">Licença</button>
       </div>
       <div class="campos-justificativa" style="display:${status==='falta_justificada'?'flex':'none'};gap:8px;align-items:center;">
         <select class="sel-tipo-justificativa" style="width:auto;padding:6px 8px;font-size:12.5px;">
@@ -2279,20 +2281,31 @@ async function carregarFrequenciaFuncionariosDia(el){
         </select>
         <input type="number" min="1" class="input-dias-atestado" placeholder="Dias" value="${r.quantidade_dias_atestado||''}" style="width:70px;padding:6px 8px;font-size:12.5px;display:${(r.tipo_justificativa||'atestado')==='atestado'?'':'none'};" />
       </div>
+      <div class="campos-licenca" style="display:${status==='licenca'?'flex':'none'};gap:8px;align-items:center;">
+        <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Início
+          <input type="date" class="input-inicio-licenca" value="${r.data_inicio_licenca || ESTADO.freqFuncData}" style="padding:6px 8px;font-size:12.5px;" />
+        </label>
+        <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Qtde. dias
+          <input type="number" min="1" max="365" class="input-dias-licenca" placeholder="Dias" value="${r.quantidade_dias_licenca||''}" style="width:70px;padding:6px 8px;font-size:12.5px;" />
+        </label>
+        ${r.status === 'licenca' && r.dias_restantes_licenca ? `<span class="pill azul" style="font-size:10.5px;">${r.dias_restantes_licenca} dia(s) restante(s)</span>` : ''}
+      </div>
     </div>`;
   }).join('');
 
   listaEl.querySelectorAll('.linha-freq-func').forEach(linha => {
     const botoes = linha.querySelectorAll('.botao-status');
     const camposJustif = linha.querySelector('.campos-justificativa');
+    const camposLicenca = linha.querySelector('.campos-licenca');
     const selTipo = linha.querySelector('.sel-tipo-justificativa');
     const inputDias = linha.querySelector('.input-dias-atestado');
     botoes.forEach(b => b.addEventListener('click', () => {
-      botoes.forEach(x => x.classList.remove('ativo','verde','vermelho','laranja'));
+      botoes.forEach(x => x.classList.remove('ativo','verde','vermelho','laranja','azul'));
       const st = b.dataset.status;
-      b.classList.add('ativo', st==='presente'?'verde':(st==='falta'?'vermelho':'laranja'));
+      b.classList.add('ativo', st==='presente'?'verde':(st==='falta'?'vermelho':(st==='licenca'?'azul':'laranja')));
       linha.dataset.statusAtual = st;
       camposJustif.style.display = st === 'falta_justificada' ? 'flex' : 'none';
+      if(camposLicenca) camposLicenca.style.display = st === 'licenca' ? 'flex' : 'none';
     }));
     if(selTipo && inputDias){
       selTipo.addEventListener('change', () => {
@@ -2308,27 +2321,57 @@ async function carregarFrequenciaFuncionariosDia(el){
       const msg = document.getElementById('msg-freq-func');
       btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando…';
       const linhas = Array.from(document.querySelectorAll('.linha-freq-func'));
-      const dadosSalvar = linhas.map(linha => {
+      const dadosSalvar = [];
+      linhas.forEach(linha => {
         const status = linha.dataset.statusAtual || 'presente';
+        const funcionarioId = linha.dataset.funcId;
         const selTipo = linha.querySelector('.sel-tipo-justificativa');
         const inputDias = linha.querySelector('.input-dias-atestado');
+        const inputInicioLicenca = linha.querySelector('.input-inicio-licenca');
+        const inputDiasLicenca = linha.querySelector('.input-dias-licenca');
         const tipoJustificativa = status === 'falta_justificada' ? selTipo.value : null;
         const dias = (status === 'falta_justificada' && tipoJustificativa === 'atestado' && inputDias.value)
           ? parseInt(inputDias.value, 10) : null;
-        return {
-          funcionario_id: linha.dataset.funcId,
-          data: ESTADO.freqFuncData,
-          status,
-          tipo_justificativa: tipoJustificativa,
-          quantidade_dias_atestado: dias,
-          registrado_por: ESTADO.perfil.id,
-          atualizado_em: new Date().toISOString(),
-        };
+
+        if(status === 'licenca'){
+          const dataInicio = inputInicioLicenca.value || ESTADO.freqFuncData;
+          const nDias = parseInt(inputDiasLicenca.value, 10) || 1;
+          const dataBase = new Date(dataInicio + 'T00:00:00');
+          // contagem regressiva: o primeiro dia mostra o total de dias, e cada dia seguinte mostra
+          // quantos dias ainda restam (ex: licença de 5 dias → 5, 4, 3, 2, 1)
+          for(let i=0;i<nDias;i++){
+            const d = new Date(dataBase); d.setDate(d.getDate()+i);
+            dadosSalvar.push({
+              funcionario_id: funcionarioId,
+              data: dataObjParaISO(d),
+              status: 'licenca',
+              data_inicio_licenca: dataInicio,
+              quantidade_dias_licenca: nDias,
+              dias_restantes_licenca: nDias - i,
+              registrado_por: ESTADO.perfil.id,
+              atualizado_em: new Date().toISOString(),
+            });
+          }
+        } else {
+          dadosSalvar.push({
+            funcionario_id: funcionarioId,
+            data: ESTADO.freqFuncData,
+            status,
+            tipo_justificativa: tipoJustificativa,
+            quantidade_dias_atestado: dias,
+            data_inicio_licenca: null,
+            quantidade_dias_licenca: null,
+            dias_restantes_licenca: null,
+            registrado_por: ESTADO.perfil.id,
+            atualizado_em: new Date().toISOString(),
+          });
+        }
       });
       const { error: erroSalvar } = await supabase.from('frequencia_funcionarios').upsert(dadosSalvar, { onConflict: 'funcionario_id,data' });
       btnSalvar.disabled = false; btnSalvar.textContent = 'Salvar frequência';
       if(erroSalvar){ msg.innerHTML = `<div class="msg-erro">${esc(erroSalvar.message)}</div>`; return; }
       msg.innerHTML = `<div class="msg-ok">Frequência salva com sucesso.</div>`;
+      carregarFrequenciaFuncionariosDia(el);
     });
   }
 }
@@ -2363,8 +2406,8 @@ async function gerarRelatorioFrequenciaFuncionarios(){
   (registros||[]).forEach(r => { porFuncionarioId[r.funcionario_id] = r; });
 
   const porCategoria = {};
-  CATEGORIAS_FUNCIONARIO.forEach(([chave, nome]) => { porCategoria[chave] = { nome, total:0, comExpediente:0, presentes:0, faltas:0, faltasJustificadas:0, diasAtestado:0, justificativas:{} }; });
-  porCategoria['sem_categoria'] = { nome:'Sem categoria', total:0, comExpediente:0, presentes:0, faltas:0, faltasJustificadas:0, diasAtestado:0, justificativas:{} };
+  CATEGORIAS_FUNCIONARIO.forEach(([chave, nome]) => { porCategoria[chave] = { nome, total:0, comExpediente:0, presentes:0, faltas:0, faltasJustificadas:0, licencas:0, diasAtestado:0, justificativas:{} }; });
+  porCategoria['sem_categoria'] = { nome:'Sem categoria', total:0, comExpediente:0, presentes:0, faltas:0, faltasJustificadas:0, licencas:0, diasAtestado:0, justificativas:{} };
 
   ativos.forEach(f => {
     const chave = (f.categoria && porCategoria[f.categoria]) ? f.categoria : 'sem_categoria';
@@ -2375,6 +2418,7 @@ async function gerarRelatorioFrequenciaFuncionarios(){
     if(!r) return;
     if(r.status === 'presente') porCategoria[chave].presentes++;
     else if(r.status === 'falta') porCategoria[chave].faltas++;
+    else if(r.status === 'licenca') porCategoria[chave].licencas++;
     else if(r.status === 'falta_justificada'){
       porCategoria[chave].faltasJustificadas++;
       const tipo = r.tipo_justificativa || 'outros';
@@ -2384,7 +2428,7 @@ async function gerarRelatorioFrequenciaFuncionarios(){
   });
 
   const linhasResumo = Object.entries(porCategoria).filter(([,c]) => c.total > 0).map(([,c]) => {
-    const semRegistro = c.comExpediente - c.presentes - c.faltas - c.faltasJustificadas;
+    const semRegistro = c.comExpediente - c.presentes - c.faltas - c.faltasJustificadas - c.licencas;
     const justifTexto = Object.entries(c.justificativas).map(([tipo,qtd]) => `${rotuloJustificativaFuncionario(tipo)}: ${qtd}`).join(', ') || '—';
     return `<tr>
       <td style="text-align:left;padding-left:8px;"><b>${esc(c.nome)}</b></td>
@@ -2395,14 +2439,15 @@ async function gerarRelatorioFrequenciaFuncionarios(){
       <td style="color:#9a5b12;font-weight:700;">${c.faltasJustificadas}</td>
       <td style="font-size:9.5px;text-align:left;padding-left:6px;">${esc(justifTexto)}</td>
       <td>${c.diasAtestado || '—'}</td>
+      <td style="color:#1f4f8b;font-weight:700;">${c.licencas || '—'}</td>
       <td>${semRegistro > 0 ? semRegistro : '—'}</td>
     </tr>`;
   }).join('');
 
   const totais = Object.values(porCategoria).reduce((acc, c) => {
-    acc.total += c.total; acc.comExpediente += c.comExpediente; acc.presentes += c.presentes; acc.faltas += c.faltas; acc.faltasJustificadas += c.faltasJustificadas; acc.diasAtestado += c.diasAtestado;
+    acc.total += c.total; acc.comExpediente += c.comExpediente; acc.presentes += c.presentes; acc.faltas += c.faltas; acc.faltasJustificadas += c.faltasJustificadas; acc.diasAtestado += c.diasAtestado; acc.licencas += c.licencas;
     return acc;
-  }, { total:0, comExpediente:0, presentes:0, faltas:0, faltasJustificadas:0, diasAtestado:0 });
+  }, { total:0, comExpediente:0, presentes:0, faltas:0, faltasJustificadas:0, diasAtestado:0, licencas:0 });
 
   const linhasDetalhe = ativos.slice().sort((a,b) => {
     const catA = a.categoria || 'zzz', catB = b.categoria || 'zzz';
@@ -2412,8 +2457,9 @@ async function gerarRelatorioFrequenciaFuncionarios(){
     const r = porFuncionarioId[f.id];
     const semExpediente = !temExpediente(f);
     const statusTxt = semExpediente ? 'SEM EXPEDIENTE' : (!r ? '—' : (r.status === 'presente' ? 'PRESENTE' : r.status === 'falta' ? 'FALTA' :
+      r.status === 'licenca' ? `LICENÇA (${r.dias_restantes_licenca||'?'}/${r.quantidade_dias_licenca||'?'} dias restantes)` :
       `FALTA JUST. (${rotuloJustificativaFuncionario(r.tipo_justificativa)}${r.quantidade_dias_atestado ? ' · '+r.quantidade_dias_atestado+'d' : ''})`));
-    const cor = semExpediente ? '#999' : (!r ? '#999' : (r.status === 'presente' ? '#1f6b39' : r.status === 'falta' ? '#b4432e' : '#9a5b12'));
+    const cor = semExpediente ? '#999' : (!r ? '#999' : (r.status === 'presente' ? '#1f6b39' : r.status === 'falta' ? '#b4432e' : r.status === 'licenca' ? '#1f4f8b' : '#9a5b12'));
     return `<tr>
       <td style="text-align:left;padding-left:6px;">${esc(f.nome)}</td>
       <td>${esc(f.funcao)}</td>
@@ -2443,12 +2489,12 @@ async function gerarRelatorioFrequenciaFuncionarios(){
 
       <h2>Resumo por categoria</h2>
       <table>
-        <thead><tr><th>Categoria</th><th>Ativos</th><th>Com expediente</th><th>Presentes</th><th>Faltas</th><th>Faltas Just.</th><th>Detalhe das justificativas</th><th>Dias atestado</th><th>Sem registro</th></tr></thead>
+        <thead><tr><th>Categoria</th><th>Ativos</th><th>Com expediente</th><th>Presentes</th><th>Faltas</th><th>Faltas Just.</th><th>Detalhe das justificativas</th><th>Dias atestado</th><th>Licenças</th><th>Sem registro</th></tr></thead>
         <tbody>${linhasResumo}</tbody>
         <tfoot><tr>
           <td style="text-align:left;padding-left:8px;">TOTAL</td>
           <td>${totais.total}</td><td>${totais.comExpediente}</td><td>${totais.presentes}</td><td>${totais.faltas}</td><td>${totais.faltasJustificadas}</td>
-          <td></td><td>${totais.diasAtestado || '—'}</td><td></td>
+          <td></td><td>${totais.diasAtestado || '—'}</td><td>${totais.licencas || '—'}</td><td></td>
         </tr></tfoot>
       </table>
 
@@ -2516,7 +2562,7 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       if(funcionarioEmFerias(f.id, dia.iso, feriasMes)) return false;
       return true;
     };
-    let comExpediente=0, presentes=0, faltas=0, faltasJust=0, diasAtestado=0, semRegistro=0;
+    let comExpediente=0, presentes=0, faltas=0, faltasJust=0, diasAtestado=0, licencas=0, semRegistro=0;
     dias.forEach(dia => {
       if(!temExpedienteDia(dia)) return;
       comExpediente++;
@@ -2524,12 +2570,13 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       if(!r){ semRegistro++; return; }
       if(r.status === 'presente') presentes++;
       else if(r.status === 'falta') faltas++;
+      else if(r.status === 'licenca') licencas++;
       else if(r.status === 'falta_justificada'){
         faltasJust++;
         if(r.tipo_justificativa === 'atestado' && r.quantidade_dias_atestado) diasAtestado += r.quantidade_dias_atestado;
       }
     });
-    return { f, comExpediente, presentes, faltas, faltasJust, diasAtestado, semRegistro };
+    return { f, comExpediente, presentes, faltas, faltasJust, diasAtestado, licencas, semRegistro };
   });
 
   const linhasHtml = linhasCalculadas.map(l => `<tr>
@@ -2541,14 +2588,15 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       <td style="color:#b4432e;font-weight:700;">${l.faltas}</td>
       <td style="color:#9a5b12;font-weight:700;">${l.faltasJust}</td>
       <td>${l.diasAtestado || '—'}</td>
+      <td style="color:#1f4f8b;font-weight:700;">${l.licencas || '—'}</td>
       <td>${l.semRegistro > 0 ? l.semRegistro : '—'}</td>
     </tr>`).join('');
 
   const totais = linhasCalculadas.reduce((acc,l) => {
     acc.comExpediente+=l.comExpediente; acc.presentes+=l.presentes; acc.faltas+=l.faltas;
-    acc.faltasJust+=l.faltasJust; acc.diasAtestado+=l.diasAtestado; acc.semRegistro+=l.semRegistro;
+    acc.faltasJust+=l.faltasJust; acc.diasAtestado+=l.diasAtestado; acc.licencas+=l.licencas; acc.semRegistro+=l.semRegistro;
     return acc;
-  }, { comExpediente:0, presentes:0, faltas:0, faltasJust:0, diasAtestado:0, semRegistro:0 });
+  }, { comExpediente:0, presentes:0, faltas:0, faltasJust:0, diasAtestado:0, licencas:0, semRegistro:0 });
 
   const nomeMes = MESES_PT[mes-1];
   const janela = window.open('', '_blank');
@@ -2570,12 +2618,12 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       <p class="sub">Escola Municipal Jaime Gonçalves Bold · ${nomeMes} de ${ano}${ultimoDiaConsiderado < ultimoDiaMes ? ' (parcial, até ' + formatarDataBR(ultimoDiaConsiderado) + ')' : ''}</p>
 
       <table>
-        <thead><tr><th>Nome</th><th>Função</th><th>Categoria</th><th>Dias com expediente</th><th>Presenças</th><th>Faltas</th><th>Faltas Just.</th><th>Dias atestado</th><th>Sem registro</th></tr></thead>
+        <thead><tr><th>Nome</th><th>Função</th><th>Categoria</th><th>Dias com expediente</th><th>Presenças</th><th>Faltas</th><th>Faltas Just.</th><th>Dias atestado</th><th>Licenças</th><th>Sem registro</th></tr></thead>
         <tbody>${linhasHtml}</tbody>
         <tfoot><tr>
           <td colspan="3" style="text-align:left;padding-left:8px;">TOTAL</td>
           <td>${totais.comExpediente}</td><td>${totais.presentes}</td><td>${totais.faltas}</td><td>${totais.faltasJust}</td>
-          <td>${totais.diasAtestado || '—'}</td><td>${totais.semRegistro || '—'}</td>
+          <td>${totais.diasAtestado || '—'}</td><td>${totais.licencas || '—'}</td><td>${totais.semRegistro || '—'}</td>
         </tr></tfoot>
       </table>
     </body></html>
