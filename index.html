@@ -338,6 +338,9 @@ let ESTADO = {
   solicMsgSucesso: null,
   histEscAlunoId: '',
   histEscTurmaId: '',
+  histEscTipoEstudante: 'cadastrado',
+  histEscArquivoMortoId: '',
+  histEscBuscaArquivoMorto: '',
   histEscEditando: null,
   fichaNotasTurmaId: '',
   fichaNotasAlunoId: '',
@@ -1988,14 +1991,19 @@ async function buscarArquivoMorto(el){
   }));
 }
 
-function exibirFormularioArquivoMorto(formEl, registro, elPai){
+async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
   const r = registro || {};
+  const sugestao = registro ? { numero: r.numero, pasta: r.pasta } : await proximoRegistroArquivoMorto();
   formEl.innerHTML = `
     <div class="painel" style="margin-top:16px;border-color:var(--terracota);">
       <div class="barra"><strong style="font-size:14px;">Adicionar ao Arquivo Inativo</strong></div>
       <div style="padding:14px;">
-        <div class="campo" style="margin-bottom:0;"><label>Nome</label><input type="text" id="am-nome" value="${esc(r.nome||'')}" /></div>
-        <p style="font-size:12.5px;color:var(--texto-suave);margin:8px 0 0;">O número de registro e a pasta são gerados automaticamente.</p>
+        <div class="campo" style="margin-bottom:10px;"><label>Nome</label><input type="text" id="am-nome" value="${esc(r.nome||'')}" /></div>
+        <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="campo" style="margin-bottom:0;"><label>Número de registro</label><input type="number" id="am-numero" value="${sugestao.numero ?? ''}" /></div>
+          <div class="campo" style="margin-bottom:0;"><label>Pasta</label><input type="text" id="am-pasta" value="${esc(sugestao.pasta || '')}" /></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:8px 0 0;">Número e pasta já vêm sugeridos pela sequência atual — altere se preferir outro.</p>
         <div id="msg-arquivo-morto" style="margin-top:8px;"></div>
         <div style="display:flex;gap:10px;margin-top:10px;">
           <button class="botao terracota pequeno" id="btn-salvar-arquivo-morto" style="width:auto;">Salvar</button>
@@ -2006,13 +2014,17 @@ function exibirFormularioArquivoMorto(formEl, registro, elPai){
   document.getElementById('btn-cancelar-arquivo-morto').addEventListener('click', () => { formEl.innerHTML = ''; });
   document.getElementById('btn-salvar-arquivo-morto').addEventListener('click', async () => {
     const nome = document.getElementById('am-nome').value.trim();
+    const numero = parseInt(document.getElementById('am-numero').value, 10);
+    const pasta = document.getElementById('am-pasta').value.trim();
     const msg = document.getElementById('msg-arquivo-morto');
     if(!nome){ msg.innerHTML = `<div class="msg-erro">Informe o nome.</div>`; return; }
+    if(!numero){ msg.innerHTML = `<div class="msg-erro">Informe o número de registro.</div>`; return; }
+    if(!pasta){ msg.innerHTML = `<div class="msg-erro">Informe a pasta.</div>`; return; }
     const btn = document.getElementById('btn-salvar-arquivo-morto');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    const { numero, pasta } = await proximoRegistroArquivoMorto();
-    const { error } = await supabase.from('arquivo_morto').insert({ nome, numero, pasta });
+    const { data: novo, error } = await supabase.from('arquivo_morto').insert({ nome, numero, pasta }).select('*').single();
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar'; return; }
+    if(aoSalvar){ aoSalvar(novo); return; }
     formEl.innerHTML = `<div class="msg-ok" style="margin-top:10px;">Adicionado ao Arquivo Inativo — Nº ${numero}, ${esc(pasta)}.</div>`;
   });
 }
@@ -4625,6 +4637,21 @@ function renderizarHistoricoEscolar(el){
 }
 
 function renderizarHistoricoIndividual(el){
+  el.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="botao ${ESTADO.histEscTipoEstudante==='cadastrado'?'terracota':'secundario'} pequeno" id="btn-tipo-cadastrado" style="width:auto;">Estudante cadastrado</button>
+      <button class="botao ${ESTADO.histEscTipoEstudante==='antigo'?'terracota':'secundario'} pequeno" id="btn-tipo-antigo" style="width:auto;">Estudante antigo / inativo</button>
+    </div>
+    <div id="hei-corpo"></div>`;
+  document.getElementById('btn-tipo-cadastrado').addEventListener('click', () => { ESTADO.histEscTipoEstudante = 'cadastrado'; renderizarHistoricoIndividual(el); });
+  document.getElementById('btn-tipo-antigo').addEventListener('click', () => { ESTADO.histEscTipoEstudante = 'antigo'; renderizarHistoricoIndividual(el); });
+
+  const corpo = document.getElementById('hei-corpo');
+  if(ESTADO.histEscTipoEstudante === 'antigo') renderizarHistoricoEstudanteAntigo(corpo, el);
+  else renderizarHistoricoEstudanteCadastrado(corpo, el);
+}
+
+function renderizarHistoricoEstudanteCadastrado(el, elPai){
   const opcoesTurmasFiltro = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${ESTADO.histEscTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const alunosFiltrados = (ESTADO.histEscTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.histEscTurmaId) : ESTADO.alunos)
@@ -4646,16 +4673,78 @@ function renderizarHistoricoIndividual(el){
     if(ESTADO.histEscAlunoId && !ESTADO.alunos.find(a => a.id === ESTADO.histEscAlunoId && (!ESTADO.histEscTurmaId || a.turma_id === ESTADO.histEscTurmaId))){
       ESTADO.histEscAlunoId = '';
     }
-    renderizarHistoricoIndividual(el);
+    renderizarHistoricoEstudanteCadastrado(el, elPai);
   });
-  document.getElementById('he-aluno').addEventListener('change', e => { ESTADO.histEscAlunoId = e.target.value; ESTADO.histEscEditando = null; renderizarHistoricoIndividual(el); });
+  document.getElementById('he-aluno').addEventListener('change', e => { ESTADO.histEscAlunoId = e.target.value; ESTADO.histEscEditando = null; renderizarHistoricoEstudanteCadastrado(el, elPai); });
 
   const conteudo = document.getElementById('he-conteudo');
   if(!ESTADO.histEscAlunoId){
     conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Selecione um estudante para ver ou cadastrar o banco de médias anuais.</p>`;
     return;
   }
-  renderizarBancoHistorico(conteudo, el);
+  renderizarBancoHistorico(conteudo, elPai, { alunoId: ESTADO.histEscAlunoId });
+}
+
+async function renderizarHistoricoEstudanteAntigo(el, elPai){
+  el.innerHTML = `
+    <div class="painel">
+      <div class="barra" style="padding:10px 14px;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+        <div class="campo" style="margin:0;min-width:260px;flex:1;">
+          <label>Buscar no Arquivo Inativo (nome)</label>
+          <input type="text" id="hea-busca" placeholder="Digite ao menos 3 letras…" value="${esc(ESTADO.histEscBuscaArquivoMorto)}" />
+        </div>
+        <button class="botao secundario pequeno" id="hea-btn-novo" style="width:auto;">+ Novo estudante antigo</button>
+      </div>
+      <div id="hea-resultados" style="padding:0 14px 12px;"></div>
+      <div id="hea-form-novo"></div>
+      <div id="he-conteudo" style="padding:12px 14px;"></div>
+    </div>`;
+
+  document.getElementById('hea-busca').addEventListener('input', e => {
+    ESTADO.histEscBuscaArquivoMorto = e.target.value;
+    preservarFoco('hea-busca');
+    buscarArquivoMortoParaHistorico(el, elPai);
+  });
+  document.getElementById('hea-btn-novo').addEventListener('click', () => {
+    exibirFormularioArquivoMorto(document.getElementById('hea-form-novo'), null, null, (registro) => {
+      ESTADO.histEscArquivoMortoId = registro.id;
+      ESTADO.histEscBuscaArquivoMorto = '';
+      document.getElementById('hea-form-novo').innerHTML = '';
+      renderizarHistoricoEstudanteAntigo(el, elPai);
+    });
+  });
+
+  if(ESTADO.histEscBuscaArquivoMorto.trim().length >= 3) buscarArquivoMortoParaHistorico(el, elPai);
+
+  const conteudo = document.getElementById('he-conteudo');
+  if(!ESTADO.histEscArquivoMortoId){
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Busque e selecione um estudante do Arquivo Inativo (ou cadastre um novo) para lançar o histórico e anexar documentos.</p>`;
+    return;
+  }
+  const { data: registro } = await supabase.from('arquivo_morto').select('*').eq('id', ESTADO.histEscArquivoMortoId).maybeSingle();
+  if(!registro){
+    conteudo.innerHTML = `<p style="color:var(--erro);font-size:13.5px;">Este registro não foi encontrado (pode ter sido removido).</p>`;
+    return;
+  }
+  conteudo.innerHTML = `<div class="msg-ok" style="margin-bottom:10px;">Selecionado: <b>${esc(registro.nome)}</b> — Arquivo Inativo Nº ${registro.numero ?? '—'}, ${esc(registro.pasta||'—')}</div><div id="he-conteudo-interno"></div>`;
+  renderizarBancoHistorico(document.getElementById('he-conteudo-interno'), elPai, { arquivoMortoId: registro.id, arquivoMortoNome: registro.nome });
+}
+
+async function buscarArquivoMortoParaHistorico(el, elPai){
+  const resultados = document.getElementById('hea-resultados');
+  const termo = ESTADO.histEscBuscaArquivoMorto.trim();
+  if(termo.length < 3){ resultados.innerHTML = ''; return; }
+  const { data, error } = await supabase.from('arquivo_morto').select('*').ilike('nome', `%${termo}%`).order('nome').limit(20);
+  if(error){ resultados.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!data || !data.length){ resultados.innerHTML = `<p style="color:var(--texto-suave);font-size:12.5px;">Nenhum estudante encontrado no Arquivo Inativo para "${esc(termo)}".</p>`; return; }
+  resultados.innerHTML = data.map(r => `
+    <button type="button" class="botao secundario pequeno" data-selecionar-arquivo-morto="${r.id}" style="width:auto;margin:2px 6px 2px 0;">${esc(r.nome)} ${r.numero ? '· Nº '+r.numero : ''}</button>
+  `).join('');
+  resultados.querySelectorAll('[data-selecionar-arquivo-morto]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.histEscArquivoMortoId = b.dataset.selecionarArquivoMorto;
+    ESTADO.histEscBuscaArquivoMorto = '';
+    renderizarHistoricoEstudanteAntigo(el, elPai);
+  }));
 }
 
 const COMPONENTES_FICHA_NOTAS = [
@@ -5291,11 +5380,14 @@ async function preencherSeriesAutomaticamente(aluno){
   return { ok:true };
 }
 
-async function renderizarBancoHistorico(conteudo, elPai){
+async function renderizarBancoHistorico(conteudo, elPai, contexto){
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
-  const aluno = ESTADO.alunos.find(a => a.id === ESTADO.histEscAlunoId);
-  const resultadoAuto = await preencherSeriesAutomaticamente(aluno);
-  const { data: anos } = await supabase.from('historico_escolar_anual').select('*').eq('aluno_id', ESTADO.histEscAlunoId).order('ano_civil');
+  const alunoId = contexto?.alunoId || null;
+  const arquivoMortoId = contexto?.arquivoMortoId || null;
+  const aluno = alunoId ? ESTADO.alunos.find(a => a.id === alunoId) : null;
+  const resultadoAuto = alunoId ? await preencherSeriesAutomaticamente(aluno) : { ok:true };
+  const query = supabase.from('historico_escolar_anual').select('*').order('ano_civil');
+  const { data: anos } = alunoId ? await query.eq('aluno_id', alunoId) : await query.eq('arquivo_morto_id', arquivoMortoId);
   const registros = anos || [];
 
   const mensagensAviso = {
@@ -5325,29 +5417,103 @@ async function renderizarBancoHistorico(conteudo, elPai){
       ? `<table><thead><tr><th>Ano</th><th>Série</th><th>Unidade de Ensino</th><th>Progressão</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`
       : `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum ano letivo encontrado para este estudante.</p>`}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
-      ${registros.length ? `<button class="botao secundario pequeno" id="btn-gerar-historico" style="width:auto;">Gerar Histórico Escolar</button>` : ''}
+      <button class="botao secundario pequeno" id="btn-novo-ano" style="width:auto;">+ Novo ano letivo</button>
+      <button class="botao terracota pequeno" id="btn-gerar-historico" style="width:auto;">Gerar Histórico Escolar</button>
     </div>
     <div id="he-form" style="margin-top:14px;"></div>
     <div id="msg-historico" style="margin-top:8px;"></div>
+    <div style="margin-top:22px;border-top:1px solid var(--borda);padding-top:14px;">
+      <strong style="font-size:14px;">Documentos anexados (fotos ou PDFs)</strong>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:4px 0 10px;">Fotos de páginas do histórico antigo, atas de notas digitalizadas etc. — ficam salvos aqui permanentemente.</p>
+      <div id="he-anexos-lista"></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+        <input type="file" id="he-anexo-permanente" accept="image/*,application/pdf" multiple style="flex:1;min-width:200px;" />
+        <span id="msg-anexo-permanente" style="font-size:12.5px;color:var(--texto-suave);"></span>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+        <button class="botao secundario pequeno" id="btn-novo-ano-2" style="width:auto;">${registros.length ? 'Editar ano letivo' : '+ Novo ano letivo'}</button>
+        <button class="botao terracota pequeno" id="btn-gerar-historico-2" style="width:auto;">Gerar Histórico Escolar</button>
+      </div>
+    </div>
   `;
 
-  if(registros.length){
-    document.getElementById('btn-gerar-historico').addEventListener('click', () => {
-      gerarHistoricoEscolarDocumento(aluno, registros);
-    });
+  document.getElementById('btn-novo-ano').addEventListener('click', () => {
+    exibirFormularioAno(document.getElementById('he-form'), null, conteudo, elPai, { alunoId, arquivoMortoId });
+  });
+  document.getElementById('btn-novo-ano-2').addEventListener('click', () => {
+    const registroExistente = registros[registros.length-1] || null;
+    exibirFormularioAno(document.getElementById('he-form'), registroExistente, conteudo, elPai, { alunoId, arquivoMortoId });
+    document.getElementById('he-form').scrollIntoView({ behavior:'smooth', block:'start' });
+  });
+  function acionarGerarHistorico(){
+    if(!registros.length){
+      document.getElementById('msg-historico').innerHTML = `<div class="msg-erro">Cadastre pelo menos um ano letivo antes de gerar o Histórico Escolar.</div>`;
+      return;
+    }
+    if(alunoId) gerarHistoricoEscolarDocumento(aluno, registros);
+    else gerarHistoricoEscolarDocumentoArquivoMorto(arquivoMortoId, registros);
   }
+  document.getElementById('btn-gerar-historico').addEventListener('click', acionarGerarHistorico);
+  document.getElementById('btn-gerar-historico-2').addEventListener('click', acionarGerarHistorico);
   conteudo.querySelectorAll('[data-editar-ano]').forEach(b => b.addEventListener('click', () => {
     const registro = registros.find(r => r.id === b.dataset.editarAno);
-    exibirFormularioAno(document.getElementById('he-form'), registro, conteudo, elPai);
+    exibirFormularioAno(document.getElementById('he-form'), registro, conteudo, elPai, { alunoId, arquivoMortoId });
   }));
   conteudo.querySelectorAll('[data-remover-ano]').forEach(b => b.addEventListener('click', async () => {
     await supabase.from('historico_escolar_anual').delete().eq('id', b.dataset.removerAno);
-    renderizarBancoHistorico(conteudo, elPai);
+    renderizarBancoHistorico(conteudo, elPai, contexto);
+  }));
+
+  renderizarAnexosHistorico(document.getElementById('he-anexos-lista'), { alunoId, arquivoMortoId });
+  document.getElementById('he-anexo-permanente').addEventListener('change', async (e) => {
+    const arquivos = Array.from(e.target.files || []);
+    if(!arquivos.length) return;
+    const msgAnexo = document.getElementById('msg-anexo-permanente');
+    msgAnexo.textContent = 'Enviando…';
+    for(const arquivo of arquivos){
+      const extensao = arquivo.name.split('.').pop();
+      const caminho = `${alunoId || 'arquivo-morto-'+arquivoMortoId}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${extensao}`;
+      const { error: erroUpload } = await supabase.storage.from('documentos-historico').upload(caminho, arquivo, { upsert: true });
+      if(erroUpload){ msgAnexo.textContent = 'Erro ao enviar: ' + erroUpload.message; continue; }
+      const { data: urlPublica } = supabase.storage.from('documentos-historico').getPublicUrl(caminho);
+      await supabase.from('historico_escolar_anexos').insert({
+        aluno_id: alunoId || null,
+        arquivo_morto_id: arquivoMortoId || null,
+        nome_arquivo: arquivo.name,
+        tipo: arquivo.type.startsWith('image/') ? 'imagem' : 'pdf',
+        url: urlPublica.publicUrl,
+        enviado_por: ESTADO.perfil.id,
+      });
+    }
+    msgAnexo.textContent = 'Anexado com sucesso.';
+    e.target.value = '';
+    renderizarAnexosHistorico(document.getElementById('he-anexos-lista'), { alunoId, arquivoMortoId });
+  });
+}
+
+async function renderizarAnexosHistorico(el, { alunoId, arquivoMortoId }){
+  el.innerHTML = `<p style="color:var(--texto-suave);font-size:12.5px;">Carregando anexos…</p>`;
+  const query = supabase.from('historico_escolar_anexos').select('*').order('criado_em', { ascending:false });
+  const { data, error } = alunoId ? await query.eq('aluno_id', alunoId) : await query.eq('arquivo_morto_id', arquivoMortoId);
+  if(error){ el.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!data || !data.length){ el.innerHTML = `<p style="color:var(--texto-suave);font-size:12.5px;">Nenhum documento anexado ainda.</p>`; return; }
+  el.innerHTML = data.map(a => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--borda);font-size:12.5px;">
+      <span>${a.tipo === 'imagem' ? '🖼️' : '📄'}</span>
+      <a href="${a.url}" target="_blank" rel="noopener" style="flex:1;color:var(--terracota);text-decoration:underline;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.nome_arquivo)}</a>
+      <span style="color:var(--texto-suave);">${formatarDataBR(a.criado_em?.slice(0,10))}</span>
+      <button type="button" class="botao secundario pequeno" data-remover-anexo="${a.id}" style="width:auto;padding:2px 8px;">Remover</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-remover-anexo]').forEach(b => b.addEventListener('click', async () => {
+    await supabase.from('historico_escolar_anexos').delete().eq('id', b.dataset.removerAnexo);
+    renderizarAnexosHistorico(el, { alunoId, arquivoMortoId });
   }));
 }
 
-function exibirFormularioAno(formEl, registro, conteudo, elPai){
+function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
   const r = registro || {};
+  const alunoId = contexto?.alunoId || null;
+  const arquivoMortoId = contexto?.arquivoMortoId || null;
   const CAMPOS_DISCIPLINA_LIVRE = { nota_extra_1: 'nome_extra_1', nota_extra_2: 'nome_extra_2' };
   const campoMaterias = MATERIAS_HISTORICO.map(([campo, nome]) => {
     if(CAMPOS_DISCIPLINA_LIVRE[campo]){
@@ -5475,7 +5641,8 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai){
     if(!anoCivil){ msg.innerHTML = `<div class="msg-erro">Informe o ano civil.</div>`; return; }
     btn.disabled = true; btn.textContent = 'Salvando…';
     const dados = {
-      aluno_id: ESTADO.histEscAlunoId,
+      aluno_id: alunoId,
+      arquivo_morto_id: arquivoMortoId,
       ano_civil: anoCivil,
       serie: document.getElementById('he-serie').value.trim() || null,
       unidade_ensino: document.getElementById('he-unidade').value.trim() || null,
@@ -5492,19 +5659,38 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai){
     document.querySelectorAll('.he-materia-nome').forEach(campo => {
       dados[campo.dataset.campoNome] = campo.value.trim() || null;
     });
-    const { error } = await supabase.from('historico_escolar_anual').upsert(dados, { onConflict: 'aluno_id,ano_civil' });
+    const { error } = await supabase.from('historico_escolar_anual').upsert(dados, { onConflict: alunoId ? 'aluno_id,ano_civil' : 'arquivo_morto_id,ano_civil' });
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar'; return; }
     ESTADO.histEscEditando = null;
-    renderizarBancoHistorico(conteudo, elPai);
+    renderizarBancoHistorico(conteudo, elPai, contexto);
   });
 }
 
+async function gerarHistoricoEscolarDocumentoArquivoMorto(arquivoMortoId, anos){
+  const { data: registro, error } = await supabase.from('arquivo_morto').select('*').eq('id', arquivoMortoId).maybeSingle();
+  if(error || !registro){ alert('Não foi possível carregar os dados do estudante no Arquivo Inativo.'); return; }
+  const alunoSintetico = {
+    id: null,
+    nome: registro.nome,
+    data_nascimento: registro.data_nascimento,
+    naturalidade: registro.naturalidade ? `${registro.naturalidade}${registro.uf_naturalidade ? '/'+registro.uf_naturalidade : ''}` : '',
+    rg: registro.rg,
+    _nomeMae: registro.nome_mae || '',
+    _nomePai: registro.nome_pai || '',
+  };
+  gerarHistoricoEscolarDocumento(alunoSintetico, anos);
+}
+
 async function gerarHistoricoEscolarDocumento(aluno, anos){
-  const { data: vinculos } = await supabase.from('aluno_responsavel').select('tipo, responsaveis(nome)').eq('aluno_id', aluno.id);
-  const mae = (vinculos||[]).find(v => v.tipo === 'mae');
-  const pai = (vinculos||[]).find(v => v.tipo === 'pai');
-  const nomeMae = mae?.responsaveis?.nome || '';
-  const nomePai = pai?.responsaveis?.nome || '';
+  let nomeMae = aluno._nomeMae || '';
+  let nomePai = aluno._nomePai || '';
+  if(aluno.id && !aluno._semVinculoResponsavel){
+    const { data: vinculos } = await supabase.from('aluno_responsavel').select('tipo, responsaveis(nome)').eq('aluno_id', aluno.id);
+    const mae = (vinculos||[]).find(v => v.tipo === 'mae');
+    const pai = (vinculos||[]).find(v => v.tipo === 'pai');
+    nomeMae = mae?.responsaveis?.nome || '';
+    nomePai = pai?.responsaveis?.nome || '';
+  }
   const ultimoRegistro = anos[anos.length-1] || null;
   const estaCursandoAnoAtual = ultimoRegistro?.progressao === 'cursando';
   const registroConcluido = estaCursandoAnoAtual ? anos[anos.length-2] : ultimoRegistro;
