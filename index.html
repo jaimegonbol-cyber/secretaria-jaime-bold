@@ -1198,23 +1198,23 @@ function selectSimNao(id, valorAtual){
 
 async function abrirModalAluno(a){
   const editando = !!a;
-  let nomeMaeAtual = '', telMaeAtual = '';
+  let nomeMaeAtual = '', telMaeAtual = '', profissaoMaeAtual = '', cpfMaeAtual = '', rgMaeAtual = '';
   let vinculoMaeId = null;
-  let nomePaiAtual = '', telPaiAtual = '';
+  let nomePaiAtual = '', telPaiAtual = '', profissaoPaiAtual = '', cpfPaiAtual = '', rgPaiAtual = '';
   let vinculoPaiId = null;
-  let nomeRespAtual = '', telRespAtual = '';
+  let nomeRespAtual = '', telRespAtual = '', cpfRespAtual = '', rgRespAtual = '';
   let vinculoRespId = null;
   if(editando){
     const { data: vinculos } = await supabase
       .from('aluno_responsavel')
-      .select('tipo, responsavel_id, responsaveis(nome, telefone)')
+      .select('tipo, responsavel_id, responsaveis(nome, telefone, profissao, cpf, rg)')
       .eq('aluno_id', a.id);
     const vincMae = (vinculos||[]).find(v => v.tipo === 'mae');
     const vincPai = (vinculos||[]).find(v => v.tipo === 'pai');
     const vincResp = (vinculos||[]).find(v => v.tipo === 'responsavel_legal');
-    if(vincMae){ nomeMaeAtual = vincMae.responsaveis?.nome || ''; telMaeAtual = vincMae.responsaveis?.telefone || ''; vinculoMaeId = vincMae.responsavel_id; }
-    if(vincPai){ nomePaiAtual = vincPai.responsaveis?.nome || ''; telPaiAtual = vincPai.responsaveis?.telefone || ''; vinculoPaiId = vincPai.responsavel_id; }
-    if(vincResp){ nomeRespAtual = vincResp.responsaveis?.nome || ''; telRespAtual = vincResp.responsaveis?.telefone || ''; vinculoRespId = vincResp.responsavel_id; }
+    if(vincMae){ nomeMaeAtual = vincMae.responsaveis?.nome || ''; telMaeAtual = vincMae.responsaveis?.telefone || ''; profissaoMaeAtual = vincMae.responsaveis?.profissao || ''; cpfMaeAtual = vincMae.responsaveis?.cpf || ''; rgMaeAtual = vincMae.responsaveis?.rg || ''; vinculoMaeId = vincMae.responsavel_id; }
+    if(vincPai){ nomePaiAtual = vincPai.responsaveis?.nome || ''; telPaiAtual = vincPai.responsaveis?.telefone || ''; profissaoPaiAtual = vincPai.responsaveis?.profissao || ''; cpfPaiAtual = vincPai.responsaveis?.cpf || ''; rgPaiAtual = vincPai.responsaveis?.rg || ''; vinculoPaiId = vincPai.responsavel_id; }
+    if(vincResp){ nomeRespAtual = vincResp.responsaveis?.nome || ''; telRespAtual = vincResp.responsaveis?.telefone || ''; cpfRespAtual = vincResp.responsaveis?.cpf || ''; rgRespAtual = vincResp.responsaveis?.rg || ''; vinculoRespId = vincResp.responsavel_id; }
   }
 
   const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${a && a.turma_id===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
@@ -1260,6 +1260,7 @@ async function abrirModalAluno(a){
         </div>
         <div class="secao-titulo">Dados gerais</div>
         <div class="campo"><label>Nome completo *</label><input type="text" id="ed-nome" value="${v('nome')}" required /></div>
+        <div class="campo"><label>Nome social</label><input type="text" id="ed-nome-social" value="${v('nome_social')}" /></div>
         <div class="grade-2">
           <div class="campo"><label>Data de nascimento *</label><input type="date" id="ed-nascimento" value="${vd('data_nascimento')}" required /></div>
           <div class="campo"><label>Sexo *</label>
@@ -1320,17 +1321,36 @@ async function abrirModalAluno(a){
         <div class="grade-2">
           <div class="campo"><label>Nome da mãe *</label><input type="text" id="ed-mae" value="${esc(nomeMaeAtual)}" required /></div>
           <div class="campo"><label>Telefone da mãe</label><input type="text" id="ed-mae-tel" value="${esc(telMaeAtual)}" /></div>
+          <div class="campo"><label>Profissão da mãe</label><input type="text" id="ed-mae-profissao" value="${esc(profissaoMaeAtual)}" /></div>
+          <div class="campo"><label>CPF da mãe</label><input type="text" id="ed-mae-cpf" value="${esc(cpfMaeAtual)}" /></div>
+          <div class="campo"><label>RG da mãe</label><input type="text" id="ed-mae-rg" value="${esc(rgMaeAtual)}" /></div>
           <div class="campo"><label>Nome do pai</label><input type="text" id="ed-pai" value="${esc(nomePaiAtual)}" /></div>
           <div class="campo"><label>Telefone do pai</label><input type="text" id="ed-pai-tel" value="${esc(telPaiAtual)}" /></div>
+          <div class="campo"><label>Profissão do pai</label><input type="text" id="ed-pai-profissao" value="${esc(profissaoPaiAtual)}" /></div>
+          <div class="campo"><label>CPF do pai</label><input type="text" id="ed-pai-cpf" value="${esc(cpfPaiAtual)}" /></div>
+          <div class="campo"><label>RG do pai</label><input type="text" id="ed-pai-rg" value="${esc(rgPaiAtual)}" /></div>
           <div class="campo"><label>Nome do responsável legal</label><input type="text" id="ed-resp" value="${esc(nomeRespAtual)}" /></div>
           <div class="campo"><label>Telefone do responsável legal</label><input type="text" id="ed-resp-tel" value="${esc(telRespAtual)}" /></div>
+          <div class="campo"><label>CPF do responsável legal</label><input type="text" id="ed-resp-cpf" value="${esc(cpfRespAtual)}" /></div>
+          <div class="campo"><label>RG do responsável legal</label><input type="text" id="ed-resp-rg" value="${esc(rgRespAtual)}" /></div>
         </div>
         <div class="secao-titulo">Documentos</div>
         <div class="grade-2">
           <div class="campo"><label>RG</label><input type="text" id="ed-rg" value="${v('rg')}" /></div>
+          <div class="campo"><label>Órgão emissor do RG</label><input type="text" id="ed-rg-orgao" value="${v('rg_orgao_emissor')}" /></div>
+          <div class="campo"><label>Data de expedição do RG</label><input type="date" id="ed-rg-data" value="${vd('rg_data_expedicao')}" /></div>
+          <div class="campo"><label>UF do RG</label><input type="text" id="ed-rg-uf" value="${v('rg_uf')}" maxlength="2" /></div>
           <div class="campo"><label>SUS</label><input type="text" id="ed-sus" value="${v('sus')}" /></div>
           <div class="campo"><label>NIS</label><input type="text" id="ed-nis" value="${v('nis')}" /></div>
           <div class="campo"><label>Código Educacenso</label><input type="text" id="ed-educacenso" value="${v('codigo_educacenso')}" /></div>
+        </div>
+        <div class="secao-titulo">Certidão de nascimento</div>
+        <div class="grade-2">
+          <div class="campo"><label>Número</label><input type="text" id="ed-cert-numero" value="${v('cert_nascimento_numero')}" /></div>
+          <div class="campo"><label>Folha</label><input type="text" id="ed-cert-folha" value="${v('cert_nascimento_folha')}" /></div>
+          <div class="campo"><label>Livro</label><input type="text" id="ed-cert-livro" value="${v('cert_nascimento_livro')}" /></div>
+          <div class="campo"><label>Data da certidão</label><input type="date" id="ed-cert-data" value="${vd('cert_nascimento_data')}" /></div>
+          <div class="campo"><label>Nome do cartório</label><input type="text" id="ed-cert-cartorio" value="${v('cert_nascimento_cartorio')}" /></div>
         </div>
         <div class="secao-titulo">Documentos entregues</div>
         <div class="campo"><label><input type="checkbox" id="doc-certidao" ${editando && a.doc_certidao_rg_cpf?'checked':''} style="width:auto;margin-right:6px;" />Cópia Certidão de Nascimento / RG / CPF</label></div>
@@ -1354,6 +1374,7 @@ async function abrirModalAluno(a){
         <div class="grade-2">
           <div class="campo"><label>Número</label><input type="text" id="ed-numero" value="${v('numero')}" /></div>
           <div class="campo"><label>Bairro</label><input type="text" id="ed-bairro" value="${v('bairro')}" /></div>
+          <div class="campo"><label>Zona</label><input type="text" id="ed-zona" value="${v('zona')}" placeholder="Urbana / Rural" /></div>
           <div class="campo"><label>Cidade</label><input type="text" id="ed-cidade" value="${v('cidade')}" /></div>
           <div class="campo"><label>UF</label><input type="text" id="ed-uf" value="${editando ? esc(a.uf||'PE') : 'PE'}" maxlength="2" /></div>
           <div class="campo"><label>Telefone</label><input type="text" id="ed-telefone" value="${v('telefone')}" /></div>
@@ -1386,6 +1407,14 @@ async function abrirModalAluno(a){
             </div>`).join('')}
         </div>
         <div class="campo"><label><input type="checkbox" id="ed-bolsa" ${editando && a.bolsa_familia?'checked':''} style="width:auto;margin-right:6px;" />Bolsa Família</label></div>
+        <div class="secao-titulo">Transporte e imagem</div>
+        <div class="grade-2">
+          <div class="campo"><label>Autoriza saída do(a) estudante sem o responsável?</label>${selectSimNao('ed-autoriza-saida', vd('autorizacao_saida'))}</div>
+          <div class="campo" id="campo-autoriza-saida-nome" style="${(vd('autorizacao_saida')||'').trim().toLowerCase()==='sim' ? '' : 'display:none;'}"><label>Nome da pessoa autorizada a buscar</label><input type="text" id="ed-autoriza-saida-nome" value="${v('autorizacao_saida_nome')}" /></div>
+          <div class="campo"><label>Precisa de transporte escolar?</label>${selectSimNao('ed-transporte', vd('transporte_escolar'))}</div>
+          <div class="campo" id="campo-transporte-rota" style="${(vd('transporte_escolar')||'').trim().toLowerCase()==='sim' ? '' : 'display:none;'}"><label>Rota</label><input type="text" id="ed-transporte-rota" value="${v('transporte_rota')}" /></div>
+          <div class="campo"><label>Autoriza uso da imagem do(a) estudante?</label>${selectSimNao('ed-autoriza-imagem', vd('autoriza_uso_imagem'))}</div>
+        </div>
         <button class="botao terracota" type="submit" id="btn-salvar-aluno">${editando ? 'Salvar alterações' : 'Cadastrar estudante'}</button>
       </form>
     </div>`;
@@ -1409,6 +1438,12 @@ async function abrirModalAluno(a){
   });
   document.getElementById('ed-doenca').addEventListener('change', (e) => {
     document.getElementById('campo-descricao-doenca').style.display = e.target.value === 'Sim' ? '' : 'none';
+  });
+  document.getElementById('ed-transporte').addEventListener('change', (e) => {
+    document.getElementById('campo-transporte-rota').style.display = e.target.value === 'Sim' ? '' : 'none';
+  });
+  document.getElementById('ed-autoriza-saida').addEventListener('change', (e) => {
+    document.getElementById('campo-autoriza-saida-nome').style.display = e.target.value === 'Sim' ? '' : 'none';
   });
   document.getElementById('ed-uf-nat').addEventListener('change', (e) => {
     carregarMunicipios(e.target.value, '');
@@ -1467,6 +1502,7 @@ async function abrirModalAluno(a){
     const campoTexto = (id) => document.getElementById(id).value.trim() || null;
     const dados = {
       nome: document.getElementById('ed-nome').value.trim(),
+      nome_social: campoTexto('ed-nome-social'),
       turma_id: document.getElementById('ed-turma').value || null,
       situacao: document.getElementById('ed-situacao').value,
       data_situacao: ['transferido','cancelado'].includes(document.getElementById('ed-situacao').value) ? (document.getElementById('ed-data-situacao').value || null) : null,
@@ -1479,12 +1515,21 @@ async function abrirModalAluno(a){
       uf_naturalidade: campoTexto('ed-uf-nat'),
       cpf: campoTexto('ed-cpf'),
       rg: campoTexto('ed-rg'),
+      rg_orgao_emissor: campoTexto('ed-rg-orgao'),
+      rg_data_expedicao: document.getElementById('ed-rg-data').value || null,
+      rg_uf: campoTexto('ed-rg-uf'),
+      cert_nascimento_numero: campoTexto('ed-cert-numero'),
+      cert_nascimento_folha: campoTexto('ed-cert-folha'),
+      cert_nascimento_livro: campoTexto('ed-cert-livro'),
+      cert_nascimento_data: document.getElementById('ed-cert-data').value || null,
+      cert_nascimento_cartorio: campoTexto('ed-cert-cartorio'),
       sus: campoTexto('ed-sus'),
       nis: campoTexto('ed-nis'),
       codigo_educacenso: campoTexto('ed-educacenso'),
       endereco: campoTexto('ed-endereco'),
       numero: campoTexto('ed-numero'),
       bairro: campoTexto('ed-bairro'),
+      zona: campoTexto('ed-zona'),
       cidade: campoTexto('ed-cidade'),
       cep: campoTexto('ed-cep'),
       uf: campoTexto('ed-uf'),
@@ -1504,6 +1549,11 @@ async function abrirModalAluno(a){
       descricao_aee: document.getElementById('ed-aee').checked ? (Array.from(document.querySelectorAll('.cid-aee:checked')).map(c => c.value).join(', ') || null) : null,
       cids_aee: document.getElementById('ed-aee').checked ? Array.from(document.querySelectorAll('.cid-aee:checked')).map(c => c.value) : [],
       bolsa_familia: document.getElementById('ed-bolsa').checked,
+      transporte_escolar: document.getElementById('ed-transporte').value || null,
+      transporte_rota: document.getElementById('ed-transporte').value === 'Sim' ? (document.getElementById('ed-transporte-rota').value.trim() || null) : null,
+      autoriza_uso_imagem: document.getElementById('ed-autoriza-imagem').value || null,
+      autorizacao_saida: document.getElementById('ed-autoriza-saida').value || null,
+      autorizacao_saida_nome: document.getElementById('ed-autoriza-saida').value === 'Sim' ? (document.getElementById('ed-autoriza-saida-nome').value.trim() || null) : null,
       tamanho_blusa: document.getElementById('ed-tam-blusa').value || null,
       tamanho_short: document.getElementById('ed-tam-short').value || null,
       tamanho_calcado: document.getElementById('ed-tam-calcado').value || null,
@@ -1543,18 +1593,18 @@ async function abrirModalAluno(a){
       alunoId = novoAluno.id;
     }
 
-    async function salvarResponsavel(nome, telefone, vinculoId, tipo){
+    async function salvarResponsavel(nome, telefone, vinculoId, tipo, profissao, cpf, rg){
       if(!nome) return;
       if(vinculoId){
-        await supabase.from('responsaveis').update({ nome, telefone }).eq('id', vinculoId);
+        await supabase.from('responsaveis').update({ nome, telefone, profissao, cpf, rg }).eq('id', vinculoId);
       } else {
-        const { data: novoResp } = await supabase.from('responsaveis').insert({ nome, telefone }).select().single();
+        const { data: novoResp } = await supabase.from('responsaveis').insert({ nome, telefone, profissao, cpf, rg }).select().single();
         if(novoResp) await supabase.from('aluno_responsavel').insert({ aluno_id: alunoId, responsavel_id: novoResp.id, tipo, principal: tipo === 'mae' });
       }
     }
-    await salvarResponsavel(nomeMae, telMae, vinculoMaeId, 'mae');
-    await salvarResponsavel(nomePai, telPai, vinculoPaiId, 'pai');
-    await salvarResponsavel(nomeResp, telResp, vinculoRespId, 'responsavel_legal');
+    await salvarResponsavel(nomeMae, telMae, vinculoMaeId, 'mae', document.getElementById('ed-mae-profissao').value.trim() || null, document.getElementById('ed-mae-cpf').value.trim() || null, document.getElementById('ed-mae-rg').value.trim() || null);
+    await salvarResponsavel(nomePai, telPai, vinculoPaiId, 'pai', document.getElementById('ed-pai-profissao').value.trim() || null, document.getElementById('ed-pai-cpf').value.trim() || null, document.getElementById('ed-pai-rg').value.trim() || null);
+    await salvarResponsavel(nomeResp, telResp, vinculoRespId, 'responsavel_legal', null, document.getElementById('ed-resp-cpf').value.trim() || null, document.getElementById('ed-resp-rg').value.trim() || null);
 
     const arquivoFoto = document.getElementById('ed-foto').files[0];
     if(arquivoFoto){
@@ -1619,11 +1669,13 @@ async function abrirFichaAluno(id){
       <div class="ficha-linha"><span>Alergia</span><span>${esc(a.alergia||'—')}</span></div>
       <div class="ficha-linha"><span>Fator RH</span><span>${esc(a.fator_rh||'—')}</span></div>
       <div class="ficha-linha"><span>Bolsa Família</span><span>${a.bolsa_familia ? 'Sim' : 'Não'}</span></div>
+      <div class="ficha-linha"><span>Autoriza saída sem responsável</span><span>${a.autorizacao_saida === 'Sim' ? ('Sim' + (a.autorizacao_saida_nome ? ' — acompanhado(a) de '+esc(a.autorizacao_saida_nome) : ' — sozinho(a)')) : (a.autorizacao_saida || '—')}</span></div>
       <div class="secao-titulo">Responsáveis</div>
       <div id="ficha-responsaveis"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
-      <div style="margin-top:22px;display:flex;gap:10px;justify-content:flex-end;">
+      <div style="margin-top:22px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
         <button class="botao secundario pequeno" data-fechar>Fechar</button>
         <button class="botao secundario pequeno" data-imprimir-ficha>🖨️ Imprimir ficha</button>
+        <button class="botao secundario pequeno" data-imprimir-autorizacoes>🖨️ Autorizações</button>
         <button class="botao terracota pequeno" data-editar-ficha>Editar</button>
       </div>
     </div>`;
@@ -1632,6 +1684,7 @@ async function abrirFichaAluno(id){
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
   modal.querySelector('[data-editar-ficha]').addEventListener('click', () => { modal.remove(); abrirModalAluno(a); });
   modal.querySelector('[data-imprimir-ficha]').addEventListener('click', () => imprimirFichaMatricula(a));
+  modal.querySelector('[data-imprimir-autorizacoes]').addEventListener('click', () => imprimirAutorizacoes(a));
 
   const { data: vinculos, error } = await supabase
     .from('aluno_responsavel')
@@ -1714,6 +1767,7 @@ async function imprimirFichaMatricula(a){
       @media print{ .quebra{page-break-before:always;} }
     </style>
     </head><body>
+      <div id="capa">
       <div class="cabecalho-topo">
         <div class="cabecalho-centro">
           <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
@@ -1736,45 +1790,63 @@ async function imprimirFichaMatricula(a){
         ${cel('NOME CIVIL', esc(a.nome), 8)}
         ${cel('FONE', esc(a.telefone||''), 4)}
 
-        ${cel('ENDEREÇO', esc(a.endereco||''), 8)}
-        ${cel('Nº', esc(a.numero||''), 4)}
+        ${cel('NOME SOCIAL', esc(a.nome_social||''), 12)}
 
-        ${cel('BAIRRO', esc(a.bairro||''), 5)}
-        ${cel('CIDADE', esc(a.cidade || 'Paulista'), 3)}
+        ${cel('ENDEREÇO', esc(a.endereco||''), 6)}
+        ${cel('Nº', esc(a.numero||''), 2)}
+        ${cel('BAIRRO', esc(a.bairro||''), 2)}
+        ${cel('CIDADE', esc(a.cidade || 'Paulista'), 1)}
         ${cel('UF', esc(a.uf||'PE'), 1)}
-        ${cel('CEP', esc(a.cep||''), 3)}
 
-        ${cel('DATA DE NASCIMENTO', fmtData(a.data_nascimento), 3)}
-        ${cel('CPF', esc(a.cpf||''), 3)}
-        ${cel('NATURALIDADE', (esc(a.naturalidade||'')+(a.uf_naturalidade?' / '+esc(a.uf_naturalidade):'')), 4)}
+        ${cel('CEP', esc(a.cep||''), 2)}
+        ${cel('ZONA', esc(a.zona||''), 2)}
+        ${cel('DATA DE NASCIMENTO', fmtData(a.data_nascimento), 2)}
+        ${cel('CPF', esc(a.cpf||''), 2)}
+        ${cel('NATURALIDADE', esc(a.naturalidade||''), 2)}
+        ${cel('UF', esc(a.uf_naturalidade||''), 2)}
+
+        ${cel('SEXO', `M (${cx(a.sexo==='M')})&nbsp;&nbsp;F (${cx(a.sexo==='F')})`, 2)}
+        ${cel('COR/RAÇA', esc(a.cor_raca||''), 2)}
         ${cel('RG Nº', esc(a.rg||''), 2)}
+        ${cel('ORG. EMISSOR', esc(a.rg_orgao_emissor||''), 2)}
+        ${cel('DATA DE EXPEDIÇÃO', fmtData(a.rg_data_expedicao), 2)}
+        ${cel('UF', esc(a.rg_uf||''), 2)}
 
-        ${cel('SEXO', `M (${cx(a.sexo==='M')})&nbsp;&nbsp;F (${cx(a.sexo==='F')})`, 3)}
-        ${cel('COR/RAÇA', esc(a.cor_raca||''), 3)}
-        ${cel('CÓD. EDUCACENSO', esc(a.codigo_educacenso||''), 6)}
+        ${cel('Nº CERT. NASCIMENTO', esc(a.cert_nascimento_numero||''), 3)}
+        ${cel('FOLHA', esc(a.cert_nascimento_folha||''), 2)}
+        ${cel('LIVRO', esc(a.cert_nascimento_livro||''), 2)}
+        ${cel('DATA DA CERT.', fmtData(a.cert_nascimento_data), 2)}
+        ${cel('NOME DO CARTÓRIO', esc(a.cert_nascimento_cartorio||''), 3)}
 
-        ${cel('TRANSTORNO GLOBAL DE DESENVOLVIMENTO', `SIM (${cx(ehSim('transtorno'))})&nbsp;&nbsp;NÃO (${cx(ehNao('transtorno') || !a.transtorno)})`, 6)}
-        ${cel('ALTAS HABILIDADES / SUPERDOTAÇÃO', `SIM (${cx(ehSim('superdotacao'))})&nbsp;&nbsp;NÃO (${cx(ehNao('superdotacao') || !a.superdotacao)})`, 6)}
+        ${cel('TRANSTORNO GLOBAL DE DESENVOLVIMENTO', `SIM (${cx(ehSim('transtorno'))})&nbsp;&nbsp;NÃO (${cx(ehNao('transtorno') || !a.transtorno)})`, 4)}
+        ${cel('ALTAS HABILIDADES / SUPERDOTAÇÃO', `SIM (${cx(ehSim('superdotacao'))})&nbsp;&nbsp;NÃO (${cx(ehNao('superdotacao') || !a.superdotacao)})`, 4)}
+        ${cel('NECESSIDADE ESPECIAL (TIPO)', a.aee ? (a.descricao_aee ? esc(a.descricao_aee) : 'SIM') : 'NÃO', 4)}
 
-        ${cel('NECESSIDADE ESPECIAL (AEE)', a.aee ? 'SIM' + (a.descricao_aee ? ' — '+esc(a.descricao_aee) : '') : 'NÃO', 12)}
+        ${cel('ALERGIA / INTOLERÂNCIA ALIMENTAR', `SIM (${cx(ehSim('alergia'))})&nbsp;&nbsp;NÃO (${cx(ehNao('alergia') || !a.alergia)})`, 3)}
+        ${cel('PORTADOR DE DIABETES', `SIM (${cx(ehSim('diabetes'))})&nbsp;&nbsp;NÃO (${cx(ehNao('diabetes') || !a.diabetes)})`, 3)}
+        ${cel('PORT. DE HIPERTENSÃO ARTERIAL', `SIM (${cx(ehSim('hipertensao'))})&nbsp;&nbsp;NÃO (${cx(ehNao('hipertensao') || !a.hipertensao)})`, 3)}
+        ${cel('CÓD. EDUCACENSO', esc(a.codigo_educacenso||''), 3)}
 
-        ${cel('ALERGIA / INTOLERÂNCIA', `SIM (${cx(ehSim('alergia'))})&nbsp;&nbsp;NÃO (${cx(ehNao('alergia') || !a.alergia)})`, 4)}
-        ${cel('DIABETES', `SIM (${cx(ehSim('diabetes'))})&nbsp;&nbsp;NÃO (${cx(ehNao('diabetes') || !a.diabetes)})`, 4)}
-        ${cel('HIPERTENSÃO', `SIM (${cx(ehSim('hipertensao'))})&nbsp;&nbsp;NÃO (${cx(ehNao('hipertensao') || !a.hipertensao)})`, 4)}
+        ${cel('PAI', esc(pai?.responsaveis?.nome||''), 6)}
+        ${cel('FONE', esc(pai?.responsaveis?.telefone||''), 3)}
+        ${cel('PROFISSÃO', esc(pai?.responsaveis?.profissao||''), 3)}
 
-        ${cel('PAI', esc(pai?.responsaveis?.nome||''), 8)}
-        ${cel('FONE', esc(pai?.responsaveis?.telefone||''), 4)}
+        ${cel('MÃE', esc(mae?.responsaveis?.nome||''), 6)}
+        ${cel('FONE', esc(mae?.responsaveis?.telefone||''), 3)}
+        ${cel('PROFISSÃO', esc(mae?.responsaveis?.profissao||''), 3)}
 
-        ${cel('MÃE', esc(mae?.responsaveis?.nome||''), 8)}
-        ${cel('FONE', esc(mae?.responsaveis?.telefone||''), 4)}
-
-        ${cel('BOLSA FAMÍLIA', a.bolsa_familia ? 'SIM' : 'NÃO', 3)}
-        ${cel('CARTÃO DO SUS Nº', esc(a.sus||''), 4)}
+        ${cel('BOLSA F. (Nº NIS)', a.bolsa_familia ? (esc(a.nis||'SIM')) : 'NÃO', 3)}
+        ${cel('CARTÃO DO SUS Nº', esc(a.sus||''), 3)}
         ${cel('T. SANG. (FATOR RH)', esc(a.fator_rh||''), 2)}
-        ${cel('OUTRA DOENÇA?', `SIM (${cx(ehSim('doenca'))}) NÃO (${cx(ehNao('doenca') || !a.doenca)})`, 3)}
+        ${cel('PORTADOR DE OUTRA DOENÇA?', `SIM (${cx(ehSim('doenca'))}) NÃO (${cx(ehNao('doenca') || !a.doenca)}) — QUAL? ${esc(a.descricao_doenca||'')}`, 4)}
 
-        ${cel('TAM. BLUSA (FARDA)', esc(a.tamanho_blusa||''), 3)}
-        ${cel('TAM. SHORT/CALÇA (FARDA)', esc(a.tamanho_short||''), 3)}
+        ${cel('AUTORIZA SAÍDA DO(A) ESTUDANTE SEM O RESPONSÁVEL?', `SIM (${cx(ehSim('autorizacao_saida'))})&nbsp;&nbsp;NÃO (${cx(ehNao('autorizacao_saida') || !a.autorizacao_saida)}) — PESSOA AUTORIZADA: ${esc(a.autorizacao_saida_nome || '')}`, 12)}
+
+        ${cel('PRECISA DE TRANSPORTE ESCOLAR?', `NÃO (${cx(ehNao('transporte_escolar') || !a.transporte_escolar)}) SIM (${cx(ehSim('transporte_escolar'))}). ROTA ${esc(a.transporte_rota||'_______________')}`, 6)}
+        ${cel('AUTORIZA USO DA IMAGEM DO(A) ESTUDANTE?', `SIM (${cx(ehSim('autoriza_uso_imagem'))})&nbsp;&nbsp;NÃO (${cx(ehNao('autoriza_uso_imagem'))})`, 6)}
+
+        ${cel('TAM. BLUSA (FARDA)', esc(a.tamanho_blusa||''), 6)}
+        ${cel('TAM. SHORT/CALÇA (FARDA)', esc(a.tamanho_short||''), 6)}
       </div>
 
       <div class="titulo-secao">II — Documentação entregue</div>
@@ -1806,18 +1878,140 @@ async function imprimirFichaMatricula(a){
       <div class="barra-titulo" style="font-size:13px;">Registro da renovação de matrícula</div>
       <table class="renov">
         <tr><th>Ano letivo</th><th>Turma</th><th>Turno</th><th>Data</th><th>Ass. do(a) estudante ou responsável legal</th><th>Ass. do gestor(a) escolar</th></tr>
-        ${Array(6).fill('<tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>').join('')}
+        ${Array(4).fill('<tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>').join('')}
       </table>
+      </div>
+    <script>
+      window.onload = function(){
+        var capa = document.getElementById('capa');
+        var alturaPaginaPx = 278 * (96/25.4); // A4 (297mm) menos margens de 7mm+12mm, a 96dpi
+        var alturaConteudo = capa.scrollHeight;
+        if(alturaConteudo > alturaPaginaPx){
+          var escala = alturaPaginaPx / alturaConteudo;
+          capa.style.transformOrigin = 'top left';
+          capa.style.transform = 'scale(' + escala + ')';
+          capa.style.width = (100/escala) + '%';
+        }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+    <\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
 }
 
-// ---------------------------------------------------------------
-// TURMAS
-// ---------------------------------------------------------------
+async function imprimirAutorizacoes(a){
+  const { data: vinculos } = await supabase
+    .from('aluno_responsavel')
+    .select('tipo, principal, responsaveis(nome, cpf, rg)')
+    .eq('aluno_id', a.id)
+    .order('principal', { ascending: false });
+
+  const respLegal = (vinculos||[]).find(v => v.tipo === 'responsavel_legal');
+  const mae = (vinculos||[]).find(v => v.tipo === 'mae');
+  const pai = (vinculos||[]).find(v => v.tipo === 'pai');
+  const responsavel = respLegal || mae || pai || (vinculos||[])[0] || null;
+  const nomeResponsavel = responsavel?.responsaveis?.nome || '';
+  const cpfResponsavel = responsavel?.responsaveis?.cpf || '';
+  const rgResponsavel = responsavel?.responsaveis?.rg || '';
+
+  const hoje = new Date();
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const dataExtenso = `${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
+  const enderecoAluno = [a.endereco, a.numero ? 'nº '+a.numero : null].filter(Boolean).join(', ');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Autorizações — ${esc(a.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 9mm 14mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13.5px;line-height:1.55;margin:0 auto;max-width:186mm;}
+      .cabecalho-topo{text-align:center;margin-bottom:6px;}
+      .cabecalho-topo img{width:60px;height:60px;}
+      .cabecalho-topo h1{font-size:14px;margin:3px 0 0;text-transform:uppercase;font-weight:bold;}
+      .cabecalho-topo h2{font-size:13.5px;margin:1px 0 0;text-transform:uppercase;font-weight:bold;}
+      .cabecalho-topo h3{font-size:12px;margin:1px 0 0;font-weight:600;}
+      .aviso-unico{background:#ECEFE6;border:1px solid var(--terracota, #b5643f);border-radius:8px;padding:9px 14px;font-size:12.5px;margin:10px 0 14px;text-align:center;}
+      .barra-titulo{background:#c9c9c9;padding:7px 12px;font-size:14.5px;font-weight:bold;text-transform:uppercase;letter-spacing:.02em;margin:14px 0 8px;text-align:center;}
+      p{margin:7px 0;text-align:justify;}
+      .campo-linha{border-bottom:1px solid #333;padding:0 2px;font-weight:600;}
+      .checklist div{margin:5px 0 5px 8px;}
+      .assinaturas{margin-top:34px;display:flex;justify-content:center;text-align:center;font-size:12.5px;}
+      .assinaturas div{border-top:1px solid #333;padding-top:5px;width:290px;}
+      .rodape-data{text-align:right;font-size:12.5px;margin-top:16px;}
+    </style>
+    </head><body>
+      <div id="capa">
+      <div class="cabecalho-topo">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <h1>Prefeitura Municipal do Paulista</h1>
+        <h2>Secretaria de Educação</h2>
+        <h3>Escola Municipal Jaime Gonçalves Bold</h3>
+      </div>
+
+      <div class="aviso-unico">Este documento reúne os dois termos abaixo. Uma única assinatura do responsável legal, ao final, autoriza ambos.</div>
+
+      <div class="barra-titulo">I — Autorização para saída do(a) estudante sem o responsável</div>
+      <p>
+        Eu, <span class="campo-linha">${esc(nomeResponsavel) || '&nbsp;'.repeat(60)}</span>,
+        na condição de responsável legal pelo(a) estudante
+        <span class="campo-linha">${esc(a.nome)}</span>,
+        matriculado(a) na turma <span class="campo-linha">${esc(a.turmas?.nome || '') || '&nbsp;'.repeat(20)}</span>,
+        autorizo a sua saída no horário de encerramento de aula.
+      </p>
+      <p>Ciente que assumo quaisquer riscos que possam ocorrer no trajeto da escola até a residência.</p>
+      <p><b>Saída da escola:</b></p>
+      <div class="checklist">
+        <div>1 — ( ${a.autorizacao_saida==='Sim' && !a.autorizacao_saida_nome ? 'X' : '&nbsp;&nbsp;'} ) sozinho(a).</div>
+        <div>2 — ( ${a.autorizacao_saida==='Sim' && a.autorizacao_saida_nome ? 'X' : '&nbsp;&nbsp;'} ) acompanhado(a) de: ${a.autorizacao_saida_nome ? `<span class="campo-linha">${esc(a.autorizacao_saida_nome)}</span>` : '______________________________________________'}</div>
+      </div>
+      ${a.autorizacao_saida && a.autorizacao_saida !== 'Sim' ? `<p style="font-size:11.5px;color:#444;"><i>Cadastro atual: responsável NÃO autorizou a saída do(a) estudante sem acompanhamento.</i></p>` : ''}
+      <p style="font-size:11.5px;color:#444;"><i>Obs.: o(a) estudante que não tiver este termo preenchido só poderá sair da escola com o responsável. Não será aceita autorização por telefone.</i></p>
+
+      <div class="barra-titulo">II — Autorização de uso de imagem</div>
+      <p>
+        Eu, <span class="campo-linha">${esc(nomeResponsavel) || '&nbsp;'.repeat(60)}</span>,
+        portador(a) do RG nº <span class="campo-linha">${esc(rgResponsavel) || '&nbsp;'.repeat(16)}</span>,
+        ${cpfResponsavel ? `inscrito(a) no CPF sob nº <span class="campo-linha">${esc(cpfResponsavel)}</span>, ` : `inscrito(a) no CPF sob nº <span class="campo-linha">${'&nbsp;'.repeat(20)}</span>, `}
+        residente à <span class="campo-linha">${esc(enderecoAluno) || '&nbsp;'.repeat(30)}</span>,
+        bairro <span class="campo-linha">${esc(a.bairro||'') || '&nbsp;'.repeat(20)}</span>,
+        Município <span class="campo-linha">${esc(a.cidade||'Paulista')}</span>,
+        Estado <span class="campo-linha">${esc(a.uf||'PE')}</span>,
+        responsável pelo(a) estudante <span class="campo-linha">${esc(a.nome)}</span>
+        da Escola Municipal Jaime Gonçalves Bold,
+        <b>AUTORIZO</b> o uso da imagem do(a) mesmo(a) nas peças publicitárias da Prefeitura do Paulista, tais como:
+        (I) out-door; (II) busdoor; folhetos em geral (encartes, mala direta, catálogo etc.); (III) folder de apresentação;
+        (IV) anúncios em revistas e jornais em geral; (V) home page; (VI) cartazes; (VII) back-light;
+        (VIII) mídia eletrônica (painéis, vídeo-tapes, televisão, cinema, programa para rádio, entre outros).
+      </p>
+      <p>A presente autorização é concedida a título gratuito, abrangendo o uso da imagem acima mencionada em todo o território nacional e no exterior.</p>
+      <p>Por esta ser a expressão da minha vontade, declaro que autorizo o uso acima descrito sem que nada haja a ser reclamado a título de direitos conexos à imagem da criança/adolescente ou a qualquer outro, e assino a presente autorização.</p>
+
+      <div class="rodape-data">Paulista, ${dataExtenso}.</div>
+      <div class="assinaturas"><div>Assinatura do(a) responsável legal</div></div>
+      </div>
+    <script>
+      window.onload = function(){
+        var capa = document.getElementById('capa');
+        var alturaPaginaPx = 279 * (96/25.4); // A4 (297mm) menos margens de 9mm+9mm, a 96dpi
+        var alturaConteudo = capa.scrollHeight;
+        if(alturaConteudo > alturaPaginaPx){
+          var escala = alturaPaginaPx / alturaConteudo;
+          capa.style.transformOrigin = 'top left';
+          capa.style.transform = 'scale(' + escala + ')';
+          capa.style.width = (100/escala) + '%';
+        }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
 function renderizarTurmas(el){
   const contagem = {};
   ESTADO.alunos.forEach(a => { contagem[a.turma_id] = (contagem[a.turma_id]||0)+1; });
