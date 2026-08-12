@@ -3775,6 +3775,13 @@ function formatarDataBR(iso){
   return `${dia}/${mes}/${ano}`;
 }
 
+function formatarHoraBR(timestamptz){
+  if(!timestamptz) return '—';
+  const d = new Date(timestamptz);
+  if(isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+}
+
 // ---------------------------------------------------------------
 // Seletor de data customizado (calendário colorido: azul = não letivo,
 // verde = dias letivos até hoje, branco = datas futuras)
@@ -5097,11 +5104,19 @@ function renderizarFormularioFicha(conteudo, elPai, aluno, registro){
       </div>
     </div>
 
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;align-items:center;">
       <button class="botao terracota pequeno" id="btn-salvar-ficha-notas" style="width:auto;">Salvar</button>
+      <div class="campo" style="margin:0;min-width:280px;">
+        <label>Assinatura de gestão no documento</label>
+        <select id="fn-assinatura">
+          <option value="gestora" ${ESTADO.docAssinatura==='gestora'?'selected':''}>Rosineide de Araújo Santos Vieira — Gestora Escolar</option>
+          <option value="vice" ${ESTADO.docAssinatura==='vice'?'selected':''}>Lívio Charlles Rembrandt de Santana — Vice-Gestor Escolar</option>
+        </select>
+      </div>
       <button class="botao secundario pequeno" id="btn-gerar-ficha-notas" style="width:auto;">Gerar Ficha (frente e verso)</button>
     </div>
   `;
+  document.getElementById('fn-assinatura').addEventListener('change', e => { ESTADO.docAssinatura = e.target.value; });
 
   function coletarDadosFicha(){
     const notasColetadas = {};
@@ -5228,15 +5243,15 @@ function renderizarFormularioFicha(conteudo, elPai, aluno, registro){
     const dados = coletarDadosFicha();
     const { error } = await supabase.from('fichas_notas').upsert(dados, { onConflict: 'aluno_id,ano_civil' });
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
-    gerarFichaNotasDocumento(aluno, dados);
+    gerarFichaNotasDocumento(aluno, dados, document.getElementById('fn-assinatura').value);
   });
 }
 
-async function gerarFichaNotasDocumento(aluno, registro){
+async function gerarFichaNotasDocumento(aluno, registro, assinaturaGestao){
   const { data: vinculos } = await supabase.from('aluno_responsavel').select('tipo, responsaveis(nome)').eq('aluno_id', aluno.id);
   const mae = (vinculos||[]).find(v => v.tipo === 'mae');
   const pai = (vinculos||[]).find(v => v.tipo === 'pai');
-  const filiacao = [pai?.responsaveis?.nome, mae?.responsaveis?.nome].filter(Boolean).join(' E ') || '—';
+  const filiacao = formatarFiliacao(pai?.responsaveis?.nome, mae?.responsaveis?.nome);
   const serieTexto = registro.serie || (aluno.turmas ? extrairSerie(aluno.turmas.nome) : '____');
   const notas = registro.notas || {};
   const partes = registro.progressao_parcial || {};
@@ -5250,6 +5265,14 @@ async function gerarFichaNotasDocumento(aluno, registro){
   const linhasNotas = COMPONENTES_FICHA_NOTAS.map(([chave, nome]) => {
     const v = notas[chave] || {};
     const todosBimestresPreenchidos = preenchido(v.b1) && preenchido(v.b2) && preenchido(v.b3) && preenchido(v.b4);
+    // Média Anual = média dos 4 bimestres, só calculada quando os 4 estiverem preenchidos com números de verdade
+    let mediaExibir = '';
+    if(todosBimestresPreenchidos){
+      const numeros = [v.b1, v.b2, v.b3, v.b4].map(x => parseFloat(String(x).replace(',', '.')));
+      if(numeros.every(n => !isNaN(n))){
+        mediaExibir = (numeros.reduce((a,b) => a+b, 0) / 4).toFixed(1).replace('.', ',');
+      }
+    }
     const notaFinalTexto = (v.notaFinal || '').toString().trim();
     const notaFinalEhTextoDeResultado = preenchido(notaFinalTexto) && !notaFinalEhNumero(notaFinalTexto);
     // a Nota Final só é impressa se: (a) for um número de verdade, e (b) os 4 bimestres estiverem completos
@@ -5259,6 +5282,7 @@ async function gerarFichaNotasDocumento(aluno, registro){
     return `<tr>
       <td style="text-align:left;padding-left:6px;">${esc(nome)}</td>
       <td><b>${nn(v.b1)}</b></td><td><b>${nn(v.b2)}</b></td><td><b>${nn(v.b3)}</b></td><td><b>${nn(v.b4)}</b></td>
+      <td><b>${nn(mediaExibir)}</b></td>
       <td><b>${nn(v.recFinal)}</b></td><td><b>${nn(notaFinalExibir)}</b></td>
       <td><b>${esc(resultadoExibir)}</b></td>
     </tr>`;
@@ -5270,6 +5294,13 @@ async function gerarFichaNotasDocumento(aluno, registro){
     const notaFinalTexto = (v.notaFinal || '').toString().trim();
     const notaFinalConta = preenchido(notaFinalTexto) && notaFinalEhNumero(notaFinalTexto);
     return !preenchido(v.b3) && !preenchido(v.b4) && !preenchido(v.recFinal) && !notaFinalConta;
+  });
+  // se nem o 1º bimestre foi lançado pra nenhum componente, a linha risca a tabela inteira (do I bimestre até Nota Final)
+  const nenhumaNotaLancada = COMPONENTES_FICHA_NOTAS.every(([chave]) => {
+    const v = notas[chave] || {};
+    const notaFinalTexto = (v.notaFinal || '').toString().trim();
+    const notaFinalConta = preenchido(notaFinalTexto) && notaFinalEhNumero(notaFinalTexto);
+    return !preenchido(v.b1) && !preenchido(v.b2) && !preenchido(v.b3) && !preenchido(v.b4) && !preenchido(v.recFinal) && !notaFinalConta;
   });
 
   const linhasParcial = COMPONENTES_FICHA_NOTAS.map(([chave, nome]) => `<tr>
@@ -5298,36 +5329,42 @@ async function gerarFichaNotasDocumento(aluno, registro){
   janela.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8" />
     <title>Ficha Individual das Notas - ${esc(aluno.nome)}</title>
     <style>
-      @page{size:A4 landscape;margin:12mm 16mm;}
+      @page{size:A4 landscape;margin:10mm 14mm;}
       *{box-sizing:border-box;}
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.5;}
-      .cabecalho-doc{display:flex;align-items:center;gap:14px;margin-bottom:12px;}
-      .cabecalho-doc img{width:58px;height:58px;flex-shrink:0;}
-      .cabecalho-doc .orgao{flex:1;text-align:center;margin:0;line-height:1.3;}
-      .cabecalho-doc .orgao b{font-size:16px;display:block;}
-      .cabecalho-doc .orgao span{font-size:13px;}
-      .cabecalho-doc .ano-box{flex-shrink:0;border:1.5px solid #333;padding:10px 22px;font-size:19px;font-weight:bold;}
-      .titulo-doc{text-align:center;font-size:15.5px;font-weight:bold;text-transform:uppercase;margin:4px 0 14px;line-height:1.4;}
-      .info-escola{border:1px solid #333;padding:13px 16px;margin-bottom:16px;font-size:12.5px;line-height:2;}
-      .secao-nome{font-weight:bold;font-size:13px;margin:16px 0 6px;text-transform:uppercase;}
-      table.ficha{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.3px;}
-      table.ficha th, table.ficha td{border:1px solid #333;padding:9px 5px;text-align:center;word-wrap:break-word;}
-      table.ficha th{background:#f2f2f2;font-size:11px;padding:8px 4px;}
-      table.ficha.corpo{margin-top:-1px;margin-bottom:14px;}
-      .resumo-anual{width:100%;border-collapse:collapse;font-size:12.3px;margin-bottom:14px;}
-      .resumo-anual th, .resumo-anual td{border:1px solid #333;padding:11px 10px;text-align:center;}
-      .resumo-anual th{background:#f2f2f2;font-size:11.3px;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:12px;line-height:1.35;}
+      .cabecalho-doc{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
+      .cabecalho-doc img{width:88px;height:88px;flex-shrink:0;}
+      .cabecalho-doc .orgao{flex:1;text-align:center;margin:0;line-height:1.25;}
+      .cabecalho-doc .orgao b{font-size:14.5px;display:block;}
+      .cabecalho-doc .orgao span{font-size:12px;}
+      .cabecalho-doc .ano-box{flex-shrink:0;border:2px solid #000;padding:6px 16px;font-size:16px;font-weight:bold;}
+      .titulo-doc{text-align:center;font-size:14px;font-weight:bold;text-transform:uppercase;margin:2px 0 8px;line-height:1.3;}
+      .info-escola{border:1.5px solid #000;padding:8px 12px;margin-bottom:8px;font-size:11.5px;line-height:1.65;}
+      .secao-nome{font-weight:bold;font-size:12px;margin:10px 0 4px;text-transform:uppercase;}
+      table.ficha{width:100%;border-collapse:collapse;table-layout:fixed;font-size:11.3px;outline:1.5px solid #000;outline-offset:-1.5px;}
+      table.ficha th, table.ficha td{border:1.2px solid #000;padding:5px 5px;text-align:center;word-wrap:break-word;}
+      table.ficha th:last-child, table.ficha td:last-child{border-right:1.2px solid #000;}
+      table.ficha th{background:#f2f2f2;font-size:10.3px;padding:5px 4px;font-weight:bold;}
+      table.ficha td b{color:#000;}
+      table.ficha{margin-bottom:8px;}
+      table.ficha, .resumo-anual{page-break-inside:avoid;break-inside:avoid;}
+      .resumo-anual{width:100%;border-collapse:collapse;font-size:11.8px;margin-bottom:8px;outline:2px solid #000;outline-offset:-2px;}
+      .resumo-anual td{border:1.2px solid #000;padding:9px 8px;text-align:center;line-height:1.4;}
+      .resumo-anual td:last-child{border-right:none;}
       .quebra-pagina{page-break-before:always;break-before:page;}
-      .doc-data{text-align:right;margin:22px 0 32px;font-size:13px;}
-      .assinaturas-duplas{display:flex;justify-content:space-around;gap:24px;text-align:center;font-size:13px;line-height:1.4;margin-top:26px;}
-      .assinaturas-duplas div{border-top:1px solid #333;padding-top:6px;width:240px;}
-      .exame-especial{width:100%;border-collapse:collapse;font-size:12.3px;margin-bottom:8px;}
-      .exame-especial th, .exame-especial td{border:1px solid #333;padding:10px 10px;}
+      .doc-data{text-align:right;margin:14px 0 8px;font-size:12px;}
+      .assinaturas-duplas{display:flex;justify-content:space-around;gap:24px;text-align:center;font-size:12px;line-height:1.4;margin-top:48px;}
+      .assinaturas-duplas div{border-top:1.2px solid #000;padding-top:6px;width:260px;}
+      .exame-especial{width:100%;border-collapse:collapse;font-size:11.3px;margin-bottom:6px;outline:2px solid #000;outline-offset:-2px;}
+      .exame-especial th, .exame-especial td{border:1.2px solid #000;padding:7px 8px;text-align:center;}
+      .exame-especial th{font-weight:bold;}
+      .exame-especial tr:first-child th{font-size:12px;padding:8px;}
       .envolt-diagonal{position:relative;}
-      .diagonal-tabela{position:absolute;top:0;bottom:0;pointer-events:none;
-        background-image:linear-gradient(to bottom right, transparent calc(50% - 0.6px), #333 calc(50% - 0.6px), #333 calc(50% + 0.6px), transparent calc(50% + 0.6px));}
+      .diagonal-tabela{position:absolute;bottom:0;pointer-events:none;
+        background-image:linear-gradient(to bottom right, transparent calc(50% - 0.7px), #000 calc(50% - 0.7px), #000 calc(50% + 0.7px), transparent calc(50% + 0.7px));}
     </style>
     </head><body>
+      <div id="pagina1" style="page-break-inside:avoid;break-inside:avoid;">
       <div class="cabecalho-doc">
         <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
         <p class="orgao"><b>PREFEITURA DO MUNICÍPIO DO PAULISTA</b><span>SECRETARIA DE EDUCAÇÃO</span></p>
@@ -5341,71 +5378,111 @@ async function gerarFichaNotasDocumento(aluno, registro){
         <b>DO</b> ${esc(serieTexto)} <b>ANO/FASE DO(A) ENSINO FUNDAMENTAL</b> &nbsp;&nbsp; <b>FILHO(A) DE</b> ${filiacao}.
       </div>
 
-      <table class="ficha cabecalho">
-        ${colgroupNotas}
-        <thead><tr>
-          <th>COMPONENTES CURRICULARES</th>
-          <th>I<br/>BIMESTRE</th><th>II<br/>BIMESTRE</th><th>III<br/>BIMESTRE</th><th>IV<br/>BIMESTRE</th>
-          <th>MÉDIA<br/>ANUAL</th><th>REC.<br/>FINAL</th><th>NOTA<br/>FINAL</th><th>RESULTADO</th>
-        </tr></thead>
-      </table>
       <div class="envolt-diagonal">
-        <table class="ficha corpo">${colgroupNotas}<tbody>${linhasNotas}</tbody></table>
-        ${semDadosSegundoSemestre ? '<div class="diagonal-tabela" style="left:33%;right:31%;"></div>' : ''}
+        <table class="ficha">
+          ${colgroupNotas}
+          <thead><tr>
+            <th>COMPONENTES CURRICULARES</th>
+            <th>I<br/>BIMESTRE</th><th>II<br/>BIMESTRE</th><th>III<br/>BIMESTRE</th><th>IV<br/>BIMESTRE</th>
+            <th>MÉDIA<br/>ANUAL</th><th>REC.<br/>FINAL</th><th>NOTA<br/>FINAL</th><th>RESULTADO</th>
+          </tr></thead>
+          <tbody>${linhasNotas}</tbody>
+        </table>
+        ${nenhumaNotaLancada ? '<div class="diagonal-tabela" style="left:19%;right:0;top:38px;"></div>'
+          : (semDadosSegundoSemestre ? '<div class="diagonal-tabela" style="left:33%;right:0;top:38px;"></div>' : '')}
       </div>
 
-      <table class="resumo-anual">
-        <thead><tr><th colspan="4">RESUMO ANUAL – RESULTADO FINAL</th></tr></thead>
-        <tbody><tr>
-          <td>Total da carga horária<br/><b>${nn(registro.carga_horaria_total)}</b></td>
-          <td>Quantidade de faltas<br/><b>${nn(registro.quantidade_faltas)}</b></td>
-          <td>Percentual de frequência<br/><b>${nn(registro.percentual_frequencia)}</b></td>
-          <td>Resultado<br/><b>${registro.resultado_final ? mapaResultadoFinal[registro.resultado_final] || esc(registro.resultado_final) : ''}</b></td>
-        </tr></tbody>
-      </table>
+      <div style="margin-top:14px;">
+        <div style="display:flex;gap:16px;">
+          <div style="width:calc(69% - 8px);text-align:center;font-weight:bold;font-size:12.5px;">RESUMO ANUAL</div>
+          <div style="width:calc(31% - 8px);text-align:center;font-weight:bold;font-size:12.5px;">RESULTADO FINAL</div>
+        </div>
+        <div style="display:flex;gap:16px;align-items:stretch;margin-top:6px;">
+          <table class="resumo-anual" style="width:calc(69% - 8px);margin-bottom:0;">
+            <colgroup><col style="width:24%"><col style="width:9.3%"><col style="width:24%"><col style="width:9.3%"><col style="width:24%"><col style="width:9.4%"></colgroup>
+            <tbody><tr>
+              <td style="text-align:left;padding-left:10px;">Total da carga horária</td><td><b>${nn(registro.carga_horaria_total)}</b></td>
+              <td style="text-align:left;padding-left:10px;">Quantidade de faltas</td><td><b>${nn(registro.quantidade_faltas)}</b></td>
+              <td style="text-align:left;padding-left:10px;">Percentual de frequência</td><td><b>${nn(registro.percentual_frequencia)}</b></td>
+            </tr></tbody>
+          </table>
+          <table class="resumo-anual" style="width:calc(31% - 8px);margin-bottom:0;">
+            <tbody><tr>
+              <td style="font-weight:bold;">${registro.resultado_final ? mapaResultadoFinal[registro.resultado_final] || esc(registro.resultado_final) : ''}</td>
+            </tr></tbody>
+          </table>
+        </div>
+      </div>
+      </div>
 
-      <div class="quebra-pagina"></div>
-
+      <div id="pagina2" style="page-break-before:always;break-before:page;page-break-inside:avoid;break-inside:avoid;">
       <div class="cabecalho-doc">
         <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
         <p class="orgao"><b>PREFEITURA DO MUNICÍPIO DO PAULISTA</b><span>SECRETARIA DE EDUCAÇÃO</span></p>
+        <div class="ano-box">${ESTADO.fichaNotasAno}</div>
       </div>
       <div class="info-escola" style="margin-bottom:16px;">
-        <b>ESTUDANTE:</b> <u>${esc(aluno.nome)}</u> &nbsp;&nbsp; <b>ANO LETIVO:</b> ${ESTADO.fichaNotasAno}
+        <b>ESTUDANTE:</b> <u>${esc(aluno.nome)}</u>
       </div>
 
       <div class="secao-nome">Registro das notas da progressão parcial</div>
-      <table class="ficha cabecalho">
-        ${colgroupParcial}
-        <thead><tr>
-          <th>COMPONENTES CURRICULARES</th>
-          <th>NOTA DO<br/>1º EXAME</th><th>NOTA DO<br/>2º EXAME</th><th>NOTA DO<br/>3º EXAME</th><th>RESULTADO</th>
-        </tr></thead>
-      </table>
       <div class="envolt-diagonal">
-        <table class="ficha corpo">${colgroupParcial}<tbody>${linhasParcial}</tbody></table>
-        ${semDadosProgressaoParcial ? '<div class="diagonal-tabela" style="left:24%;right:0;"></div>' : ''}
+        <table class="ficha">
+          ${colgroupParcial}
+          <thead><tr>
+            <th>COMPONENTES CURRICULARES</th>
+            <th>NOTA DO<br/>1º EXAME</th><th>NOTA DO<br/>2º EXAME</th><th>NOTA DO<br/>3º EXAME</th><th>RESULTADO</th>
+          </tr></thead>
+          <tbody>${linhasParcial}</tbody>
+        </table>
+        ${semDadosProgressaoParcial ? '<div class="diagonal-tabela" style="left:24%;right:0;top:38px;"></div>' : ''}
       </div>
 
-      <div class="secao-nome">Notas do exame especial</div>
       <table class="exame-especial">
-        <tr><th style="width:25%;">COMPONENTE I</th><td style="width:25%;">${nn(exameEsp.componente1Nome)}</td><th style="width:25%;">NOTA</th><td style="width:25%;">${nn(exameEsp.componente1Nota)}</td></tr>
-        <tr><th>COMPONENTE II</th><td>${nn(exameEsp.componente2Nome)}</td><th>NOTA</th><td>${nn(exameEsp.componente2Nota)}</td></tr>
+        <tr>
+          <th colspan="4">NOTAS DO EXAME ESPECIAL</th>
+          <th>SITUAÇÃO APÓS EXAME ESPECIAL</th>
+        </tr>
+        <tr>
+          <th style="width:16%;">COMPONENTE I</th><td style="width:16%;">${nn(exameEsp.componente1Nome)}</td>
+          <th style="width:16%;">COMPONENTE II</th><td style="width:16%;">${nn(exameEsp.componente2Nome)}</td>
+          <td rowspan="2" style="width:36%;text-align:center;">( ${exameEsp.situacao==='plena'?'X':'&nbsp;'} ) PROGRESSÃO PLENA &nbsp;&nbsp;&nbsp; ( ${exameEsp.situacao==='retido'?'X':'&nbsp;'} ) RETIDO</td>
+        </tr>
+        <tr>
+          <th>NOTA</th><td>${nn(exameEsp.componente1Nota)}</td>
+          <th>NOTA</th><td>${nn(exameEsp.componente2Nota)}</td>
+        </tr>
       </table>
-      <p style="font-size:11px;margin:8px 0 0;"><b>SITUAÇÃO APÓS EXAME ESPECIAL:</b>
-        ( ${exameEsp.situacao==='plena'?'X':'&nbsp;'} ) PROGRESSÃO PLENA &nbsp;&nbsp; ( ${exameEsp.situacao==='retido'?'X':'&nbsp;'} ) RETIDO
-      </p>
 
       <p class="doc-data">Paulista, ${dataPorExtenso(hojeISO())}.</p>
       <div class="assinaturas-duplas">
-        <div>Secretário(a) escolar</div>
-        <div>Gestor(a) escolar</div>
+        <div><b>Rosemary Martins Feitosa</b><br/>Secretário(a) Escolar — Matrícula: 10.577</div>
+        <div>${assinaturaGestao === 'vice'
+          ? `<b>Lívio Charlles Rembrandt de Santana</b><br/>Vice-Gestor Escolar — Matrícula: 11.509`
+          : `<b>Rosineide de Araújo Santos Vieira</b><br/>Gestora Escolar — Matrícula: 11.206`}</div>
       </div>
+      </div>
+    <script>
+      window.onload = function(){
+        var alturaPaginaPx = 190 * (96/25.4); // A4 paisagem (210mm) menos margens de 10mm+10mm, a 96dpi
+        ['pagina1','pagina2'].forEach(function(id){
+          var pg = document.getElementById(id);
+          if(!pg) return;
+          var altura = pg.scrollHeight;
+          if(altura > alturaPaginaPx){
+            var escala = alturaPaginaPx / altura;
+            pg.style.transformOrigin = 'top left';
+            pg.style.transform = 'scale(' + escala + ')';
+            pg.style.width = (100/escala) + '%';
+          }
+        });
+        setTimeout(function(){ window.print(); }, 350);
+      };
+    <\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
 }
 
 function normalizarNomeParaComparacao(nome){
@@ -6230,11 +6307,12 @@ async function carregarListaSolicitacoes(el){
   const linhas = data.map(s => `
     <tr data-id="${s.id}">
       <td style="white-space:nowrap;">${fmtData(s.data_solicitacao)}</td>
+      <td style="white-space:nowrap;color:var(--texto-suave);">${formatarHoraBR(s.created_at)}</td>
       <td>${esc(s.tipo_documento === 'Outro' ? (s.documento_outro || 'Outro') : s.tipo_documento)}</td>
       <td>${esc(s.turmas?.nome || '—')}</td>
       <td>${esc(s.alunos?.nome || '—')}</td>
       <td>${esc(s.nome_solicitante)}${s.telefone_solicitante ? '<br/><span style="color:var(--texto-suave);">'+esc(s.telefone_solicitante)+'</span>' : ''}</td>
-      <td title="${esc(s.registrado?.nome || '')}">${esc((s.registrado?.nome || '—').split(' ')[0])}</td>
+      <td>${esc(s.registrado?.nome || '—')}</td>
       <td style="white-space:nowrap;">${s.status === 'concluido'
         ? `<span class="pill verde">Concluído</span>`
         : `<span class="pill vermelho">Pendente</span>`}</td>
@@ -6243,7 +6321,7 @@ async function carregarListaSolicitacoes(el){
         <button class="btn-icone perigo" data-excluir-solicitacao="${s.id}" title="Excluir solicitação" style="padding:3px 6px;">🗑️</button>
       </td>
     </tr>`).join('');
-  lista.innerHTML = `<table class="tabela-compacta"><thead><tr><th>Data</th><th>Documento</th><th>Turma</th><th>Estudante</th><th>Solicitante</th><th>Registrado</th><th>Status</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`;
+  lista.innerHTML = `<table class="tabela-compacta"><thead><tr><th>Data</th><th>Horário</th><th>Documento</th><th>Turma</th><th>Estudante</th><th>Solicitante</th><th>Registrado por</th><th>Status</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`;
   lista.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
     if(e.target.closest('[data-concluir-solicitacao], [data-excluir-solicitacao]')) return;
     const solicitacao = data.find(s => s.id === tr.dataset.id);
@@ -6295,7 +6373,7 @@ function abrirModalSolicitacao(s, elLista){
         <div class="campo"><label>Status</label><div style="padding-top:8px;">${s.status==='concluido' ? `<span class="pill verde">Concluído${s.concluido?.nome ? ' — '+esc(s.concluido.nome):''}</span>` : `<span class="pill vermelho">Pendente</span>`}</div></div>
       </div>
       <div class="campo" style="margin-bottom:0;"><label>Observações</label><input type="text" id="ms-obs" value="${esc(s.observacoes||'')}" /></div>
-      <p style="font-size:12px;color:var(--texto-suave);margin:10px 0 0;">Registrado por ${esc(s.registrado?.nome || '—')}</p>
+      <p style="font-size:12px;color:var(--texto-suave);margin:10px 0 0;">Registrado por ${esc(s.registrado?.nome || '—')} às ${formatarHoraBR(s.created_at)}</p>
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
         <button class="botao terracota pequeno" id="ms-salvar" style="width:auto;">Salvar alterações</button>
         <button class="botao secundario pequeno" id="ms-imprimir" style="width:auto;">Ir para impressão</button>
