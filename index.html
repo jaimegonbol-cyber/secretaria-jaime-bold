@@ -355,6 +355,11 @@ let ESTADO = {
   fluenciaTurmaId: '',
   fluenciaAno: new Date().getFullYear(),
   fluenciaMsgSucesso: null,
+  saevTurmaId: '',
+  saevDisciplina: 'Língua Portuguesa',
+  saevEtapa: 'Formativa 1',
+  saevPlanoEditando: null,
+  saevPlanoMsg: null,
 };
 
 // ---------------------------------------------------------------
@@ -3573,6 +3578,7 @@ function renderizarUsuarios(el){
       <td><span class="pill ${p.status==='ativo'?'verde':'vermelho'}">${p.status==='ativo'?'Ativo':'Inativo'}</span></td>
       <td style="white-space:nowrap;">
         <button class="botao secundario pequeno" data-editar-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar</button>
+        <button class="botao secundario pequeno" data-resetar-senha="${p.id}" style="width:auto;padding:4px 10px;">Resetar senha</button>
         ${p.role !== 'admin' ? `<button class="botao secundario pequeno" data-permissoes-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar permissões</button>` : ''}
         ${p.role !== 'admin' && Array.isArray(p.permissoes) ? `<button class="botao secundario pequeno" data-excluir-permissoes="${p.id}" style="width:auto;padding:4px 10px;">Excluir permissões</button>` : ''}
         ${p.id !== ESTADO.perfil.id ? `<button class="botao ${p.status==='ativo'?'secundario':'terracota'} pequeno" data-bloquear-usuario="${p.id}" data-status-atual="${p.status}" style="width:auto;padding:4px 10px;">${p.status==='ativo'?'Bloquear':'Liberar'}</button>` : ''}
@@ -3613,6 +3619,65 @@ function renderizarUsuarios(el){
     const perfil = ESTADO.perfis.find(p => p.id === b.dataset.editarUsuario);
     abrirModalEditarUsuario(perfil, el);
   }));
+  el.querySelectorAll('[data-resetar-senha]').forEach(b => b.addEventListener('click', () => {
+    const perfil = ESTADO.perfis.find(p => p.id === b.dataset.resetarSenha);
+    abrirModalResetarSenha(perfil, el);
+  }));
+}
+
+function abrirModalResetarSenha(perfil, elPai){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-topo"><h3>Resetar senha</h3><button data-fechar>✕</button></div>
+      <p style="font-size:13px;color:var(--texto-suave);margin:0 0 12px;">Definir uma nova senha para <b>${esc(perfil.nome)}</b> (${esc(perfil.email)}). Avise a pessoa da senha nova por um canal seguro.</p>
+      <div id="msg-resetar-senha"></div>
+      <form id="form-resetar-senha">
+        <div class="campo">
+          <label>Nova senha (mín. 6 caracteres)</label>
+          <div style="position:relative;">
+            <input type="password" id="rs-senha" minlength="6" required autocomplete="new-password" style="padding-right:38px;" />
+            <button type="button" id="rs-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
+          </div>
+        </div>
+        <button class="botao terracota" type="submit" id="btn-salvar-reset-senha">Salvar nova senha</button>
+      </form>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const campoSenha = document.getElementById('rs-senha');
+  document.getElementById('rs-toggle-olho').addEventListener('click', (e) => {
+    e.preventDefault();
+    const btnOlho = e.currentTarget;
+    if(campoSenha.type === 'password'){ campoSenha.type = 'text'; btnOlho.textContent = '🙈'; }
+    else { campoSenha.type = 'password'; btnOlho.textContent = '👁️'; }
+  });
+
+  document.getElementById('form-resetar-senha').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const novaSenha = campoSenha.value;
+    const msg = document.getElementById('msg-resetar-senha');
+    const btn = document.getElementById('btn-salvar-reset-senha');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    try{
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${EDGE_URL}/resetar-senha-usuario`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ user_id: perfil.id, nova_senha: novaSenha }),
+      });
+      const resultado = await resp.json();
+      if(!resp.ok){ throw new Error(resultado.error || 'Erro ao resetar a senha.'); }
+      msg.innerHTML = `<div class="msg-ok">Senha alterada com sucesso.</div>`;
+      setTimeout(() => modal.remove(), 1200);
+    } catch(err){
+      msg.innerHTML = `<div class="msg-erro">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = 'Salvar nova senha';
+    }
+  });
 }
 
 function abrirModalEditarUsuario(perfil, elPai){
@@ -5372,10 +5437,10 @@ async function gerarFichaNotasDocumento(aluno, registro, assinaturaGestao){
       </div>
       <div class="titulo-doc">Ficha Individual de Registro das Notas do<br/>Ensino Fundamental e EJA</div>
       <div class="info-escola">
-        <b>UNIDADE DE ENSINO</b> ESCOLA MUNICIPAL JAIME GONÇALVES BOLD &nbsp;&nbsp; <b>CÓDIGO DO INEP</b> Nº 26116847<br/>
-        <b>ENDEREÇO</b> Rua Marechal Hermes, Nº 108 – CEP: 53403-450 – Vila Torres Galvão, Paulista/PE &nbsp;&nbsp; <b>TELEFONE</b> (81) 3437-0833<br/>
-        <b>ESTUDANTE:</b> <u>${esc(aluno.nome)}</u> &nbsp;&nbsp; <b>DATA DE NASC.</b> ${aluno.data_nascimento ? formatarDataBR(aluno.data_nascimento) : '—'}<br/>
-        <b>DO</b> ${esc(serieTexto)} <b>ANO/FASE DO(A) ENSINO FUNDAMENTAL</b> &nbsp;&nbsp; <b>FILHO(A) DE</b> ${filiacao}.
+        <b>UNIDADE DE ENSINO</b> <b>ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</b> &nbsp;&nbsp; <b>CÓDIGO DO INEP</b> <b>Nº 26116847</b><br/>
+        <b>ENDEREÇO</b> <b>Rua Marechal Hermes, Nº 108 – CEP: 53403-450 – Vila Torres Galvão, Paulista/PE</b> &nbsp;&nbsp; <b>TELEFONE</b> <b>(81) 3437-0833</b><br/>
+        <b>ESTUDANTE:</b> <b>${esc(aluno.nome)}</b> &nbsp;&nbsp; <b>DATA DE NASC.</b> <b>${aluno.data_nascimento ? formatarDataBR(aluno.data_nascimento) : '—'}</b><br/>
+        <b>DO</b> <b>${esc(serieTexto)}</b> <b>ANO/FASE DO(A) ENSINO FUNDAMENTAL</b> &nbsp;&nbsp; <b>FILHO(A) DE</b> ${filiacao}.
       </div>
 
       <div class="envolt-diagonal">
@@ -5422,7 +5487,7 @@ async function gerarFichaNotasDocumento(aluno, registro, assinaturaGestao){
         <div class="ano-box">${ESTADO.fichaNotasAno}</div>
       </div>
       <div class="info-escola" style="margin-bottom:16px;">
-        <b>ESTUDANTE:</b> <u>${esc(aluno.nome)}</u>
+        <b>ESTUDANTE:</b> <b>${esc(aluno.nome)}</b>
       </div>
 
       <div class="secao-nome">Registro das notas da progressão parcial</div>
@@ -7039,6 +7104,7 @@ function opcoesNivelFluencia(selecionado){
 function renderizarAvaliacoes(el){
   const abasTopo = [
     { id:'fluencia', label:'Avaliação de Fluência' },
+    { id:'saev', label:'SAEV' },
   ];
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -7049,7 +7115,610 @@ function renderizarAvaliacoes(el){
     ESTADO.subAvaliacoes = b.dataset.abaAval; renderizarAvaliacoes(el);
   }));
   const alvoTopo = el.querySelector('#conteudo-avaliacoes-topo');
-  renderizarAvaliacaoFluencia(alvoTopo);
+  if(ESTADO.subAvaliacoes === 'saev') renderizarSaev(alvoTopo);
+  else renderizarAvaliacaoFluencia(alvoTopo);
+}
+
+// ---------------------------------------------------------------
+// SAEV — resultados por descritor + plano de ação
+// ---------------------------------------------------------------
+function corPercentualSaev(p){
+  if(p >= 70) return '#8FD19E';
+  if(p >= 50) return '#FBDDA6';
+  return '#F6C6C0';
+}
+function rotuloPercentualSaev(p){
+  if(p >= 70) return 'Adequado';
+  if(p >= 50) return 'Básico';
+  return 'Crítico';
+}
+
+// Classifica um descritor por palavras-chave num eixo pedagógico e sugere ações práticas de intervenção.
+const EIXOS_SUGESTOES_SAEV = [
+  { chave: 'alfabetizacao', teste: /fonema|sílaba|silaba|alfabétic|alfabetic|decodifica|letras/i,
+    nome: 'Alfabetização e consciência fonológica',
+    acoes: [
+      'Atividades diárias de consciência fonológica (rimas, aliterações, segmentação silábica) em pequenos grupos.',
+      'Jogos de leitura e escrita de palavras (bingo de letras, forca silábica, ditado dirigido).',
+      'Intervenção pedagógica individualizada para os estudantes ainda não alfabetizados, com acompanhamento semanal.',
+    ],
+    atividades: [
+      'Ditado de palavras com apoio de figuras, seguido de correção coletiva no quadro.',
+      'Caça-palavras e cruzadinhas com o vocabulário trabalhado na semana.',
+      'Jogo da memória de sílabas: formar palavras juntando as cartas corretas.',
+      'Leitura em voz alta, em duplas, de uma lista curta de palavras novas, cronometrando a fluência.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, 2º/3º ano):
+"OUÇA A PALAVRA QUE EU VOU DITAR. FAÇA UM X NO QUADRADINHO DA [LETRA/SÍLABA] [INICIAL/FINAL] DA PALAVRA QUE VOCÊ OUVIU."
+( ) [opção 1]   ( ) [opção 2]   ( ) [opção 3]   ( ) [opção 4]
+— O professor dita a palavra em voz alta (não escreve), e o estudante marca a letra/sílaba certa entre 4 opções parecidas.
+Variação com figura: "VEJA A FIGURA. FAÇA UM X NO QUADRADINHO ONDE ESTÁ ESCRITO O NOME DA FIGURA." — com 4 palavras parecidas (ex.: FAMOSA / FAROFA / FAVELA / FAXINA) e uma imagem do objeto certo.`},
+  { chave: 'genero_textual', teste: /gênero|genero|finalidade|função social|funcao social|circulam|suporte/i,
+    nome: 'Reconhecimento de gênero e finalidade do texto',
+    acoes: [
+      'Exposição da turma a textos de gêneros variados (convite, receita, notícia, poema, tirinha, trava-língua, adivinha) toda semana, nomeando o gênero antes de ler.',
+      'Cartaz coletivo comparando "pra que serve" cada gênero textual trabalhado.',
+    ],
+    atividades: [
+      'Roda de classificação: o professor lê trechos curtos de textos variados e a turma decide oralmente qual é o gênero e pra que serve.',
+      'Produção de um pequeno convite/receita/adivinha pela turma, depois troca entre colegas pra identificar o gênero do colega.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, LP):
+"LEIA O TEXTO ABAIXO. [cole um texto curto e completo de algum gênero: convite, receita, trava-língua, adivinha, notícia, poema, cartaz de campanha etc.]
+ESSE TEXTO É / ESSE TEXTO SERVE PARA / A FINALIDADE DESSE TEXTO É:"
+(A) [gênero/finalidade certa]
+(B), (C), (D) [outros gêneros/finalidades plausíveis mas erradas — ex.: "narrar uma história" / "convidar para uma festa" / "divulgar um produto" / "dar instruções ao leitor"]
+Dica: use um texto de verdade (recortado de jornal, embalagem, cartaz da escola) — a prova real sempre credita a fonte embaixo do texto.`},
+  { chave: 'leitura_compreensao', teste: /ler|leitura|compreens|texto|informaç|inferir|ideia central|narrativ|história|histórias/i,
+    nome: 'Leitura e compreensão textual',
+    acoes: [
+      'Rodas de leitura semanais com discussão oral guiada sobre o texto lido.',
+      'Sequência didática de estratégias de leitura: antecipação, inferência e localização de informações explícitas.',
+      'Produção de reconto oral e escrito após a leitura, para checar a compreensão global.',
+    ],
+    atividades: [
+      'Leitura de um pequeno texto seguida de questionário com perguntas de localização e de inferência.',
+      'Atividade de "caça à informação": grifar no texto a resposta de cada pergunta feita pelo professor.',
+      'Reescrita da história com as próprias palavras, respeitando a sequência dos fatos.',
+      'Comparação de dois textos curtos sobre o mesmo assunto, apontando semelhanças e diferenças.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, LP):
+"LEIA O TEXTO ABAIXO. [texto curto — conto, tirinha, notícia, fábula — de 4 a 15 linhas, adequado à turma, com a fonte creditada embaixo]
+NO TEXTO, [pergunta objetiva sobre um fato/ação específica que está escrita literalmente]:"
+(A) [resposta certa, com as palavras do texto]  (B), (C), (D) [outras ações/informações que aparecem no texto mas não respondem à pergunta]
+Variações reais recorrentes: "A personagem principal dessa história é…", "Entende-se que o personagem ficou (sentimento)…", "A palavra [X] tem o mesmo sentido de…", "A palavra [pronome] está substituindo…"
+Dica: para inferência, pergunte pelo sentimento/intenção do personagem em vez de um fato explícito — é isso que costuma aparecer como ponto fraco.`},
+  { chave: 'gramatica', teste: /pontuaç|vírgula|virgula|conjunç|ortográf|ortograf|gramati/i,
+    nome: 'Conhecimentos linguísticos e gramaticais',
+    acoes: [
+      'Oficinas de reescrita de texto com foco pontual no uso de pontuação e conectivos.',
+      'Exercícios contextualizados (não isolados) de ortografia e gramática, a partir dos próprios textos produzidos pela turma.',
+    ],
+    atividades: [
+      'Texto sem pontuação para os estudantes pontuarem corretamente em duplas.',
+      'Lista de frases para completar com o conectivo adequado (mas, porque, quando, se etc.).',
+      'Caça-erros: encontrar e corrigir erros de pontuação/ortografia propositais num pequeno texto.',
+    ],
+    modeloQuestao:
+`Formato de questão (múltipla escolha, igual ao padrão SAEV):
+"Assinale a alternativa em que a frase está pontuada/escrita corretamente:"
+(A) [frase certa]
+(B), (C), (D) [a mesma frase com erros diferentes de pontuação/ortografia trabalhados em sala]
+Ou, no formato de completar: "Complete a frase com o conectivo adequado: '___, ele não foi à escola.' (A) Porque (B) Mas (C) Quando (D) Se" — troque pela relação lógica (causa/oposição/tempo/condição) que apareceu como ponto fraco.`},
+  { chave: 'sistema_monetario', teste: /moeda|cédula|cedula|dinheiro|troco|sistema monetário|sistema monetario/i,
+    nome: 'Sistema monetário',
+    acoes: [
+      'Simulações de compra e venda em sala (mercadinho da turma) usando cédulas e moedas de brinquedo.',
+      'Prática regular de cálculo de troco com valores simples do cotidiano.',
+    ],
+    atividades: [
+      'Brincadeira de "mercadinho": estudantes compram e vendem itens com preços redondos, calculando o troco.',
+      'Jogo de formar uma mesma quantia com cédulas/moedas diferentes (ex.: 10 reais = uma nota de 10, ou duas de 5).',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, MT):
+"VEJA A NOTA/QUANTIA QUE [NOME] [GANHOU/TEM]. FAÇA UM X NO QUADRADINHO QUE INDICA O CONJUNTO DE NOTAS QUE REPRESENTA ESSA MESMA QUANTIA." — mostra 1 cédula e 4 alternativas com combinações de cédulas, só 1 com o mesmo valor total.
+Ou: "[NOME] COMPROU [ITEM] QUE CUSTOU [VALOR] REAIS. FAÇA UM X NO QUADRADINHO QUE MOSTRA A NOTA QUE [NOME] USOU PARA PAGAR." — 4 alternativas com notas de valores diferentes.
+Dica: use sempre valores redondos (2, 5, 10, 20, 50 reais) nas primeiras aplicações, e só depois combine duas cédulas numa mesma resposta.`},
+  { chave: 'numeros_operacoes', teste: /número|numero|adiç|subtraç|multiplicaç|divisão|divisao|cálculo|calculo|numeraç/i,
+    nome: 'Números e operações',
+    acoes: [
+      'Prática de cálculo mental diário (5-10 min) com problemas do cotidiano dos estudantes.',
+      'Uso de material concreto (material dourado, ábaco, fichas) para retomar valor posicional e as quatro operações.',
+      'Resolução de problemas em duplas, com verbalização da estratégia usada antes de registrar a resposta.',
+    ],
+    atividades: [
+      'Lista de operações armadas (adição, subtração, multiplicação ou divisão) para resolver com material concreto.',
+      'Jogo de trilha ou baralho com operações matemáticas para praticar cálculo mental.',
+      'Problema contextualizado (mercadinho da sala, troco, compras) para resolver e explicar a estratégia usada.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, MT):
+Situação-problema direta: "[Nome] tinha [nº] [objetos]. [Ação: ganhou/usou/vendeu] [nº]. Com quantos [objetos] ficou?"
+(A) [resultado certo]  (B) [erro de quem trocou a operação]  (C) [erro de cálculo por 1 unidade]  (D) [distrator]
+Operação direta (sem contexto): "Qual é o resultado da operação abaixo? [ex.: 35 + 24 / 37 – 14]" com as 4 alternativas.
+Valor posicional / decomposição: "Qual é o valor relativo do algarismo [X] no número [Y]?" ou "Veja a decomposição: 300+40+7. Essa é a decomposição de qual número?" ou "Veja o número escrito por extenso: CENTO E QUINZE. Qual é esse número?"
+Dica: alterne entre esses 3 formatos reais — problema contextualizado, conta direta e decomposição/valor posicional — pra treinar tudo que costuma cair.`},
+  { chave: 'geometria', teste: /geométric|geometric|figura|espacial|planificaç|prisma|pirâmide|piramide/i,
+    nome: 'Geometria',
+    acoes: [
+      'Manipulação de sólidos geométricos e planificações concretas em sala.',
+      'Atividades de localização e deslocamento usando malha quadriculada e mapas simples da escola/bairro.',
+    ],
+    atividades: [
+      'Montagem de sólidos geométricos com canudinhos/massinha ou planificações de papel.',
+      'Caça ao tesouro na sala/pátio seguindo comandos de direção e deslocamento.',
+      'Desenho de um trajeto simples (de casa até a escola) usando malha quadriculada.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, MT):
+"OBSERVE O OBJETO [foto de um objeto do dia a dia: botão, lata, caixa, cone de trânsito]. FAÇA UM X NO QUADRADINHO QUE MOSTRA A FIGURA GEOMÉTRICA QUE LEMBRA A FORMA DESSE OBJETO."
+(A), (B), (C), (D) — 4 desenhos de figuras/sólidos diferentes (ex.: quadrado, círculo, retângulo, triângulo — ou prisma, cone, cilindro), sendo só 1 a forma certa do objeto mostrado.
+Dica: use objetos reais da sala de aula ou de casa (não desenhos abstratos) — é assim que a prova real faz, e ajuda o estudante a fazer a ligação com o mundo real.`},
+  { chave: 'grandezas_medidas', teste: /medida|grandeza|tempo|capacidade|massa|comprimento|área|area|temperatura/i,
+    nome: 'Grandezas e medidas',
+    acoes: [
+      'Situações práticas de medição (fita métrica, balança, recipientes) para relacionar unidades de medida ao cotidiano.',
+      'Uso de calendário e relógio em sala para reforçar noções de tempo e duração.',
+    ],
+    atividades: [
+      'Medição de objetos da sala com fita métrica/régua e registro numa tabela comparativa.',
+      'Leitura de horas num relógio de ponteiro (real ou de papel) em diferentes situações do dia.',
+      'Atividade de estimativa: "o que pesa mais?", comparando objetos antes de usar a balança pra conferir.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, MT):
+Leitura de relógio: "OBSERVE OS RELÓGIOS ABAIXO, A HORA DE INÍCIO E DO FIM DE [ATIVIDADE]. QUANTO TEMPO DUROU?" — com 2 desenhos de relógio de ponteiro e 4 alternativas de duração.
+Ou: "[Nome] começou [atividade] às [hora] e terminou às [hora]. Quanto tempo [nome] gastou, no total?"
+Instrumento de medida: "FAÇA UM X NO QUADRADINHO QUE MOSTRA O INSTRUMENTO DE MEDIDA UTILIZADO PARA MEDIR [TEMPO/COMPRIMENTO/MASSA]." — com 4 fotos de instrumentos diferentes (relógio, fita métrica, balança, jarra medidora), só 1 correto.
+Conversão de tempo: "A validade de um alimento é de 1 ano. Esse tempo corresponde a quantos meses?"
+Dica: sempre que possível, leve o relógio de ponteiro de verdade (ou de papel) pra sala antes de aplicar a questão.`},
+  { chave: 'estatistica', teste: /gráfico|grafico|tabela|dados|pesquisa/i,
+    nome: 'Estatística e tratamento de dados',
+    acoes: [
+      'Pesquisas simples com a turma (enquetes) seguidas de construção coletiva de gráficos e tabelas.',
+      'Leitura e interpretação de gráficos e tabelas de jornais/revistas adequados à faixa etária.',
+    ],
+    atividades: [
+      'Enquete rápida na turma (fruta preferida, esporte favorito) com montagem de gráfico de colunas no caderno.',
+      'Leitura de um gráfico simples com perguntas de interpretação (qual é o maior, quanto a mais etc.).',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, MT):
+Gráfico de colunas: "O GRÁFICO ABAIXO MOSTRA [tema, ex.: tempo de vida de alguns animais]. QUAL É O [MAIOR/MENOR]?" — com um gráfico de colunas simples (4 categorias) e 4 alternativas com os nomes das categorias.
+Tabela: "A TABELA ABAIXO MOSTRA [tema, ex.: estoque de calçados de uma loja]. QUAL É O TIPO COM MAIOR/MENOR QUANTIDADE?" — tabela de 2 colunas (categoria + número) e 4 alternativas.
+Dica: monte o gráfico/tabela com um tema do interesse real da turma (fruta preferida, animal favorito) — fica mais fácil de aplicar e mais próximo da vida deles.`},
+  { chave: 'resolucao_problemas', teste: /problema/i,
+    nome: 'Resolução de problemas',
+    acoes: [
+      'Banco de problemas variados (mais de uma estratégia de solução possível) trabalhados semanalmente.',
+      'Momento de socialização das estratégias de resolução usadas pelos próprios estudantes.',
+    ],
+    atividades: [
+      'Problema aberto (mais de uma forma de resolver) para resolver em grupo e depois apresentar a estratégia pra turma.',
+      'Criação de um problema matemático pelos próprios estudantes, a partir de uma situação dada, para os colegas resolverem.',
+    ],
+    modeloQuestao:
+`Modelo baseado nas provas formativas reais aplicadas na rede (Caderno do Aluno, MT):
+"[Nome] fez [nº] [unidades] de [item A] e [nº] de [item B] para [contexto do cotidiano: festa, viagem, mercado]. Quantos/quanto [item] [nome] fez/tem, ao todo?"
+(A) [resposta certa]  (B) [resultado de quem usou só um dos dois números]  (C) [resultado de quem somou quando devia subtrair, ou vice-versa]  (D) [distrator sem relação]
+Dica real: os problemas mais eficazes usam nomes de alunos da turma e situações do dia a dia deles (aniversário, compra, brinquedo, alimento) — isso aumenta o engajamento e reduz erro por falta de compreensão do enunciado.`},
+];
+function classificarDescritorSaev(descritor){
+  for(const eixo of EIXOS_SUGESTOES_SAEV){
+    if(eixo.teste.test(descritor)) return eixo;
+  }
+  return {
+    chave:'geral', nome:'Habilidade geral',
+    acoes:['Retomada pontual do conteúdo em pequenos grupos, com atividades diferenciadas conforme o nível da turma.'],
+    atividades:['Atividade de revisão dirigida sobre o descritor, com correção coletiva em seguida.'],
+    modeloQuestao:
+`Formato de questão (múltipla escolha, igual ao padrão SAEV):
+"[Elabore uma pergunta objetiva sobre a habilidade do descritor]:"
+(A) [resposta certa]
+(B), (C), (D) [erros comuns dos estudantes nessa habilidade — distratores plausíveis]`,
+  };
+}
+
+async function renderizarSaev(el){
+  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.saevTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesDisciplina = ['Língua Portuguesa','Matemática'].map(d => `<option value="${d}" ${ESTADO.saevDisciplina===d?'selected':''}>${d}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="painel">
+      <div class="barra" style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:10px 14px;">
+        <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="saev-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
+        <div class="campo" style="margin:0;min-width:180px;"><label>Componente</label><select id="saev-disciplina">${opcoesDisciplina}</select></div>
+        <div class="campo" style="margin:0;min-width:160px;"><label>Etapa</label><select id="saev-etapa"><option value="">Carregando…</option></select></div>
+      </div>
+      <div id="saev-conteudo" style="padding:12px 14px;"></div>
+    </div>`;
+
+  document.getElementById('saev-turma').addEventListener('change', e => { ESTADO.saevTurmaId = e.target.value; renderizarSaev(el); });
+  document.getElementById('saev-disciplina').addEventListener('change', e => { ESTADO.saevDisciplina = e.target.value; renderizarSaev(el); });
+
+  const conteudo = document.getElementById('saev-conteudo');
+  const seletorEtapa = document.getElementById('saev-etapa');
+
+  if(!ESTADO.saevTurmaId){
+    seletorEtapa.innerHTML = `<option value="">—</option>`;
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Selecione uma turma para ver os resultados do SAEV por descritor.</p>`;
+    return;
+  }
+
+  // carrega as etapas (formativas) disponíveis pra essa turma + componente
+  const { data: etapasDisponiveis } = await supabase.from('saev_resultados_descritores')
+    .select('etapa').eq('turma_id', ESTADO.saevTurmaId).eq('disciplina', ESTADO.saevDisciplina);
+  const etapasUnicas = [...new Set((etapasDisponiveis||[]).map(r => r.etapa))].sort();
+  if(!etapasUnicas.length){
+    seletorEtapa.innerHTML = `<option value="">—</option>`;
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum resultado do SAEV importado ainda para essa turma/componente.</p>`;
+    return;
+  }
+  if(!etapasUnicas.includes(ESTADO.saevEtapa)) ESTADO.saevEtapa = etapasUnicas[0];
+  seletorEtapa.innerHTML = etapasUnicas.map(et => `<option value="${esc(et)}" ${ESTADO.saevEtapa===et?'selected':''}>${esc(et)}</option>`).join('');
+  seletorEtapa.addEventListener('change', e => { ESTADO.saevEtapa = e.target.value; renderizarSaev(el); });
+
+  conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+  const { data: resultados, error } = await supabase.from('saev_resultados_descritores').select('*')
+    .eq('turma_id', ESTADO.saevTurmaId).eq('disciplina', ESTADO.saevDisciplina).eq('etapa', ESTADO.saevEtapa)
+    .order('resultado', { ascending: true });
+  if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!resultados || !resultados.length){ conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum resultado encontrado.</p>`; return; }
+
+  const mediaTurma = resultados[0].resultado_topico != null
+    ? resultados.reduce((s,r) => s + Number(r.resultado_topico||0), 0) / resultados.length
+    : (resultados.reduce((s,r) => s + Number(r.resultado||0), 0) / resultados.length);
+
+  const linhasDescritores = resultados.map((r,i) => `
+    <tr>
+      <td style="text-align:center;">${i+1}</td>
+      <td style="text-align:left;padding:6px 10px;font-size:12.5px;">${esc(r.descritor)}</td>
+      <td style="text-align:center;white-space:nowrap;">
+        <div style="display:inline-flex;align-items:center;gap:6px;">
+          <div style="width:90px;height:9px;border-radius:5px;background:#eee;overflow:hidden;">
+            <div style="width:${Math.min(100,r.resultado)}%;height:100%;background:${corPercentualSaev(r.resultado)};"></div>
+          </div>
+          <b style="min-width:34px;text-align:right;">${r.resultado}%</b>
+        </div>
+      </td>
+      <td style="text-align:center;"><span class="pill" style="background:${corPercentualSaev(r.resultado)};">${rotuloPercentualSaev(r.resultado)}</span></td>
+    </tr>`).join('');
+
+  conteudo.innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+      <div class="stat-mini" style="background:${corPercentualSaev(mediaTurma)};padding:10px 18px;">
+        <div style="font-size:11px;color:var(--texto-suave);">Média geral da turma</div>
+        <div style="font-size:20px;font-weight:700;">${mediaTurma.toFixed(0)}%</div>
+      </div>
+      <div style="font-size:12px;color:var(--texto-suave);">${resultados.length} descritores avaliados · ${esc(ESTADO.saevDisciplina)} · ${esc(ESTADO.saevEtapa)}</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:13px;">
+        <thead><tr><th>Nº</th><th style="text-align:left;padding-left:10px;">Descritor avaliado</th><th>% de acerto</th><th>Nível</th></tr></thead>
+        <tbody>${linhasDescritores}</tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:26px;border-top:1px solid var(--borda);padding-top:16px;">
+      <strong style="font-size:15px;">Plano de Ação</strong>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:4px 0 12px;">Monte um plano de intervenção pedagógica com base nos descritores com pior desempenho desta turma.</p>
+      <div id="saev-plano-form"></div>
+      <div style="margin-top:18px;">
+        <strong style="font-size:13.5px;">Planos já criados para esta turma/componente/etapa</strong>
+        <div id="saev-planos-lista" style="margin-top:8px;"></div>
+      </div>
+    </div>
+  `;
+
+  renderizarFormularioPlanoSaev(document.getElementById('saev-plano-form'), resultados);
+  renderizarListaPlanosSaev(document.getElementById('saev-planos-lista'));
+}
+
+function renderizarFormularioPlanoSaev(el, resultados){
+  el.innerHTML = `
+    <div class="painel" style="border-color:var(--terracota);">
+      <div style="padding:14px;">
+        <div class="campo" style="margin-bottom:10px;max-width:260px;">
+          <label>Considerar crítico abaixo de (%)</label>
+          <input type="number" id="saev-limiar" value="60" min="0" max="100" />
+        </div>
+        <div id="saev-descritores-criticos" style="margin-bottom:12px;"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="botao secundario pequeno" id="saev-btn-sugerir" style="width:auto;">Gerar sugestões automáticas</button>
+          <button class="botao secundario pequeno" id="saev-btn-atividades" style="width:auto;">Gerar atividades e modelo de questão por descritor</button>
+          <button class="botao terracota pequeno" id="saev-btn-caderno" style="width:auto;">🖨️ Gerar caderno de questões para aplicar na turma</button>
+        </div>
+        <div class="campo" style="margin-top:12px;"><label>Sugestões / ações de intervenção (professor)</label>
+          <textarea id="saev-sugestoes" rows="6" placeholder="Clique em 'Gerar sugestões automáticas' ou escreva livremente…"></textarea>
+        </div>
+        <div class="campo"><label>Atividades práticas e modelos de questão por descritor (baseados no formato de provas anteriores)</label>
+          <textarea id="saev-atividades" rows="10" placeholder="Clique em 'Gerar atividades e modelo de questão por descritor' ou escreva livremente…"></textarea>
+        </div>
+        <div class="grade-2">
+          <div class="campo"><label>Responsável</label><input type="text" id="saev-responsavel" placeholder="Ex: Professor(a) regente / Coordenação" /></div>
+          <div class="campo"><label>Prazo</label><input type="date" id="saev-prazo" /></div>
+        </div>
+        <div id="saev-plano-msg" style="margin:8px 0;"></div>
+        <button class="botao terracota pequeno" id="saev-btn-salvar-plano" style="width:auto;">Salvar plano de ação</button>
+      </div>
+    </div>`;
+
+  function atualizarCriticos(){
+    const limiar = Number(document.getElementById('saev-limiar').value) || 0;
+    const criticos = resultados.filter(r => r.resultado < limiar);
+    const listaEl = document.getElementById('saev-descritores-criticos');
+    listaEl.innerHTML = criticos.length
+      ? `<p style="font-size:12.5px;margin-bottom:4px;"><b>${criticos.length} descritor(es) crítico(s)</b> (abaixo de ${limiar}%):</p>
+         <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--texto-suave);">
+           ${criticos.map(c => `<li>${esc(c.descritor)} — ${c.resultado}%</li>`).join('')}
+         </ul>`
+      : `<p style="font-size:12.5px;color:var(--texto-suave);">Nenhum descritor abaixo desse limiar.</p>`;
+    return criticos;
+  }
+  let criticosAtuais = atualizarCriticos();
+  document.getElementById('saev-limiar').addEventListener('input', () => { criticosAtuais = atualizarCriticos(); });
+
+  document.getElementById('saev-btn-sugerir').addEventListener('click', () => {
+    if(!criticosAtuais.length){
+      document.getElementById('saev-plano-msg').innerHTML = `<div class="msg-erro">Nenhum descritor crítico com o limiar atual — ajuste o percentual acima.</div>`;
+      return;
+    }
+    const eixos = new Map();
+    criticosAtuais.forEach(c => {
+      const eixo = classificarDescritorSaev(c.descritor);
+      if(!eixos.has(eixo.nome)) eixos.set(eixo.nome, eixo.acoes);
+    });
+    let texto = '';
+    eixos.forEach((acoes, nome) => {
+      texto += `${nome.toUpperCase()}\n`;
+      acoes.forEach(a => { texto += `- ${a}\n`; });
+      texto += `\n`;
+    });
+    document.getElementById('saev-sugestoes').value = texto.trim();
+    document.getElementById('saev-plano-msg').innerHTML = '';
+  });
+
+  document.getElementById('saev-btn-atividades').addEventListener('click', () => {
+    if(!criticosAtuais.length){
+      document.getElementById('saev-plano-msg').innerHTML = `<div class="msg-erro">Nenhum descritor crítico com o limiar atual — ajuste o percentual acima.</div>`;
+      return;
+    }
+    // ordena do mais crítico pro menos crítico, e gera atividades específicas por descritor (não só por eixo),
+    // incluindo um modelo de questão prática no mesmo formato das provas anteriores do SAEV (múltipla escolha)
+    let texto = '';
+    criticosAtuais.slice().sort((a,b) => a.resultado - b.resultado).forEach(c => {
+      const eixo = classificarDescritorSaev(c.descritor);
+      texto += `═══ DESCRITOR (${c.resultado}%) ═══\n${c.descritor}\nEixo: ${eixo.nome}\n\n`;
+      texto += `Atividades práticas para sala de aula:\n`;
+      eixo.atividades.forEach(a => { texto += `- ${a}\n`; });
+      texto += `\n${eixo.modeloQuestao}\n\n`;
+    });
+    document.getElementById('saev-atividades').value = texto.trim();
+    document.getElementById('saev-plano-msg').innerHTML = '';
+  });
+
+  document.getElementById('saev-btn-caderno').addEventListener('click', () => {
+    if(!criticosAtuais.length){
+      document.getElementById('saev-plano-msg').innerHTML = `<div class="msg-erro">Nenhum descritor crítico com o limiar atual — ajuste o percentual acima.</div>`;
+      return;
+    }
+    imprimirCadernoQuestoesSaev(ESTADO.saevTurmaId, ESTADO.saevDisciplina, ESTADO.saevEtapa, criticosAtuais);
+  });
+
+  document.getElementById('saev-btn-salvar-plano').addEventListener('click', async () => {
+    const msg = document.getElementById('saev-plano-msg');
+    const sugestoes = document.getElementById('saev-sugestoes').value.trim();
+    if(!sugestoes){ msg.innerHTML = `<div class="msg-erro">Escreva ou gere as sugestões antes de salvar.</div>`; return; }
+    const btn = document.getElementById('saev-btn-salvar-plano');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const dados = {
+      turma_id: ESTADO.saevTurmaId,
+      disciplina: ESTADO.saevDisciplina,
+      etapa: ESTADO.saevEtapa,
+      descritores_criticos: criticosAtuais.map(c => ({ descritor: c.descritor, resultado: c.resultado })),
+      sugestoes,
+      acoes: document.getElementById('saev-atividades').value.trim() || null,
+      responsavel: document.getElementById('saev-responsavel').value.trim() || null,
+      prazo: document.getElementById('saev-prazo').value || null,
+      criado_por: ESTADO.perfil.id,
+      atualizado_em: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('saev_planos_acao').insert(dados);
+    btn.disabled = false; btn.textContent = 'Salvar plano de ação';
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    msg.innerHTML = `<div class="msg-ok">Plano de ação salvo com sucesso.</div>`;
+    renderizarListaPlanosSaev(document.getElementById('saev-planos-lista'));
+  });
+}
+
+async function renderizarListaPlanosSaev(el){
+  el.innerHTML = `<p style="color:var(--texto-suave);font-size:12.5px;">Carregando…</p>`;
+  const { data, error } = await supabase.from('saev_planos_acao').select('*')
+    .eq('turma_id', ESTADO.saevTurmaId).eq('disciplina', ESTADO.saevDisciplina).eq('etapa', ESTADO.saevEtapa)
+    .order('criado_em', { ascending: false });
+  if(error){ el.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!data || !data.length){ el.innerHTML = `<p style="color:var(--texto-suave);font-size:12.5px;">Nenhum plano de ação criado ainda.</p>`; return; }
+  el.innerHTML = data.map(p => `
+    <div class="painel" style="margin-bottom:10px;">
+      <div style="padding:12px 14px;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;">
+          <span style="font-size:12px;color:var(--texto-suave);">Criado em ${formatarDataBR((p.criado_em||'').slice(0,10))} ${p.responsavel ? '· Responsável: '+esc(p.responsavel) : ''} ${p.prazo ? '· Prazo: '+formatarDataBR(p.prazo) : ''}</span>
+          <div style="display:flex;gap:6px;">
+            <button class="botao secundario pequeno" data-imprimir-plano="${p.id}" style="width:auto;padding:3px 10px;font-size:11.5px;">🖨️ Imprimir</button>
+            <button class="botao secundario pequeno" data-status-plano="${p.id}" data-valor="${p.status==='concluido'?'em_andamento':'concluido'}" style="width:auto;padding:3px 10px;font-size:11.5px;">${p.status==='concluido' ? '↺ Reabrir' : '✓ Concluir'}</button>
+            <button class="botao secundario pequeno" data-excluir-plano="${p.id}" style="width:auto;padding:3px 10px;font-size:11.5px;">🗑️</button>
+          </div>
+        </div>
+        <span class="pill ${p.status==='concluido'?'verde':'laranja'}" style="margin-bottom:6px;display:inline-block;">${p.status==='concluido'?'Concluído':'Em andamento'}</span>
+        <div style="font-size:12px;font-weight:700;margin-top:8px;">Sugestões / ações de intervenção</div>
+        <div style="font-size:12.5px;white-space:pre-wrap;margin-top:2px;">${esc(p.sugestoes)}</div>
+        ${p.acoes ? `<div style="font-size:12px;font-weight:700;margin-top:10px;">Atividades práticas e modelos de questão por descritor</div>
+        <div style="font-size:12.5px;white-space:pre-wrap;margin-top:2px;">${esc(p.acoes)}</div>` : ''}
+      </div>
+    </div>`).join('');
+  el.querySelectorAll('[data-status-plano]').forEach(b => b.addEventListener('click', async () => {
+    await supabase.from('saev_planos_acao').update({ status: b.dataset.valor, atualizado_em: new Date().toISOString() }).eq('id', b.dataset.statusPlano);
+    renderizarListaPlanosSaev(el);
+  }));
+  el.querySelectorAll('[data-excluir-plano]').forEach(b => b.addEventListener('click', async () => {
+    await supabase.from('saev_planos_acao').delete().eq('id', b.dataset.excluirPlano);
+    renderizarListaPlanosSaev(el);
+  }));
+  el.querySelectorAll('[data-imprimir-plano]').forEach(b => b.addEventListener('click', () => {
+    const plano = data.find(p => p.id === b.dataset.imprimirPlano);
+    if(plano) imprimirPlanoAcaoSaev(plano);
+  }));
+}
+
+function imprimirCadernoQuestoesSaev(turmaId, disciplina, etapa, criticos){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  const ano = new Date().getFullYear();
+  const lista = criticos.slice().sort((a,b) => a.resultado - b.resultado);
+
+  const paginasQuestoes = lista.map((c, i) => {
+    const eixo = classificarDescritorSaev(c.descritor);
+    return `
+      <div class="questao-pagina">
+        <div class="questao-cabecalho">QUESTÃO ${i+1}</div>
+        <div class="descritor-ref">Descritor trabalhado (${c.resultado}% de acerto na última formativa): ${esc(c.descritor)}<br/>Eixo: ${esc(eixo.nome)}</div>
+        <div class="linha-enunciado">&nbsp;</div>
+        <div class="linha-enunciado">&nbsp;</div>
+        <div class="linha-enunciado">&nbsp;</div>
+        <div class="alternativas">
+          <div class="alt-linha">(A) <span class="linha-alt"></span></div>
+          <div class="alt-linha">(B) <span class="linha-alt"></span></div>
+          <div class="alt-linha">(C) <span class="linha-alt"></span></div>
+          <div class="alt-linha">(D) <span class="linha-alt"></span></div>
+        </div>
+        <div class="dica-professor"><b>Roteiro pra montar a questão (não faz parte da prova do estudante):</b><br/>${esc(eixo.modeloQuestao).replace(/\n/g,'<br/>')}</div>
+      </div>`;
+  }).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Caderno de Questões de Reforço - ${esc(turma?.nome||'')}</title>
+    <style>
+      @page{ size: A4; margin: 14mm 16mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12.5px;line-height:1.5;}
+      .capa{text-align:center;padding-top:60px;page-break-after:always;}
+      .capa img{width:90px;height:90px;margin-bottom:16px;}
+      .capa h1{font-size:22px;margin:6px 0;}
+      .capa h2{font-size:18px;margin:6px 0;color:#333;}
+      .capa h3{font-size:15px;margin:6px 0;font-weight:600;color:#555;}
+      .capa .info-capa{border:1px solid #333;border-radius:6px;display:inline-block;padding:16px 26px;margin-top:40px;text-align:left;font-size:13.5px;line-height:2.1;}
+      .capa .info-capa b{display:inline-block;min-width:110px;}
+      .capa .rodape-capa{margin-top:60px;font-size:12px;color:#777;}
+      .questao-pagina{page-break-after:always;padding-top:6px;}
+      .questao-cabecalho{font-weight:bold;font-size:15px;margin-bottom:10px;border-bottom:2px solid #333;padding-bottom:6px;}
+      .descritor-ref{background:#f2f2f2;border-radius:6px;padding:8px 12px;font-size:11px;color:#444;margin-bottom:22px;}
+      .linha-enunciado{border-bottom:1px solid #999;height:26px;margin-bottom:4px;}
+      .alternativas{margin-top:18px;}
+      .alt-linha{margin-bottom:16px;font-size:13px;}
+      .linha-alt{display:inline-block;border-bottom:1px solid #999;width:75%;height:1px;vertical-align:middle;margin-left:6px;}
+      .dica-professor{margin-top:40px;border-top:1px dashed #999;padding-top:10px;font-size:10.5px;color:#666;white-space:pre-wrap;}
+      .questao-pagina:last-child{page-break-after:auto;}
+    </style>
+    </head><body>
+      <div class="capa">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <h1>Caderno de Questões de Reforço</h1>
+        <h2>${esc(disciplina)}</h2>
+        <h3>Baseado nos descritores com maior dificuldade — ${esc(etapa)}</h3>
+        <div class="info-capa">
+          <div><b>Escola:</b> Escola Municipal Jaime Gonçalves Bold</div>
+          <div><b>Turma:</b> ${esc(turma?.nome || '—')} ${turma?.turno ? '· '+esc(turma.turno) : ''}</div>
+          <div><b>Componente:</b> ${esc(disciplina)}</div>
+          <div><b>Quantidade de questões:</b> ${lista.length}</div>
+          <div><b>Data de aplicação:</b> ____/____/______</div>
+        </div>
+        <div class="rodape-capa">${ano} — Gerado a partir do plano de ação do SAEV</div>
+      </div>
+      ${paginasQuestoes}
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+function imprimirPlanoAcaoSaev(plano){
+  const turma = ESTADO.turmas.find(t => t.id === plano.turma_id);
+  const criticos = Array.isArray(plano.descritores_criticos) ? plano.descritores_criticos : [];
+
+  const linhasCriticos = criticos.map((c,i) => `
+    <tr>
+      <td style="text-align:center;">${i+1}</td>
+      <td style="text-align:left;padding:5px 8px;">${esc(c.descritor)}</td>
+      <td style="text-align:center;font-weight:700;">${c.resultado}%</td>
+    </tr>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Plano de Ação SAEV - ${esc(turma?.nome||'')}</title>
+    <style>
+      @page{ size: A4; margin: 12mm 16mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12.5px;line-height:1.5;}
+      h1{font-size:16px;text-align:center;margin:0 0 2px;}
+      p.sub{text-align:center;color:#555;font-size:12px;margin:0 0 16px;}
+      .info-plano{border:1px solid #333;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;}
+      .info-plano b{display:inline-block;min-width:110px;}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px;}
+      th, td{border:1px solid #333;padding:5px 6px;}
+      th{background:#f2f2f2;font-size:11.5px;text-align:center;}
+      .secao-titulo{font-weight:bold;font-size:13.5px;margin:14px 0 6px;text-transform:uppercase;}
+      .texto-livre{white-space:pre-wrap;border:1px solid #333;border-radius:6px;padding:10px 14px;font-size:12.5px;min-height:60px;}
+      .assinaturas{margin-top:40px;display:flex;justify-content:space-around;text-align:center;font-size:12px;}
+      .assinaturas div{border-top:1px solid #333;padding-top:5px;width:260px;}
+    </style>
+    </head><body>
+      <h1>Plano de Ação Pedagógica — SAEV</h1>
+      <p class="sub">Escola Municipal Jaime Gonçalves Bold</p>
+
+      <div class="info-plano">
+        <div><b>Turma:</b> ${esc(turma?.nome || '—')} ${turma?.turno ? '· '+esc(turma.turno) : ''}</div>
+        <div><b>Componente:</b> ${esc(plano.disciplina)}</div>
+        <div><b>Etapa avaliada:</b> ${esc(plano.etapa)}</div>
+        <div><b>Ano letivo:</b> ${plano.ano_letivo}</div>
+        <div><b>Responsável:</b> ${esc(plano.responsavel || '—')}</div>
+        <div><b>Prazo:</b> ${plano.prazo ? formatarDataBR(plano.prazo) : '—'}</div>
+        <div><b>Status:</b> ${plano.status === 'concluido' ? 'Concluído' : 'Em andamento'}</div>
+      </div>
+
+      <div class="secao-titulo">Descritores críticos identificados</div>
+      ${criticos.length ? `<table>
+        <thead><tr><th style="width:8%;">Nº</th><th>Descritor</th><th style="width:15%;">% de acerto</th></tr></thead>
+        <tbody>${linhasCriticos}</tbody>
+      </table>` : `<p style="color:#555;">Nenhum descritor crítico registrado.</p>`}
+
+      <div class="secao-titulo">Sugestões / ações de intervenção (professor)</div>
+      <div class="texto-livre">${esc(plano.sugestoes || '—')}</div>
+
+      ${plano.acoes ? `
+      <div class="secao-titulo">Atividades práticas e modelos de questão por descritor</div>
+      <div class="texto-livre">${esc(plano.acoes)}</div>` : ''}
+
+      <div class="assinaturas">
+        <div>Professor(a) regente</div>
+        <div>Coordenação pedagógica</div>
+      </div>
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
 }
 
 async function renderizarAvaliacaoFluencia(el){
