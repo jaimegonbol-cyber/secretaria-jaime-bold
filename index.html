@@ -379,10 +379,10 @@ async function tratarLinkConvite(){
     if(access_token && (type === 'invite' || type === 'recovery' || type === 'signup')){
       await supabase.auth.setSession({ access_token, refresh_token });
       history.replaceState(null, '', window.location.pathname);
-      return true;
+      return type;
     }
   }
-  return false;
+  return null;
 }
 
 async function carregarPerfil(userId){
@@ -393,7 +393,7 @@ async function carregarPerfil(userId){
 
 async function iniciar(){
   raiz.innerHTML = `<div class="carregando"><div class="spinner"></div>Carregando…</div>`;
-  const precisaSenha = await tratarLinkConvite();
+  const tipoLink = await tratarLinkConvite();
   const { data: { session } } = await supabase.auth.getSession();
   ESTADO.sessao = session;
 
@@ -401,8 +401,8 @@ async function iniciar(){
     ESTADO.perfil = await carregarPerfil(session.user.id);
   }
 
-  if(precisaSenha && session){
-    renderizarDefinirSenha();
+  if(tipoLink && session){
+    renderizarDefinirSenha(tipoLink === 'recovery');
     return;
   }
   if(!session){
@@ -431,14 +431,40 @@ function renderizarLogin(){
       <div id="msg-login"></div>
       <form id="form-login">
         <div class="campo"><label>E-mail</label><input type="email" id="login-email" required autocomplete="username" /></div>
-        <div class="campo"><label>Senha</label><input type="password" id="login-senha" required autocomplete="current-password" /></div>
+        <div class="campo">
+          <label>Senha</label>
+          <div style="position:relative;">
+            <input type="password" id="login-senha" required autocomplete="current-password" style="padding-right:38px;" />
+            <button type="button" id="login-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
+          </div>
+        </div>
         <button class="botao" type="submit" id="btn-login">Entrar</button>
       </form>
+      <p style="margin-top:12px;text-align:center;">
+        <button type="button" id="btn-esqueci-senha" style="background:none;border:none;color:var(--terracota);font-size:12.5px;font-weight:600;cursor:pointer;padding:4px;">Esqueci minha senha</button>
+      </p>
+      <div id="area-esqueci-senha" style="display:none;margin-top:6px;border-top:1px solid var(--borda);padding-top:14px;">
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">Informe seu e-mail cadastrado — vamos enviar um link para você redefinir a senha.</p>
+        <div id="msg-esqueci-senha"></div>
+        <form id="form-esqueci-senha">
+          <div class="campo"><label>E-mail</label><input type="email" id="esqueci-email" required autocomplete="username" /></div>
+          <button class="botao secundario" type="submit" id="btn-enviar-esqueci-senha" style="width:100%;">Enviar link de redefinição</button>
+        </form>
+      </div>
       <p style="margin-top:18px;font-size:12.5px;color:var(--texto-suave);text-align:center;">
         Não tem conta? Peça ao administrador da secretaria para te convidar por e-mail.
       </p>
     </div>
   </div>`;
+
+  const campoSenhaLogin = document.getElementById('login-senha');
+  document.getElementById('login-toggle-olho').addEventListener('click', (e) => {
+    e.preventDefault();
+    const btnOlho = e.currentTarget;
+    if(campoSenhaLogin.type === 'password'){ campoSenhaLogin.type = 'text'; btnOlho.textContent = '🙈'; }
+    else { campoSenhaLogin.type = 'password'; btnOlho.textContent = '👁️'; }
+  });
+
   document.getElementById('form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('login-email').value.trim();
@@ -453,6 +479,35 @@ function renderizarLogin(){
     }
     await iniciar();
   });
+
+  document.getElementById('btn-esqueci-senha').addEventListener('click', () => {
+    const area = document.getElementById('area-esqueci-senha');
+    const abrindo = area.style.display === 'none';
+    area.style.display = abrindo ? 'block' : 'none';
+    if(abrindo){
+      const emailLogin = document.getElementById('login-email').value.trim();
+      if(emailLogin) document.getElementById('esqueci-email').value = emailLogin;
+      document.getElementById('esqueci-email').focus();
+    }
+  });
+
+  document.getElementById('form-esqueci-senha').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('esqueci-email').value.trim();
+    const msg = document.getElementById('msg-esqueci-senha');
+    const btn = document.getElementById('btn-enviar-esqueci-senha');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname,
+    });
+    if(error){
+      msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
+      btn.disabled = false; btn.textContent = 'Enviar link de redefinição';
+      return;
+    }
+    msg.innerHTML = `<div class="msg-ok">Se esse e-mail estiver cadastrado, enviamos um link para redefinir a senha. Confira sua caixa de entrada (e o spam).</div>`;
+    btn.disabled = false; btn.textContent = 'Enviar link de redefinição';
+  });
 }
 
 function traduzErro(m){
@@ -461,21 +516,44 @@ function traduzErro(m){
   return m;
 }
 
-function renderizarDefinirSenha(){
+function renderizarDefinirSenha(ehRecuperacao){
   raiz.innerHTML = `
   <div class="tela-auth">
     <div class="cartao-auth">
       <div class="selo"></div>
-      <h1>Bem-vindo(a)!</h1>
-      <p class="sub">Defina sua senha de acesso ao sistema da secretaria.</p>
+      <h1>${ehRecuperacao ? 'Redefinir senha' : 'Bem-vindo(a)!'}</h1>
+      <p class="sub">${ehRecuperacao ? 'Defina uma nova senha para acessar o sistema da secretaria.' : 'Defina sua senha de acesso ao sistema da secretaria.'}</p>
       <div id="msg-senha"></div>
       <form id="form-senha">
-        <div class="campo"><label>Nova senha (mín. 6 caracteres)</label><input type="password" id="nova-senha" minlength="6" required autocomplete="new-password" /></div>
-        <div class="campo"><label>Confirmar senha</label><input type="password" id="conf-senha" minlength="6" required autocomplete="new-password" /></div>
-        <button class="botao terracota" type="submit" id="btn-senha">Definir senha e entrar</button>
+        <div class="campo">
+          <label>Nova senha (mín. 6 caracteres)</label>
+          <div style="position:relative;">
+            <input type="password" id="nova-senha" minlength="6" required autocomplete="new-password" style="padding-right:38px;" />
+            <button type="button" id="nova-senha-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
+          </div>
+        </div>
+        <div class="campo">
+          <label>Confirmar senha</label>
+          <div style="position:relative;">
+            <input type="password" id="conf-senha" minlength="6" required autocomplete="new-password" style="padding-right:38px;" />
+            <button type="button" id="conf-senha-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
+          </div>
+        </div>
+        <button class="botao terracota" type="submit" id="btn-senha">${ehRecuperacao ? 'Salvar nova senha e entrar' : 'Definir senha e entrar'}</button>
       </form>
     </div>
   </div>`;
+  const alternarOlho = (campoId, botaoId) => {
+    const campo = document.getElementById(campoId);
+    document.getElementById(botaoId).addEventListener('click', (e) => {
+      e.preventDefault();
+      const btnOlho = e.currentTarget;
+      if(campo.type === 'password'){ campo.type = 'text'; btnOlho.textContent = '🙈'; }
+      else { campo.type = 'password'; btnOlho.textContent = '👁️'; }
+    });
+  };
+  alternarOlho('nova-senha', 'nova-senha-toggle-olho');
+  alternarOlho('conf-senha', 'conf-senha-toggle-olho');
   document.getElementById('form-senha').addEventListener('submit', async (e) => {
     e.preventDefault();
     const s1 = document.getElementById('nova-senha').value;
@@ -489,7 +567,7 @@ function renderizarDefinirSenha(){
     const { error } = await supabase.auth.updateUser({ password: s1 });
     if(error){
       document.getElementById('msg-senha').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
-      btn.disabled = false; btn.textContent = 'Definir senha e entrar';
+      btn.disabled = false; btn.textContent = ehRecuperacao ? 'Salvar nova senha e entrar' : 'Definir senha e entrar';
       return;
     }
     await iniciar();
@@ -7588,15 +7666,31 @@ function infoDataAgendaCard(iso){
 async function desenharCardSemanaAgenda(canvas, dados){
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
-  const NAVY = '#0F1E3D', NAVY_CLARO = '#182A52', DOURADO = '#D9B65C', BRANCO = '#FFFFFF', CINZA_CLARO = '#B9C4DC';
-  const margemX = 64, larguraConteudo = W - margemX*2;
+  const NAVY = '#0F1830', NAVY_CLARO = '#1B2E52', NAVY_BLOCO = '#172644', DOURADO = '#D9B65C', DOURADO_SUAVE = 'rgba(217,182,92,0.14)', BRANCO = '#FFFFFF', CINZA_CLARO = '#B9C4DC';
+  const margemX = 68, larguraConteudo = W - margemX*2;
 
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = NAVY;
+
+  // fundo em gradiente suave (dá profundidade sem poluir)
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, NAVY_CLARO);
+  grad.addColorStop(1, NAVY);
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
+  // único elemento decorativo: círculo grande e discreto no canto superior direito
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.arc(W + 40, 60, 340, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(217,182,92,0.05)';
+  ctx.fill();
+  ctx.restore();
+
   // moldura dourada fina
-  ctx.strokeStyle = DOURADO;
+  ctx.strokeStyle = 'rgba(217,182,92,0.55)';
   ctx.lineWidth = 2;
   ctx.strokeRect(20, 20, W - 40, H - 40);
 
@@ -7615,28 +7709,32 @@ async function desenharCardSemanaAgenda(canvas, dados){
     ctx.restore();
   } catch(e){ /* segue sem a logo se não conseguir carregar */ }
 
-  ctx.fillStyle = BRANCO;
-  ctx.font = 'bold 34px Arial';
-  ctx.fillText('CONFIRA', 168, 84);
-  ctx.fillStyle = DOURADO;
-  ctx.font = 'bold 58px Arial';
-  ctx.fillText((dados.titulo || 'A SEMANA').toUpperCase(), 168, 142);
   ctx.fillStyle = CINZA_CLARO;
-  ctx.font = '22px Arial';
-  ctx.fillText('ESCOLA MUNICIPAL JAIME GONÇALVES BOLD', 168, 172);
+  ctx.font = 'bold 22px Arial';
+  ctx.fillText('C O N F I R A', 168, 78);
+  ctx.fillStyle = DOURADO;
+  ctx.font = 'bold 56px Arial';
+  const yTitulo = envolverTextoCard(ctx, (dados.titulo || 'A SEMANA').toUpperCase(), 168, 138, W - 168 - margemX, 58, 2);
+  ctx.fillStyle = CINZA_CLARO;
+  ctx.font = '20px Arial';
+  ctx.fillText('ESCOLA MUNICIPAL JAIME GONÇALVES BOLD', 168, yTitulo + 4);
 
-  // selo com o período da semana
-  ctx.font = 'bold 25px Arial';
-  const textoPeriodo = '🗓  ' + dados.rotuloIntervalo.toUpperCase();
-  const larguraPeriodo = ctx.measureText(textoPeriodo).width + 56;
-  const pillX = W/2 - larguraPeriodo/2, pillY = 205;
+  // selo com o período da semana — chip preenchido, mais moderno que só contorno
+  ctx.font = 'bold 24px Arial';
+  const textoPeriodo = dados.rotuloIntervalo.toUpperCase();
+  const larguraPeriodo = ctx.measureText(textoPeriodo).width + 76;
+  const pillY = Math.max(yTitulo + 34, 218);
+  const pillX = W/2 - larguraPeriodo/2;
+  ctx.fillStyle = DOURADO_SUAVE;
+  caminhoArredondadoCard(ctx, pillX, pillY, larguraPeriodo, 56, 28);
+  ctx.fill();
   ctx.strokeStyle = DOURADO;
-  ctx.lineWidth = 2;
-  caminhoArredondadoCard(ctx, pillX, pillY, larguraPeriodo, 54, 27);
+  ctx.lineWidth = 1.5;
+  caminhoArredondadoCard(ctx, pillX, pillY, larguraPeriodo, 56, 28);
   ctx.stroke();
   ctx.fillStyle = DOURADO;
   ctx.textAlign = 'center';
-  ctx.fillText(textoPeriodo, W/2, pillY + 35);
+  ctx.fillText('🗓  ' + textoPeriodo, W/2, pillY + 37);
   ctx.textAlign = 'left';
 
   // agrupa os avisos por dia, na ordem em que já vêm (a query já traz ordenado por data)
@@ -7647,15 +7745,15 @@ async function desenharCardSemanaAgenda(canvas, dados){
     grupo.itens.push(item);
   });
 
-  let y = 305;
-  const alturaMaxima = H - 90;
-  const colunaBadgeW = 130, colunaConteudoX = margemX + colunaBadgeW + 26, colunaConteudoW = larguraConteudo - colunaBadgeW - 26;
+  let y = pillY + 90;
+  const alturaMaxima = H - 96;
+  const colunaBadgeW = 108, colunaConteudoX = margemX + colunaBadgeW + 30, colunaConteudoW = larguraConteudo - colunaBadgeW - 30;
 
   if(!dias.length){
     ctx.font = '30px Arial';
     ctx.fillStyle = CINZA_CLARO;
     ctx.textAlign = 'center';
-    ctx.fillText('Nenhum aviso cadastrado para esta semana.', W/2, y + 60);
+    ctx.fillText('Nenhum aviso cadastrado para esta semana.', W/2, y + 80);
     ctx.textAlign = 'left';
   }
 
@@ -7663,69 +7761,82 @@ async function desenharCardSemanaAgenda(canvas, dados){
     if(y > alturaMaxima) break; // não cabe mais nada nesta folha
     const dataInfo = infoDataAgendaCard(dia.iso);
     const inicioDiaY = y;
-    let yConteudo = inicioDiaY + 8;
+    let yConteudo = inicioDiaY + 30;
 
-    dia.itens.forEach(item => {
-      const corPonto = item.alerta ? '#E4756B' : DOURADO;
-      // marcador
-      ctx.fillStyle = corPonto;
-      ctx.beginPath(); ctx.arc(colunaConteudoX + 6, yConteudo + 10, 6, 0, Math.PI*2); ctx.fill();
-      // horário + alerta
-      let cabecalho = '';
-      if(item.horaCurta) cabecalho += item.horaCurta + '  ';
-      if(item.alerta) cabecalho += '⚠ ALERTA';
-      if(cabecalho){
-        ctx.font = 'bold 19px Arial';
-        ctx.fillStyle = corPonto;
-        ctx.fillText(cabecalho.trim(), colunaConteudoX + 22, yConteudo + 16);
+    dia.itens.forEach((item, indice) => {
+      const corDestaque = item.alerta ? '#E4756B' : DOURADO;
+      // hora/alerta
+      if(item.horaCurta || item.alerta){
+        ctx.font = 'bold 18px Arial';
+        ctx.fillStyle = corDestaque;
+        const cabecalho = [item.alerta ? '⚠ ALERTA' : null, item.horaCurta || null].filter(Boolean).join('   ·   ');
+        ctx.fillText(cabecalho, colunaConteudoX, yConteudo);
         yConteudo += 26;
       }
       // título
       ctx.font = 'bold 27px Arial';
       ctx.fillStyle = BRANCO;
-      yConteudo = envolverTextoCard(ctx, item.titulo, colunaConteudoX + 22, yConteudo + 18, colunaConteudoW - 22, 32, 2);
-      // descrição curta (1 linha), se houver
+      yConteudo = envolverTextoCard(ctx, item.titulo, colunaConteudoX, yConteudo + 6, colunaConteudoW, 32, 2);
+      // descrição curta, se houver
       if(item.descricao){
-        ctx.font = '20px Arial';
+        ctx.font = '19px Arial';
         ctx.fillStyle = CINZA_CLARO;
-        yConteudo = envolverTextoCard(ctx, item.descricao, colunaConteudoX + 22, yConteudo + 4, colunaConteudoW - 22, 26, 1);
+        yConteudo = envolverTextoCard(ctx, item.descricao, colunaConteudoX, yConteudo + 2, colunaConteudoW, 25, 1);
       }
-      yConteudo += 16;
+      if(indice < dia.itens.length - 1){
+        yConteudo += 10;
+        ctx.strokeStyle = 'rgba(185,196,220,0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(colunaConteudoX, yConteudo); ctx.lineTo(colunaConteudoX + colunaConteudoW, yConteudo); ctx.stroke();
+        yConteudo += 14;
+      } else {
+        yConteudo += 8;
+      }
     });
 
-    const alturaDia = Math.max(yConteudo - inicioDiaY - 8, 96);
+    const alturaDia = Math.max(yConteudo - inicioDiaY + 4, 108);
 
-    // badge da data, à esquerda, acompanhando a altura do bloco do dia
-    ctx.strokeStyle = DOURADO;
-    ctx.lineWidth = 2;
-    ctx.fillStyle = NAVY_CLARO;
-    caminhoArredondadoCard(ctx, margemX, inicioDiaY, colunaBadgeW, alturaDia, 16);
+    // fundo do bloco do dia, com sombra suave (aparência de cartão elevado)
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.28)';
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = NAVY_BLOCO;
+    caminhoArredondadoCard(ctx, margemX, inicioDiaY, larguraConteudo, alturaDia, 18);
     ctx.fill();
+    ctx.restore();
+
+    // divisória vertical dourada entre o selo do dia e o conteúdo
+    ctx.strokeStyle = 'rgba(217,182,92,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(margemX + colunaBadgeW, inicioDiaY + 18);
+    ctx.lineTo(margemX + colunaBadgeW, inicioDiaY + alturaDia - 18);
     ctx.stroke();
+
+    // selo do dia (número grande + dia da semana + mês), centralizado na coluna própria
     ctx.textAlign = 'center';
     ctx.fillStyle = DOURADO;
-    ctx.font = 'bold 18px Arial';
+    ctx.font = 'bold 16px Arial';
     ctx.fillText(dataInfo.diaSemana, margemX + colunaBadgeW/2, inicioDiaY + 34);
     ctx.fillStyle = BRANCO;
-    ctx.font = 'bold 46px Arial';
-    ctx.fillText(dataInfo.diaNumero, margemX + colunaBadgeW/2, inicioDiaY + alturaDia/2 + 18);
+    ctx.font = 'bold 44px Arial';
+    ctx.fillText(dataInfo.diaNumero, margemX + colunaBadgeW/2, inicioDiaY + alturaDia/2 + 16);
     ctx.fillStyle = DOURADO;
-    ctx.font = 'bold 18px Arial';
-    ctx.fillText(dataInfo.mesAbrev, margemX + colunaBadgeW/2, inicioDiaY + alturaDia - 16);
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText(dataInfo.mesAbrev, margemX + colunaBadgeW/2, inicioDiaY + alturaDia - 18);
     ctx.textAlign = 'left';
 
-    y = inicioDiaY + alturaDia + 18;
-    // linha divisória fina
-    ctx.strokeStyle = 'rgba(217,182,92,0.35)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(margemX, y); ctx.lineTo(margemX + larguraConteudo, y); ctx.stroke();
-    y += 22;
+    y = inicioDiaY + alturaDia + 22;
   }
 
-  ctx.font = 'italic 20px Georgia, serif';
+  ctx.strokeStyle = 'rgba(217,182,92,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W/2 - 60, H - 66); ctx.lineTo(W/2 + 60, H - 66); ctx.stroke();
+  ctx.font = 'italic 19px Georgia, serif';
   ctx.fillStyle = DOURADO;
   ctx.textAlign = 'center';
-  ctx.fillText('Escola Municipal Jaime Gonçalves Bold — Paulista/PE', W/2, H - 40);
+  ctx.fillText('Escola Municipal Jaime Gonçalves Bold — Paulista/PE', W/2, H - 38);
   ctx.textAlign = 'left';
 }
 
@@ -7785,14 +7896,14 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
       <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
         <div id="card-semana-caixa" style="width:100%;max-width:320px;aspect-ratio:1080/1350;border:1px solid var(--borda);border-radius:8px;position:relative;overflow:hidden;background:#0F1E3D;">
           <canvas id="card-semana-canvas" width="1080" height="1350" style="width:100%;height:100%;display:block;"></canvas>
-          <div id="card-semana-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:rgba(15,30,61,0.92);color:#D9B65C;font-size:13px;text-align:center;padding:16px;">✨ Gerando design moderno com IA…</div>
+          <div id="card-semana-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:rgba(15,30,61,0.92);color:#D9B65C;font-size:13px;text-align:center;padding:16px;">Montando o card…</div>
         </div>
         <div class="campo" style="width:100%;margin-bottom:0;"><label>Título do card</label><input type="text" id="card-semana-titulo" value="A SEMANA" /></div>
         <p style="font-size:12px;color:var(--texto-suave);margin:0;">Mostrando os ${itens.length} aviso(s) cadastrados para ${esc(rotuloIntervalo)}.${itens.length > 10 ? ' Só cabem os primeiros no card — considere gerar cards por dia se tiver muitos avisos.' : ''}</p>
         <div id="msg-card-semana" style="width:100%;"></div>
         <div style="display:flex;gap:8px;width:100%;">
-          <button class="botao secundario" id="btn-refazer-card-semana" style="flex:1;">🔄 Gerar outro design</button>
-          <button class="botao secundario" id="btn-classico-card-semana" style="flex:1;">🖌️ Modelo clássico</button>
+          <button class="botao secundario" id="btn-refazer-card-semana" style="flex:1;">✨ Tentar design com IA</button>
+          <button class="botao secundario" id="btn-classico-card-semana" style="flex:1;">🔄 Atualizar (padrão)</button>
         </div>
         <button class="botao terracota" id="btn-baixar-card-semana" style="width:100%;">⬇️ Baixar imagem (PNG)</button>
         <button class="botao secundario" id="btn-baixar-dados-card-semana" style="width:100%;">📄 Baixar dados do card (para usar em outra IA)</button>
@@ -7805,6 +7916,7 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
   const canvas = document.getElementById('card-semana-canvas');
   const carregando = document.getElementById('card-semana-carregando');
   const msgSemana = document.getElementById('msg-card-semana');
+  let tentativasIA = 0;
 
   async function atualizarPreviewSemana(usarIA, variacao){
     const dadosCard = {
@@ -7815,11 +7927,14 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
     };
     msgSemana.innerHTML = '';
     if(usarIA){
+      carregando.textContent = '✨ Gerando design com IA…';
       carregando.style.display = 'flex';
       try{
         await desenharCardSemanaAgendaIA(canvas, dadosCard);
+        tentativasIA++;
+        document.getElementById('btn-refazer-card-semana').textContent = '🔄 Tentar outra versão com IA';
       } catch(err){
-        msgSemana.innerHTML = `<div class="msg-erro">${esc(err.message)} Mostrando o modelo clássico como alternativa.</div>`;
+        msgSemana.innerHTML = `<div class="msg-erro">${esc(err.message)} Mostrando o design padrão como alternativa.</div>`;
         await desenharCardSemanaAgenda(canvas, dadosCard);
       } finally {
         carregando.style.display = 'none';
@@ -7830,8 +7945,8 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
     }
   }
 
-  document.getElementById('card-semana-titulo').addEventListener('change', () => atualizarPreviewSemana(true, false));
-  document.getElementById('btn-refazer-card-semana').addEventListener('click', () => atualizarPreviewSemana(true, true));
+  document.getElementById('card-semana-titulo').addEventListener('change', () => atualizarPreviewSemana(false, false));
+  document.getElementById('btn-refazer-card-semana').addEventListener('click', () => atualizarPreviewSemana(true, tentativasIA > 0));
   document.getElementById('btn-classico-card-semana').addEventListener('click', () => atualizarPreviewSemana(false, false));
   document.getElementById('btn-baixar-card-semana').addEventListener('click', () => {
     try{
@@ -7855,7 +7970,7 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
     URL.revokeObjectURL(link.href);
   });
 
-  atualizarPreviewSemana(true, false);
+  atualizarPreviewSemana(false, false);
 }
 
 // Monta um arquivo de texto com todos os dados da semana e um briefing de design pronto pra colar
