@@ -7296,6 +7296,20 @@ const CATEGORIAS_AGENDA = {
   pedagogico: { rotulo: 'Pedagógico', pill: 'verde', cor: '#3F7D4F' },
   gestao:     { rotulo: 'Gestão', pill: 'laranja', cor: '#B5643F' },
 };
+// Monta um texto curto com manhã e/ou tarde e seus horários (quando informados), ex: "Manhã 8h–10h · Tarde 13h30"
+function descreverHorarioAgenda(ev){
+  const partes = [];
+  if(ev.manha){
+    const h = [ev.manha_inicio ? ev.manha_inicio.slice(0,5) : '', ev.manha_fim ? ev.manha_fim.slice(0,5) : ''].filter(Boolean).join('–');
+    partes.push('Manhã' + (h ? ' ' + h : ''));
+  }
+  if(ev.tarde){
+    const h = [ev.tarde_inicio ? ev.tarde_inicio.slice(0,5) : '', ev.tarde_fim ? ev.tarde_fim.slice(0,5) : ''].filter(Boolean).join('–');
+    partes.push('Tarde' + (h ? ' ' + h : ''));
+  }
+  return partes.length ? partes.join(' · ') : '';
+}
+
 function categoriaAgendaInfo(categoria){
   return CATEGORIAS_AGENDA[categoria] || CATEGORIAS_AGENDA.secretaria;
 }
@@ -7312,7 +7326,7 @@ function cartaoEventoAgenda(ev){
             <span class="pill ${catInfo.pill}">${catInfo.rotulo}</span>
             ${ev.alerta ? `<span class="pill vermelho">⚠️ Alerta</span>` : ''}
             ${ev.realizada ? `<span class="pill verde">✓ Realizada</span>` : ''}
-            ${ev.hora ? `<span style="font-size:12px;color:var(--texto-suave);font-weight:600;">🕒 ${ev.hora.slice(0,5)}</span>` : ''}
+            ${descreverHorarioAgenda(ev) ? `<span style="font-size:12px;color:var(--texto-suave);font-weight:600;">🕒 ${descreverHorarioAgenda(ev)}</span>` : ''}
           </div>
           <b style="font-size:14.5px;display:block;margin-top:6px;${ev.realizada?'text-decoration:line-through;':''}">${esc(ev.titulo)}</b>
           ${ev.descricao ? `<div style="font-size:12.5px;margin-top:4px;color:var(--texto-suave);white-space:pre-wrap;line-height:1.45;">${esc(ev.descricao)}</div>` : ''}
@@ -7505,7 +7519,7 @@ async function abrirGeradorCardAgenda(evento){
         <div class="campo" style="width:100%;margin-bottom:0;"><label>Título</label><input type="text" id="card-titulo" value="${esc(evento.titulo)}" /></div>
         <div class="campo" style="width:100%;margin-bottom:0;"><label>Descrição</label><textarea id="card-descricao" rows="3">${esc(evento.descricao||'')}</textarea></div>
         <div class="campo" style="width:100%;margin-bottom:0;"><label>Data (texto livre)</label><input type="text" id="card-data" value="${formatarDataBR(evento.data)}" /></div>
-        <div class="campo" style="width:100%;margin-bottom:0;"><label>Horário (opcional)</label><input type="text" id="card-hora" value="${evento.hora ? evento.hora.slice(0,5) : ''}" placeholder="Ex: 8h · 14h30" /></div>
+        <div class="campo" style="width:100%;margin-bottom:0;"><label>Horário (opcional)</label><input type="text" id="card-hora" value="${esc(descreverHorarioAgenda(evento))}" placeholder="Ex: Manhã 8h · Tarde 14h30" /></div>
         <div class="campo" style="width:100%;margin-bottom:0;"><label>Imagem do card (opcional — substitui a acima)</label><input type="file" id="card-imagem" accept="image/*" /></div>
         <div id="msg-card-agenda" style="width:100%;"></div>
         <button class="botao terracota" id="btn-baixar-card" style="width:100%;">⬇️ Baixar imagem (PNG)</button>
@@ -7715,11 +7729,48 @@ async function desenharCardSemanaAgenda(canvas, dados){
   ctx.textAlign = 'left';
 }
 
+async function gerarDesignCardSemanaIA(dados, variacao){
+  const { data: resposta, error } = await supabase.functions.invoke('gerar-design-card-semana', {
+    body: {
+      titulo: dados.titulo,
+      rotuloIntervalo: dados.rotuloIntervalo,
+      eventos: dados.eventos,
+      variacao: !!variacao,
+    },
+  });
+  if(error || !resposta || resposta.error){
+    throw new Error((resposta && resposta.error) || 'Não foi possível gerar o design com IA.');
+  }
+  return resposta.svg;
+}
+
+async function desenharCardSemanaAgendaIA(canvas, dados){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const svgMarkup = await gerarDesignCardSemanaIA(dados, dados.variacao);
+  const svgDataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgMarkup)));
+  const imagemDesign = await carregarImagemCard(svgDataUrl);
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(imagemDesign, 0, 0, W, H);
+  // sobrepõe a logo real da escola no espaço circular reservado pelo design (x=96, y=96, raio 46)
+  try{
+    const logo = await carregarImagemCard(LOGO_ESCOLA_URL);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(96, 96, 46, 0, Math.PI*2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.clip();
+    ctx.drawImage(logo, 50, 50, 92, 92);
+    ctx.restore();
+  } catch(e){ /* segue sem a logo se não conseguir carregar */ }
+}
+
 async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
   const itens = eventos.map(ev => ({
     iso: ev.data,
     dataCurta: (() => { const [,m,d] = ev.data.split('-'); return `${d}/${m}`; })(),
-    horaCurta: ev.hora ? ev.hora.slice(0,5) : '',
+    horaCurta: descreverHorarioAgenda(ev),
     titulo: ev.titulo,
     descricao: ev.descricao,
     categoria: ev.categoria,
@@ -7732,11 +7783,19 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
     <div class="modal" style="max-width:480px;">
       <div class="modal-topo"><h3>Card com os avisos da semana</h3><button data-fechar>✕</button></div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
-        <canvas id="card-semana-canvas" width="1080" height="1350" style="width:100%;max-width:320px;border:1px solid var(--borda);border-radius:8px;"></canvas>
+        <div id="card-semana-caixa" style="width:100%;max-width:320px;aspect-ratio:1080/1350;border:1px solid var(--borda);border-radius:8px;position:relative;overflow:hidden;background:#0F1E3D;">
+          <canvas id="card-semana-canvas" width="1080" height="1350" style="width:100%;height:100%;display:block;"></canvas>
+          <div id="card-semana-carregando" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:rgba(15,30,61,0.92);color:#D9B65C;font-size:13px;text-align:center;padding:16px;">✨ Gerando design moderno com IA…</div>
+        </div>
         <div class="campo" style="width:100%;margin-bottom:0;"><label>Título do card</label><input type="text" id="card-semana-titulo" value="A SEMANA" /></div>
         <p style="font-size:12px;color:var(--texto-suave);margin:0;">Mostrando os ${itens.length} aviso(s) cadastrados para ${esc(rotuloIntervalo)}.${itens.length > 10 ? ' Só cabem os primeiros no card — considere gerar cards por dia se tiver muitos avisos.' : ''}</p>
         <div id="msg-card-semana" style="width:100%;"></div>
+        <div style="display:flex;gap:8px;width:100%;">
+          <button class="botao secundario" id="btn-refazer-card-semana" style="flex:1;">🔄 Gerar outro design</button>
+          <button class="botao secundario" id="btn-classico-card-semana" style="flex:1;">🖌️ Modelo clássico</button>
+        </div>
         <button class="botao terracota" id="btn-baixar-card-semana" style="width:100%;">⬇️ Baixar imagem (PNG)</button>
+        <button class="botao secundario" id="btn-baixar-dados-card-semana" style="width:100%;">📄 Baixar dados do card (para usar em outra IA)</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -7744,14 +7803,36 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
 
   const canvas = document.getElementById('card-semana-canvas');
-  async function atualizarPreviewSemana(){
-    await desenharCardSemanaAgenda(canvas, {
+  const carregando = document.getElementById('card-semana-carregando');
+  const msgSemana = document.getElementById('msg-card-semana');
+
+  async function atualizarPreviewSemana(usarIA, variacao){
+    const dadosCard = {
       titulo: document.getElementById('card-semana-titulo').value.trim() || 'A SEMANA',
       rotuloIntervalo,
       eventos: itens,
-    });
+      variacao,
+    };
+    msgSemana.innerHTML = '';
+    if(usarIA){
+      carregando.style.display = 'flex';
+      try{
+        await desenharCardSemanaAgendaIA(canvas, dadosCard);
+      } catch(err){
+        msgSemana.innerHTML = `<div class="msg-erro">${esc(err.message)} Mostrando o modelo clássico como alternativa.</div>`;
+        await desenharCardSemanaAgenda(canvas, dadosCard);
+      } finally {
+        carregando.style.display = 'none';
+      }
+    } else {
+      carregando.style.display = 'none';
+      await desenharCardSemanaAgenda(canvas, dadosCard);
+    }
   }
-  document.getElementById('card-semana-titulo').addEventListener('input', atualizarPreviewSemana);
+
+  document.getElementById('card-semana-titulo').addEventListener('change', () => atualizarPreviewSemana(true, false));
+  document.getElementById('btn-refazer-card-semana').addEventListener('click', () => atualizarPreviewSemana(true, true));
+  document.getElementById('btn-classico-card-semana').addEventListener('click', () => atualizarPreviewSemana(false, false));
   document.getElementById('btn-baixar-card-semana').addEventListener('click', () => {
     try{
       const link = document.createElement('a');
@@ -7759,11 +7840,60 @@ async function abrirGeradorCardSemanaAgenda(dias, rotuloIntervalo, eventos){
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch(err){
-      document.getElementById('msg-card-semana').innerHTML = `<div class="msg-erro">Não foi possível baixar a imagem (${esc(err.message)}).</div>`;
+      msgSemana.innerHTML = `<div class="msg-erro">Não foi possível baixar a imagem (${esc(err.message)}).</div>`;
     }
   });
 
-  atualizarPreviewSemana();
+  document.getElementById('btn-baixar-dados-card-semana').addEventListener('click', () => {
+    const titulo = document.getElementById('card-semana-titulo').value.trim() || 'A SEMANA';
+    const texto = montarTextoDadosCardSemana(titulo, rotuloIntervalo, itens);
+    const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.download = `dados-card-semana-${dataObjParaISO(dias[0])}.txt`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+
+  atualizarPreviewSemana(true, false);
+}
+
+// Monta um arquivo de texto com todos os dados da semana e um briefing de design pronto pra colar
+// em outra ferramenta de IA (ChatGPT, Gemini, Canva Magic Design, Gamma etc.) e gerar a imagem lá.
+function montarTextoDadosCardSemana(titulo, rotuloIntervalo, itens){
+  const dias = [];
+  itens.forEach(item => {
+    let grupo = dias.find(g => g.iso === item.iso);
+    if(!grupo){ grupo = { iso: item.iso, itens: [] }; dias.push(grupo); }
+    grupo.itens.push(item);
+  });
+
+  const listaTexto = dias.length
+    ? dias.map(d => {
+        const linhas = d.itens.map(it => {
+          const partes = [it.horaCurta || null, it.alerta ? 'ALERTA' : null].filter(Boolean).join(' · ');
+          return `  - ${it.titulo}${partes ? ` (${partes})` : ''}${it.descricao ? ` — ${it.descricao}` : ''} [categoria: ${it.categoria || 'geral'}]`;
+        }).join('\n');
+        return `${formatarDataBR(d.iso)}:\n${linhas}`;
+      }).join('\n\n')
+    : '(nenhum aviso cadastrado para esta semana)';
+
+  return `DADOS DO CARD SEMANAL — ESCOLA MUNICIPAL JAIME GONÇALVES BOLD (Paulista/PE)
+Use estas informações para gerar, em outra ferramenta de IA, uma imagem/pôster no formato retrato 1080x1350px (proporção 4:5, ideal para Instagram).
+
+Título do card: ${titulo}
+Período da semana: ${rotuloIntervalo}
+Nome da escola (incluir no rodapé): Escola Municipal Jaime Gonçalves Bold — Paulista/PE
+
+AVISOS DA SEMANA:
+${listaTexto}
+
+SUGESTÃO DE ESTILO VISUAL:
+- Design moderno, elegante e organizado, com boa hierarquia visual e bastante espaço em branco (evite poluição visual).
+- Paleta de cores: azul-marinho profundo (#0F1E3D e #182A52) como fundo, dourado (#D9B65C) como cor de destaque, branco (#FFFFFF) para textos principais e cinza-azulado claro (#B9C4DC) para textos secundários. Use vermelho suave (#E4756B) apenas para marcar avisos de alerta.
+- Um bloco por dia da semana, com a data em destaque e os avisos daquele dia organizados abaixo, de forma consistente entre os dias.
+- Reserve um espaço para a logomarca da escola no topo (pode ser adicionada depois por fora da imagem).
+- Rodapé com o nome da escola.`;
 }
 
 function renderizarPreviaExtracaoAgenda(areaExtracao, eventosExtraidos, formEl, elPai, arquivoOrigem){
@@ -7817,18 +7947,22 @@ function renderizarPreviaExtracaoAgenda(areaExtracao, eventosExtraidos, formEl, 
       }
     }
 
-    const registros = linhasIncluidas.map(i => ({
-      data: document.querySelector(`.prev-data[data-indice="${i}"]`).value,
-      hora: document.querySelector(`.prev-hora[data-indice="${i}"]`).value || null,
-      titulo: document.querySelector(`.prev-titulo[data-indice="${i}"]`).value.trim() || 'Aviso',
-      descricao: document.querySelector(`.prev-descricao[data-indice="${i}"]`).value.trim() || null,
-      categoria: document.querySelector(`.prev-categoria[data-indice="${i}"]`).value,
-      alerta: document.querySelector(`.prev-alerta[data-indice="${i}"]`).checked,
-      anexo_url: anexoUrl,
-      anexo_nome: anexoNome,
-      anexo_tipo: anexoTipo,
-      criado_por: ESTADO.perfil.id,
-    })).filter(r => r.data);
+    const registros = linhasIncluidas.map(i => {
+      const horaValor = document.querySelector(`.prev-hora[data-indice="${i}"]`).value || null;
+      return {
+        data: document.querySelector(`.prev-data[data-indice="${i}"]`).value,
+        manha: !!horaValor,
+        manha_inicio: horaValor,
+        titulo: document.querySelector(`.prev-titulo[data-indice="${i}"]`).value.trim() || 'Aviso',
+        descricao: document.querySelector(`.prev-descricao[data-indice="${i}"]`).value.trim() || null,
+        categoria: document.querySelector(`.prev-categoria[data-indice="${i}"]`).value,
+        alerta: document.querySelector(`.prev-alerta[data-indice="${i}"]`).checked,
+        anexo_url: anexoUrl,
+        anexo_nome: anexoNome,
+        anexo_tipo: anexoTipo,
+        criado_por: ESTADO.perfil.id,
+      };
+    }).filter(r => r.data);
 
     if(!registros.length){ msg.innerHTML = `<div class="msg-erro">Nenhum dos avisos selecionados tem uma data válida.</div>`; btn.disabled = false; btn.textContent = 'Adicionar avisos selecionados à agenda'; return; }
 
@@ -7849,7 +7983,6 @@ function exibirFormularioEventoAgenda(formEl, evento, elPai, dataPadrao){
       <div style="padding:14px;">
         <div class="grade-2">
           <div class="campo"><label>Data</label><input type="date" id="ag-data" value="${ev.data || dataPadrao}" required /></div>
-          <div class="campo"><label>Horário (opcional)</label><input type="time" id="ag-hora" value="${ev.hora ? ev.hora.slice(0,5) : ''}" /></div>
           <div class="campo"><label>Categoria</label>
             <select id="ag-categoria">
               <option value="secretaria" ${!ev.categoria||ev.categoria==='secretaria'?'selected':''}>Secretaria</option>
@@ -7857,9 +7990,28 @@ function exibirFormularioEventoAgenda(formEl, evento, elPai, dataPadrao){
               <option value="gestao" ${ev.categoria==='gestao'?'selected':''}>Gestão</option>
             </select>
           </div>
-          <div class="campo" style="display:flex;align-items:center;">
-            <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ag-alerta" ${ev.alerta?'checked':''} style="width:auto;" /> ⚠️ Marcar como alerta (urgente)</label>
+        </div>
+        <div class="campo">
+          <label>Horário</label>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div>
+              <label style="display:flex;align-items:center;gap:6px;margin:0 0 6px;font-weight:600;"><input type="checkbox" id="ag-manha" ${ev.manha?'checked':''} style="width:auto;" /> Manhã</label>
+              <div id="ag-campo-manha" class="grade-2" style="${ev.manha?'':'display:none;'}margin-bottom:0;">
+                <div class="campo" style="margin-bottom:0;"><label>Início (opcional)</label><input type="time" id="ag-manha-inicio" value="${ev.manha_inicio ? ev.manha_inicio.slice(0,5) : ''}" /></div>
+                <div class="campo" style="margin-bottom:0;"><label>Término (opcional)</label><input type="time" id="ag-manha-fim" value="${ev.manha_fim ? ev.manha_fim.slice(0,5) : ''}" /></div>
+              </div>
+            </div>
+            <div>
+              <label style="display:flex;align-items:center;gap:6px;margin:0 0 6px;font-weight:600;"><input type="checkbox" id="ag-tarde" ${ev.tarde?'checked':''} style="width:auto;" /> Tarde</label>
+              <div id="ag-campo-tarde" class="grade-2" style="${ev.tarde?'':'display:none;'}margin-bottom:0;">
+                <div class="campo" style="margin-bottom:0;"><label>Início (opcional)</label><input type="time" id="ag-tarde-inicio" value="${ev.tarde_inicio ? ev.tarde_inicio.slice(0,5) : ''}" /></div>
+                <div class="campo" style="margin-bottom:0;"><label>Término (opcional)</label><input type="time" id="ag-tarde-fim" value="${ev.tarde_fim ? ev.tarde_fim.slice(0,5) : ''}" /></div>
+              </div>
+            </div>
           </div>
+        </div>
+        <div class="campo" style="display:flex;align-items:center;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="ag-alerta" ${ev.alerta?'checked':''} style="width:auto;" /> ⚠️ Marcar como alerta (urgente)</label>
         </div>
         <div class="campo"><label>Título</label><input type="text" id="ag-titulo" value="${esc(ev.titulo||'')}" required /></div>
         <div class="campo"><label>Descrição</label><textarea id="ag-descricao" rows="3">${esc(ev.descricao||'')}</textarea></div>
@@ -7880,6 +8032,15 @@ function exibirFormularioEventoAgenda(formEl, evento, elPai, dataPadrao){
     </div>`;
 
   document.getElementById('btn-cancelar-evento-agenda').addEventListener('click', () => { formEl.innerHTML = ''; });
+
+  document.getElementById('ag-manha').addEventListener('change', (e) => {
+    document.getElementById('ag-campo-manha').style.display = e.target.checked ? '' : 'none';
+    if(!e.target.checked){ document.getElementById('ag-manha-inicio').value = ''; document.getElementById('ag-manha-fim').value = ''; }
+  });
+  document.getElementById('ag-tarde').addEventListener('change', (e) => {
+    document.getElementById('ag-campo-tarde').style.display = e.target.checked ? '' : 'none';
+    if(!e.target.checked){ document.getElementById('ag-tarde-inicio').value = ''; document.getElementById('ag-tarde-fim').value = ''; }
+  });
 
   document.getElementById('btn-ler-anexo-agenda').addEventListener('click', async () => {
     const arquivo = document.getElementById('ag-anexo').files[0];
@@ -7911,7 +8072,11 @@ function exibirFormularioEventoAgenda(formEl, evento, elPai, dataPadrao){
         // no modo de edição, só preenche o formulário atual com o primeiro evento encontrado
         const primeiro = eventosExtraidos[0];
         if(primeiro.data) document.getElementById('ag-data').value = primeiro.data;
-        if(primeiro.hora) document.getElementById('ag-hora').value = primeiro.hora;
+        if(primeiro.hora){
+          document.getElementById('ag-manha').checked = true;
+          document.getElementById('ag-campo-manha').style.display = '';
+          document.getElementById('ag-manha-inicio').value = primeiro.hora;
+        }
         if(primeiro.titulo) document.getElementById('ag-titulo').value = primeiro.titulo;
         if(primeiro.descricao) document.getElementById('ag-descricao').value = primeiro.descricao;
         if(primeiro.categoria) document.getElementById('ag-categoria').value = primeiro.categoria;
@@ -7952,7 +8117,12 @@ function exibirFormularioEventoAgenda(formEl, evento, elPai, dataPadrao){
 
     const dados = {
       data,
-      hora: document.getElementById('ag-hora').value || null,
+      manha: document.getElementById('ag-manha').checked,
+      manha_inicio: document.getElementById('ag-manha').checked ? (document.getElementById('ag-manha-inicio').value || null) : null,
+      manha_fim: document.getElementById('ag-manha').checked ? (document.getElementById('ag-manha-fim').value || null) : null,
+      tarde: document.getElementById('ag-tarde').checked,
+      tarde_inicio: document.getElementById('ag-tarde').checked ? (document.getElementById('ag-tarde-inicio').value || null) : null,
+      tarde_fim: document.getElementById('ag-tarde').checked ? (document.getElementById('ag-tarde-fim').value || null) : null,
       titulo,
       descricao: document.getElementById('ag-descricao').value.trim() || null,
       categoria: document.getElementById('ag-categoria').value,
