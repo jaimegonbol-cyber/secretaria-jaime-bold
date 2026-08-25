@@ -6819,6 +6819,7 @@ const QUALIFICACOES_OCORRENCIA = [
   { texto: 'Danificação ao patrimônio escolar', detalhe: true, placeholder: 'Detalhes' },
   { texto: 'Brigou (agrediu) o colega', detalhe: true, placeholder: 'Nome do colega e detalhes' },
   { texto: 'Bullying', detalhe: true, placeholder: 'Detalhes' },
+  { texto: 'Trajes inadequados ao ambiente escolar.' },
 ];
 
 // Procura, no array de qualificações já salvas, o valor correspondente a este item
@@ -7143,7 +7144,6 @@ function imprimirFichaOcorrencia(r, aluno){
 
       <div class="linha-dados"><span><b>Estudante:</b> ${esc(aluno.nome)}</span></div>
       <div class="linha-dados">
-        <span><b>Série/Ano:</b> ${esc(turma?.nome || '—')}</span>
         <span><b>Turma:</b> ${esc(turma?.nome || '—')}</span>
         <span><b>Data:</b> ${fmtData(r.data)}</span>
         <span><b>Hora:</b> ${r.hora ? esc(r.hora.slice(0,5)) : '—'}</span>
