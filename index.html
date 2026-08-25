@@ -6800,14 +6800,36 @@ async function gerarDocumento(tipo, aluno, extras){
 // OCORRÊNCIAS E COMUNICADOS
 // ---------------------------------------------------------------
 const QUALIFICACOES_OCORRENCIA = [
-  'Desrespeito pela autoridade do professor ou falta de educação verbal ou gestual.',
-  'Desrespeito, ou falta de educação verbal ou gestual, relativos a algum colega ou outro membro da comunidade escolar.',
-  'Danificação de material escolar, do próprio, de colegas ou da escola, ou de mobiliário.',
-  'Utilização de equipamento tecnológico perturbador.',
-  'Captação de sons ou imagens sem autorização prévia do professor.',
-  'Não cumprimento das atividades escolares propostas.',
-  'Posse e consumo de substância aditivas.',
+  { texto: 'Não fez as atividades em sala de aula.' },
+  { texto: 'Deixou de ganhar pontuação porque não entregou o trabalho.' },
+  { texto: 'Não trouxe o material completo.' },
+  { texto: 'Esquece o material constantemente.' },
+  { texto: 'Não está prestando atenção nas aulas.' },
+  { texto: 'Está andando demais dentro de sala de aula.' },
+  { texto: 'Está conversando e brincando durante as aulas, atrapalhando os colegas e a si mesmo.' },
+  { texto: 'Não melhorou o rendimento.' },
+  { texto: 'Não participa das atividades em grupo.' },
+  { texto: 'Está preocupado com outros trabalhos durante a aula.' },
+  { texto: 'Está chegando atrasado após o horário', detalhe: true, placeholder: 'Horário de chegada' },
+  { texto: 'Não entrou para sala de aula (matando aula dentro da escola).' },
+  { texto: 'Está faltando demais', detalhe: true, placeholder: 'Detalhes (frequência, datas etc.)' },
+  { texto: 'Está usando o celular durante as aulas.' },
+  { texto: 'Sai de sala sem autorização do professor(a).' },
+  { texto: 'Desacatou/desrespeitou o professor(a) e/ou funcionários da escola', detalhe: true, placeholder: 'Detalhes' },
+  { texto: 'Danificação ao patrimônio escolar', detalhe: true, placeholder: 'Detalhes' },
+  { texto: 'Brigou (agrediu) o colega', detalhe: true, placeholder: 'Nome do colega e detalhes' },
+  { texto: 'Bullying', detalhe: true, placeholder: 'Detalhes' },
 ];
+
+// Procura, no array de qualificações já salvas, o valor correspondente a este item
+// (itens com detalhe são salvos como "texto: detalhe", itens simples como o próprio texto).
+function encontrarValorQualificacaoSalva(item, qualificacoesSalvas){
+  return (qualificacoesSalvas || []).find(v => v === item.texto || v.startsWith(item.texto + ':'));
+}
+function extrairDetalheQualificacaoSalva(item, valorSalvo){
+  if(!item.detalhe || !valorSalvo || !valorSalvo.includes(':')) return '';
+  return valorSalvo.slice(item.texto.length + 1).trim();
+}
 
 function renderizarOcorrencias(el){
   const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
@@ -6846,7 +6868,7 @@ async function carregarOcorrencias(conteudo, elPai){
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const aluno = ESTADO.alunos.find(a => a.id === ESTADO.ocorrenciasAlunoId);
   const turmaAluno = ESTADO.turmas.find(t => t.id === aluno?.turma_id);
-  const { data, error } = await supabase.from('ocorrencias_estudantes').select('*')
+  const { data, error } = await supabase.from('ocorrencias_estudantes').select('*, registrado:registrado_por(nome)')
     .eq('aluno_id', ESTADO.ocorrenciasAlunoId).order('data', { ascending: false }).order('criado_em', { ascending: false });
   if(error){
     conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
@@ -6929,13 +6951,21 @@ async function dataEhNaoLetiva(dataIso, turnoTurma){
 
 function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
   const editando = !!registroExistente;
-  const marcadas = new Set(editando ? (registroExistente.qualificacoes||[]) : []);
+  const qualificacoesSalvas = editando ? (registroExistente.qualificacoes||[]) : [];
   const turmaAluno = ESTADO.turmas.find(t => t.id === aluno.turma_id);
-  const checkboxesQualificacao = QUALIFICACOES_OCORRENCIA.map((texto, i) => `
-    <label style="display:block;font-size:13px;line-height:1.4;margin-bottom:8px;cursor:pointer;text-align:left;padding-left:24px;text-indent:-24px;">
-      <input type="checkbox" class="oc-qualificacao" value="${esc(texto)}" style="width:14px;height:14px;margin:0 7px 0 0;padding:0;border:1px solid var(--borda);border-radius:4px;background:white;appearance:auto;-webkit-appearance:auto;vertical-align:middle;" ${marcadas.has(texto)?'checked':''} />
-      ${esc(texto)}
-    </label>`).join('');
+  const checkboxesQualificacao = QUALIFICACOES_OCORRENCIA.map((item, i) => {
+    const valorSalvo = encontrarValorQualificacaoSalva(item, qualificacoesSalvas);
+    const marcado = !!valorSalvo;
+    const detalheValor = extrairDetalheQualificacaoSalva(item, valorSalvo);
+    return `
+    <div style="margin-bottom:8px;">
+      <label style="display:block;font-size:13px;line-height:1.4;cursor:pointer;text-align:left;padding-left:24px;text-indent:-24px;">
+        <input type="checkbox" class="oc-qualificacao" data-indice="${i}" data-texto="${esc(item.texto)}" data-detalhe="${item.detalhe?'1':'0'}" style="width:14px;height:14px;margin:0 7px 0 0;padding:0;border:1px solid var(--borda);border-radius:4px;background:white;appearance:auto;-webkit-appearance:auto;vertical-align:middle;" ${marcado?'checked':''} />
+        ${esc(item.texto)}${item.detalhe ? ':' : ''}
+      </label>
+      ${item.detalhe ? `<input type="text" class="oc-qualificacao-detalhe" data-indice="${i}" placeholder="${esc(item.placeholder||'Detalhes')}" value="${esc(detalheValor)}" style="display:${marcado?'':'none'};width:calc(100% - 24px);margin:4px 0 0 24px;padding:6px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;box-sizing:border-box;" />` : ''}
+    </div>`;
+  }).join('');
 
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
@@ -6996,10 +7026,24 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
   document.getElementById('oc-outras-check').addEventListener('change', e => {
     document.getElementById('oc-outras-texto').style.display = e.target.checked ? '' : 'none';
   });
+  modal.querySelectorAll('.oc-qualificacao[data-detalhe="1"]').forEach(chk => {
+    chk.addEventListener('change', e => {
+      const detalheInput = modal.querySelector(`.oc-qualificacao-detalhe[data-indice="${e.target.dataset.indice}"]`);
+      if(detalheInput) detalheInput.style.display = e.target.checked ? '' : 'none';
+    });
+  });
 
   document.getElementById('btn-salvar-ocorrencia').addEventListener('click', async () => {
     const msg = document.getElementById('msg-nova-ocorrencia');
-    const qualificacoes = Array.from(modal.querySelectorAll('.oc-qualificacao:checked')).map(c => c.value);
+    const qualificacoes = Array.from(modal.querySelectorAll('.oc-qualificacao:checked')).map(chk => {
+      const texto = chk.dataset.texto;
+      if(chk.dataset.detalhe === '1'){
+        const detalheInput = modal.querySelector(`.oc-qualificacao-detalhe[data-indice="${chk.dataset.indice}"]`);
+        const valorDetalhe = detalheInput ? detalheInput.value.trim() : '';
+        return valorDetalhe ? `${texto}: ${valorDetalhe}` : texto;
+      }
+      return texto;
+    });
     const outrasCheck = document.getElementById('oc-outras-check').checked;
     const outrasTexto = document.getElementById('oc-outras-texto').value.trim();
     if(outrasCheck && !outrasTexto){ msg.innerHTML = `<div class="msg-erro">Descreva a ocorrência no campo "Outras ocorrências".</div>`; return; }
@@ -7028,9 +7072,11 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
       carregarOcorrencias(conteudo, elPai);
       return;
     }
+    dados.registrado_por = ESTADO.perfil.id;
     const { data: registro, error } = await supabase.from('ocorrencias_estudantes').insert(dados).select().single();
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar e gerar ficha de ocorrência'; return; }
     modal.remove();
+    registro.registrado = { nome: ESTADO.perfil.nome };
     imprimirFichaOcorrencia(registro, aluno);
     carregarOcorrencias(conteudo, elPai);
   });
@@ -7049,14 +7095,20 @@ function rotuloEspacoOcorrencia(r){
 
 function imprimirFichaOcorrencia(r, aluno){
   const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || aluno.turma_id));
-  const itensQualificacao = [...QUALIFICACOES_OCORRENCIA, '__OUTRAS__'].map(texto => {
-    if(texto === '__OUTRAS__'){
+  const itensQualificacao = [...QUALIFICACOES_OCORRENCIA, { texto: '__OUTRAS__' }].map(item => {
+    if(item.texto === '__OUTRAS__'){
       const marcado = !!r.outras_texto;
       const textoItem = `Outras Ocorrências. Quais? ${marcado ? esc(r.outras_texto) : '_________________________________'}`;
       return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${textoItem}</div>`;
     }
-    const marcado = (r.qualificacoes||[]).includes(texto);
-    return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${esc(texto)}</div>`;
+    const valorSalvo = encontrarValorQualificacaoSalva(item, r.qualificacoes);
+    const marcado = !!valorSalvo;
+    let textoItem = esc(item.texto);
+    if(item.detalhe){
+      const detalheValor = extrairDetalheQualificacaoSalva(item, valorSalvo);
+      textoItem = `${esc(item.texto)}: ${detalheValor ? esc(detalheValor) : '_________________________________'}`;
+    }
+    return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${textoItem}</div>`;
   }).join('');
 
   const janela = window.open('', '_blank');
@@ -7064,27 +7116,28 @@ function imprimirFichaOcorrencia(r, aluno){
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Ficha de Ocorrência - ${esc(aluno.nome)}</title>
     <style>
-      @page{ size: A4; margin: 12mm 14mm; }
+      @page{ size: A4; margin: 10mm 14mm; }
       *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.55;}
-      .cabecalho-doc{text-align:center;padding-bottom:6px;margin-bottom:14px;}
-      .cabecalho-doc img{width:56px;height:56px;display:block;margin:0 auto 5px;}
-      .cabecalho-doc .orgao{font-size:12px;margin:0;line-height:1.3;}
-      .titulo-doc{text-align:center;font-size:16px;font-weight:bold;text-transform:uppercase;margin:0 0 16px;}
-      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.45;}
+      .cabecalho-doc{text-align:center;padding-bottom:5px;margin-bottom:10px;}
+      .cabecalho-doc img{width:50px;height:50px;display:block;margin:0 auto 4px;}
+      .cabecalho-doc .orgao{font-size:11.5px;margin:0;line-height:1.25;}
+      .titulo-doc{text-align:center;font-size:15px;font-weight:bold;text-transform:uppercase;margin:0 0 12px;}
+      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;}
       .linha-dados span{display:inline-block;}
-      .caixa{border:1px solid #333;padding:10px 12px;margin-bottom:12px;}
-      .caixa-titulo{font-weight:bold;margin-bottom:8px;}
-      .item-qualificacao{margin-bottom:6px;padding-left:36px;text-indent:-36px;}
-      .obs-box{border:1px solid #333;min-height:80px;padding:6px 10px;margin-bottom:14px;}
-      .assinaturas{margin-top:46px;display:flex;justify-content:space-around;gap:24px;}
-      .assinaturas .linha-assinatura{border-top:1px solid #333;width:240px;text-align:center;padding-top:5px;font-size:12px;}
+      .caixa{border:1px solid #333;padding:8px 12px;margin-bottom:10px;}
+      .caixa-titulo{font-weight:bold;margin-bottom:6px;}
+      .item-qualificacao{margin-bottom:4px;padding-left:36px;text-indent:-36px;}
+      .obs-box{border:1px solid #333;min-height:56px;padding:6px 10px;margin-bottom:10px;}
+      .assinaturas{margin-top:34px;display:flex;justify-content:space-between;gap:36px;flex-wrap:wrap;}
+      .assinaturas .linha-assinatura{border-top:1px solid #333;width:220px;text-align:center;padding-top:5px;font-size:11.5px;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
+      <div id="ficha-ocorrencia">
       <div class="cabecalho-doc">
         <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
-        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><b style="font-size:15px;display:inline-block;margin-top:3px;">Escola Municipal Jaime Gonçalves Bold</b></p>
+        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><b style="font-size:14px;display:inline-block;margin-top:2px;">Escola Municipal Jaime Gonçalves Bold</b></p>
       </div>
       <div class="titulo-doc">Ficha de Ocorrência Escolar</div>
 
@@ -7113,13 +7166,28 @@ function imprimirFichaOcorrencia(r, aluno){
 
       <div class="assinaturas">
         <div class="linha-assinatura">Assinatura do Estudante</div>
+        <div class="linha-assinatura">${r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou')}</div>
         <div class="linha-assinatura">Assinatura do(a) Responsável</div>
       </div>
+      </div>
+    <script>
+      window.onload = function(){
+        var ficha = document.getElementById('ficha-ocorrencia');
+        var alturaPaginaPx = 277 * (96/25.4); // A4 (297mm) menos margens de 10mm+10mm, a 96dpi
+        var alturaConteudo = ficha.scrollHeight;
+        if(alturaConteudo > alturaPaginaPx){
+          var escala = alturaPaginaPx / alturaConteudo;
+          ficha.style.transformOrigin = 'top left';
+          ficha.style.transform = 'scale(' + escala + ')';
+          ficha.style.width = (100/escala) + '%';
+        }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+    <\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
 }
 
 async function imprimirComunicadoOcorrencia(r, aluno){
