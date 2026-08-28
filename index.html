@@ -253,6 +253,13 @@
   @keyframes girar{to{transform:rotate(360deg);}}
 
   .btn-sair-mobile{display:none;}
+  .btn-voltar-painel{
+    position:sticky;top:0;z-index:20;display:inline-flex;align-items:center;gap:6px;
+    background:white;border:1px solid var(--borda);border-radius:99px;padding:7px 14px;
+    font-size:13px;font-weight:700;color:var(--verde-escuro);cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,.08);margin-bottom:12px;
+  }
+  .btn-voltar-painel:hover{background:var(--areia);}
 
   @media (max-width:760px){
     .shell{flex-direction:column;}
@@ -705,15 +712,21 @@ function renderizarApp(){
   document.getElementById('btn-trocar-senha').addEventListener('click', abrirModalTrocarSenha);
 
   const principal = document.getElementById('principal');
-  if(ESTADO.pagina === 'painel') renderizarPainel(principal);
-  else if(ESTADO.pagina === 'agenda') renderizarAgenda(principal);
-  else if(ESTADO.pagina === 'cadastro') renderizarCadastro(principal);
-  else if(ESTADO.pagina === 'frequencia') renderizarFrequencia(principal);
-  else if(ESTADO.pagina === 'documentos') renderizarDocumentos(principal);
-  else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(principal);
-  else if(ESTADO.pagina === 'avaliacoes') renderizarAvaliacoes(principal);
-  else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(principal);
-  else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(principal);
+  principal.innerHTML = ESTADO.pagina !== 'painel'
+    ? `<button id="btn-voltar-painel" class="btn-voltar-painel">← Voltar ao Painel</button><div id="pagina-conteudo"></div>`
+    : `<div id="pagina-conteudo"></div>`;
+  const btnVoltarPainel = document.getElementById('btn-voltar-painel');
+  if(btnVoltarPainel) btnVoltarPainel.addEventListener('click', () => { ESTADO.pagina = 'painel'; renderizarApp(); });
+  const conteudoPagina = document.getElementById('pagina-conteudo');
+  if(ESTADO.pagina === 'painel') renderizarPainel(conteudoPagina);
+  else if(ESTADO.pagina === 'agenda') renderizarAgenda(conteudoPagina);
+  else if(ESTADO.pagina === 'cadastro') renderizarCadastro(conteudoPagina);
+  else if(ESTADO.pagina === 'frequencia') renderizarFrequencia(conteudoPagina);
+  else if(ESTADO.pagina === 'documentos') renderizarDocumentos(conteudoPagina);
+  else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(conteudoPagina);
+  else if(ESTADO.pagina === 'avaliacoes') renderizarAvaliacoes(conteudoPagina);
+  else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(conteudoPagina);
+  else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(conteudoPagina);
 }
 
 // ---------------------------------------------------------------
@@ -6885,10 +6898,89 @@ function renderizarOcorrencias(el){
 
   const conteudo = document.getElementById('oc-conteudo');
   if(!ESTADO.ocorrenciasAlunoId){
-    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Selecione um estudante para ver o histórico de ocorrências e registrar uma nova.</p>`;
+    carregarVisaoGeralOcorrencias(conteudo, el);
     return;
   }
   carregarOcorrencias(conteudo, el);
+}
+
+async function carregarVisaoGeralOcorrencias(conteudo, elPai){
+  conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+  const { data, error } = await supabase.from('ocorrencias_estudantes')
+    .select('*, aluno:aluno_id(nome, turma_id), registrado:registrado_por(nome)')
+    .order('data', { ascending: false }).order('criado_em', { ascending: false })
+    .limit(500);
+  if(error){
+    conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
+    return;
+  }
+  let registros = data || [];
+  if(ESTADO.ocorrenciasTurmaId) registros = registros.filter(r => r.aluno?.turma_id === ESTADO.ocorrenciasTurmaId);
+
+  const nomeTurma = alunoId => ESTADO.turmas.find(t => t.id === ESTADO.alunos.find(a => a.id === alunoId)?.turma_id)?.nome || '—';
+  const resumoTipos = r => {
+    const tipos = [...(r.qualificacoes||[]), r.outras_texto ? `Outras: ${r.outras_texto}` : null].filter(Boolean);
+    return tipos.length ? tipos[0] + (tipos.length > 1 ? ` (+${tipos.length-1})` : '') : '—';
+  };
+
+  const ultimas = registros.slice(0, 8);
+  const linhasUltimas = ultimas.length
+    ? ultimas.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;margin-bottom:8px;">
+          <div style="flex:1;min-width:220px;">
+            <div style="font-weight:600;font-size:13px;">${esc(r.aluno?.nome || 'Estudante removido')} <span style="font-weight:400;color:var(--texto-suave);">· ${esc(nomeTurma(r.aluno_id))}</span></div>
+            <div style="font-size:12.5px;color:var(--texto-suave);">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''} — ${esc(resumoTipos(r))}</div>
+          </div>
+          <button class="botao secundario pequeno" style="width:auto;" data-ver-aluno-ocorrencia="${r.aluno_id}">Ver estudante</button>
+        </div>`).join('')
+    : `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma ocorrência registrada${ESTADO.ocorrenciasTurmaId ? ' para esta turma' : ''}.</p>`;
+
+  const linhasLista = registros.length
+    ? registros.map(r => `
+        <tr class="linha-ocorrencia-geral" data-busca="${esc((r.aluno?.nome||'').toLowerCase())}">
+          <td>${fmtData(r.data)}</td>
+          <td>${esc(r.aluno?.nome || 'Estudante removido')}</td>
+          <td>${esc(nomeTurma(r.aluno_id))}</td>
+          <td>${esc(resumoTipos(r))}</td>
+          <td>${esc(r.registrado?.nome || '—')}</td>
+          <td style="white-space:nowrap;">
+            <button class="botao secundario pequeno" style="width:auto;padding:4px 10px;" data-ver-aluno-ocorrencia="${r.aluno_id}">Ver estudante</button>
+            <button class="botao secundario pequeno" style="width:auto;padding:4px 10px;" data-imprimir-ficha-geral="${r.id}">Imprimir</button>
+          </td>
+        </tr>`).join('')
+    : `<tr><td colspan="6" style="color:var(--texto-suave);font-size:13px;text-align:center;padding:16px;">Nenhuma ocorrência encontrada.</td></tr>`;
+
+  conteudo.innerHTML = `
+    <h3 style="margin:0 0 10px;">Últimas ocorrências</h3>
+    <div style="margin-bottom:22px;">${linhasUltimas}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+      <h3 style="margin:0;">Lista de ocorrências${ESTADO.ocorrenciasTurmaId ? ' — ' + esc(ESTADO.turmas.find(t=>t.id===ESTADO.ocorrenciasTurmaId)?.nome || '') : ''}</h3>
+      <div class="campo" style="margin:0;min-width:220px;"><input type="text" id="oc-busca-geral" placeholder="Buscar por nome do estudante…" /></div>
+    </div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Data</th><th>Estudante</th><th>Turma</th><th>Tipo</th><th>Registrado por</th><th class="col-acoes"></th></tr></thead><tbody id="oc-lista-geral">${linhasLista}</tbody></table></div>`;
+
+  conteudo.querySelectorAll('[data-ver-aluno-ocorrencia]').forEach(b => {
+    b.addEventListener('click', () => {
+      ESTADO.ocorrenciasAlunoId = b.dataset.verAlunoOcorrencia;
+      renderizarOcorrencias(elPai);
+    });
+  });
+  conteudo.querySelectorAll('[data-imprimir-ficha-geral]').forEach(b => {
+    b.addEventListener('click', () => {
+      const registro = registros.find(r => r.id === b.dataset.imprimirFichaGeral);
+      const alunoCompleto = ESTADO.alunos.find(a => a.id === registro.aluno_id) || registro.aluno;
+      imprimirFichaOcorrencia(registro, alunoCompleto);
+    });
+  });
+  const buscaGeral = document.getElementById('oc-busca-geral');
+  if(buscaGeral){
+    buscaGeral.addEventListener('input', () => {
+      const termo = buscaGeral.value.trim().toLowerCase();
+      document.querySelectorAll('#oc-lista-geral tr.linha-ocorrencia-geral').forEach(tr => {
+        tr.style.display = !termo || tr.dataset.busca.includes(termo) ? '' : 'none';
+      });
+    });
+  }
 }
 
 async function carregarOcorrencias(conteudo, elPai){
