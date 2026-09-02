@@ -319,6 +319,7 @@ function estadoPadraoAbas(){
   return {
     subCadastro: 'alunos',
     buscaAlunos: '', filtroTurma: '', filtroSituacao: '',
+    alunosSelecionadosExport: [],
     buscaArquivoMorto: '',
     buscaFuncionario: '',
     freqFuncData: hojeISO(),
@@ -1106,6 +1107,60 @@ function renderizarCadastro(el){
 // ---------------------------------------------------------------
 // ALUNOS
 // ---------------------------------------------------------------
+const RESPONSAVEL_ROTULOS = { mae: 'Mãe', pai: 'Pai', responsavel: 'Responsável', avo: 'Avó/Avô', outro: 'Outro' };
+
+async function exportarAlunosSelecionadosXLSX(btn){
+  const msg = document.getElementById('msg-export-alunos');
+  const idsSelecionados = ESTADO.alunosSelecionadosExport;
+  if(!idsSelecionados.length) return;
+  btn.disabled = true; btn.textContent = 'Gerando planilha…';
+  if(msg) msg.innerHTML = '';
+  try{
+    const { data: vinculos, error } = await supabase.from('aluno_responsavel')
+      .select('aluno_id, tipo, principal, responsaveis(nome, telefone)')
+      .in('aluno_id', idsSelecionados);
+    if(error) throw error;
+
+    const responsaveisPorAluno = {};
+    (vinculos || []).forEach(v => {
+      if(!responsaveisPorAluno[v.aluno_id]) responsaveisPorAluno[v.aluno_id] = [];
+      responsaveisPorAluno[v.aluno_id].push(v);
+    });
+
+    const linhas = idsSelecionados.map(id => {
+      const a = ESTADO.alunos.find(x => x.id === id);
+      if(!a) return null;
+      const respAluno = (responsaveisPorAluno[id] || []).sort((x,y) => (y.principal?1:0) - (x.principal?1:0));
+      const filiacao = respAluno.map(v => `${v.responsaveis?.nome || ''} (${RESPONSAVEL_ROTULOS[v.tipo] || v.tipo})`).filter(t => t.trim().length > 3).join(' / ');
+      const endereco = [a.endereco, a.numero, a.bairro, [a.cidade, a.uf].filter(Boolean).join('/'), a.cep ? `CEP ${a.cep}` : null]
+        .filter(Boolean).join(', ');
+      const telefone = a.telefone || respAluno.find(v => v.responsaveis?.telefone)?.responsaveis?.telefone || '';
+      return {
+        'Nome completo': a.nome || '',
+        'Filiação / Responsável': filiacao,
+        'Data de Nascimento': fmtData(a.data_nascimento) || '',
+        'CPF': a.cpf || '',
+        'Endereço': endereco,
+        'Telefone para contato': telefone,
+      };
+    }).filter(Boolean);
+
+    const XLSX = await import('https://esm.sh/xlsx@0.18.5');
+    const planilha = XLSX.utils.json_to_sheet(linhas);
+    planilha['!cols'] = [{wch:32},{wch:34},{wch:16},{wch:16},{wch:44},{wch:20}];
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, planilha, 'Estudantes');
+    const nomeArquivo = `dados-estudantes-${hojeISO()}.xlsx`;
+    XLSX.writeFile(livro, nomeArquivo);
+
+    if(msg) msg.innerHTML = `<div class="msg-ok" style="margin:0;">Planilha gerada com ${linhas.length} estudante(s).</div>`;
+  } catch(err){
+    if(msg) msg.innerHTML = `<div class="msg-erro" style="margin:0;">Erro ao gerar planilha: ${esc(err.message || String(err))}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '📊 Exportar planilha (.xlsx)';
+  }
+}
+
 function alunosFiltrados(){
   const busca = ESTADO.buscaAlunos.trim().toLowerCase();
   return ESTADO.alunos.filter(a => {
@@ -1120,9 +1175,12 @@ function renderizarAlunos(el){
   const lista = alunosFiltrados();
   const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.filtroTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const podeExcluir = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria';
+  const ehAdmin = ESTADO.perfil.role === 'admin';
+  const selecionados = new Set(ESTADO.alunosSelecionadosExport);
 
   const linhas = lista.slice(0,300).map(a => `
     <tr data-id="${a.id}">
+      ${ehAdmin ? `<td style="width:1%;"><input type="checkbox" class="chk-exportar-aluno" data-id="${a.id}" ${selecionados.has(a.id)?'checked':''} style="width:15px;height:15px;" /></td>` : ''}
       <td style="display:flex;align-items:center;gap:9px;">
         ${a.foto_url ? `<img src="${esc(a.foto_url)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;" />` : `<span style="width:26px;height:26px;border-radius:50%;background:var(--areia-escura);display:inline-block;flex-shrink:0;"></span>`}
         ${esc(a.nome)}
@@ -1143,6 +1201,15 @@ function renderizarAlunos(el){
       <div><h2>Estudantes</h2><p>${lista.length} de ${ESTADO.alunos.length} estudantes${ESTADO.filtroTurma||ESTADO.buscaAlunos?' (filtrado)':''}</p></div>
       <button class="botao terracota pequeno" id="btn-novo-aluno">+ Novo estudante</button>
     </div>
+    ${ehAdmin ? `
+    <div class="painel" style="margin-bottom:14px;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="font-size:13px;color:var(--texto-suave);">
+        <b>${selecionados.size}</b> estudante(s) selecionado(s) para exportação
+        ${selecionados.size ? `<button id="btn-limpar-selecao-export" style="background:none;border:none;color:var(--terracota);font-size:12.5px;font-weight:600;cursor:pointer;margin-left:8px;">limpar seleção</button>` : ''}
+      </div>
+      <div id="msg-export-alunos"></div>
+      <button class="botao secundario" id="btn-exportar-alunos" style="width:auto;" ${selecionados.size?'':'disabled'}>📊 Exportar planilha (.xlsx)</button>
+    </div>` : ''}
     <div class="painel">
       <div class="barra">
         <input type="text" id="busca-aluno" placeholder="Buscar por nome ou CPF…" value="${esc(ESTADO.buscaAlunos)}" />
@@ -1154,7 +1221,7 @@ function renderizarAlunos(el){
           <option value="cancelado" ${ESTADO.filtroSituacao==='cancelado'?'selected':''}>Cancelados (arquivo inativo)</option>
         </select>
       </div>
-      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Turma</th><th>Turno</th><th>Nascimento</th><th>AEE</th><th>Situação</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
+      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr>${ehAdmin ? `<th style="width:1%;"><input type="checkbox" id="chk-exportar-todos" title="Selecionar todos os visíveis" style="width:15px;height:15px;" /></th>` : ''}<th>Nome</th><th>Turma</th><th>Turno</th><th>Nascimento</th><th>AEE</th><th>Situação</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
         : `<div class="vazio">Nenhum estudante encontrado com esse filtro.</div>`}
     </div>`;
 
@@ -1162,8 +1229,31 @@ function renderizarAlunos(el){
   document.getElementById('filtro-turma').addEventListener('change', (e) => { ESTADO.filtroTurma = e.target.value; renderizarAlunos(el); });
   document.getElementById('filtro-situacao').addEventListener('change', (e) => { ESTADO.filtroSituacao = e.target.value; renderizarAlunos(el); });
   document.getElementById('btn-novo-aluno').addEventListener('click', () => abrirModalAluno(null));
+  if(ehAdmin){
+    el.querySelectorAll('.chk-exportar-aluno').forEach(chk => {
+      chk.addEventListener('click', (e) => e.stopPropagation());
+      chk.addEventListener('change', (e) => {
+        const id = e.target.dataset.id;
+        const conjunto = new Set(ESTADO.alunosSelecionadosExport);
+        if(e.target.checked) conjunto.add(id); else conjunto.delete(id);
+        ESTADO.alunosSelecionadosExport = Array.from(conjunto);
+        renderizarAlunos(el);
+      });
+    });
+    const chkTodos = document.getElementById('chk-exportar-todos');
+    if(chkTodos) chkTodos.addEventListener('change', (e) => {
+      const conjunto = new Set(ESTADO.alunosSelecionadosExport);
+      lista.slice(0,300).forEach(a => { if(e.target.checked) conjunto.add(a.id); else conjunto.delete(a.id); });
+      ESTADO.alunosSelecionadosExport = Array.from(conjunto);
+      renderizarAlunos(el);
+    });
+    const btnLimparSelecao = document.getElementById('btn-limpar-selecao-export');
+    if(btnLimparSelecao) btnLimparSelecao.addEventListener('click', () => { ESTADO.alunosSelecionadosExport = []; renderizarAlunos(el); });
+    const btnExportarAlunos = document.getElementById('btn-exportar-alunos');
+    if(btnExportarAlunos) btnExportarAlunos.addEventListener('click', () => exportarAlunosSelecionadosXLSX(btnExportarAlunos));
+  }
   el.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
-    if(e.target.closest('[data-editar-aluno], [data-excluir-aluno]')) return;
+    if(e.target.closest('[data-editar-aluno], [data-excluir-aluno], .chk-exportar-aluno')) return;
     abrirFichaAluno(tr.dataset.id);
   }));
   el.querySelectorAll('[data-editar-aluno]').forEach(b => b.addEventListener('click', () => {
@@ -7241,21 +7331,25 @@ function imprimirFichaOcorrencia(r, aluno){
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Ficha de Ocorrência - ${esc(aluno.nome)}</title>
     <style>
-      @page{ size: A4; margin: 10mm 14mm; }
+      @page{ size: A4; margin: 8mm 14mm; }
       *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.45;}
-      .cabecalho-doc{text-align:center;padding-bottom:5px;margin-bottom:10px;}
-      .cabecalho-doc img{width:50px;height:50px;display:block;margin:0 auto 4px;}
-      .cabecalho-doc .orgao{font-size:11.5px;margin:0;line-height:1.25;}
-      .titulo-doc{text-align:center;font-size:15px;font-weight:bold;text-transform:uppercase;margin:0 0 12px;}
-      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;}
+      html, body{ height:100%; margin:0; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:12.5px;line-height:1.34;}
+      #ficha-ocorrencia{ position:relative; height:278mm; }
+      .cabecalho-doc{text-align:center;padding-bottom:2px;margin-bottom:6px;}
+      .cabecalho-doc img{width:40px;height:40px;display:block;margin:0 auto 2px;}
+      .cabecalho-doc .orgao{font-size:11px;margin:0;line-height:1.2;font-weight:600;}
+      .titulo-doc{text-align:center;font-size:15.5px;font-weight:bold;text-transform:uppercase;margin:0 0 8px;}
+      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:4px;}
       .linha-dados span{display:inline-block;}
-      .caixa{border:1px solid #333;padding:8px 12px;margin-bottom:10px;}
-      .caixa-titulo{font-weight:bold;margin-bottom:6px;}
-      .item-qualificacao{margin-bottom:4px;padding-left:36px;text-indent:-36px;}
-      .obs-box{border:1px solid #333;min-height:56px;padding:6px 10px;margin-bottom:10px;}
-      .assinaturas{margin-top:34px;display:flex;justify-content:space-between;gap:36px;flex-wrap:wrap;}
-      .assinaturas .linha-assinatura{border-top:1px solid #333;width:220px;text-align:center;padding-top:5px;font-size:11.5px;}
+      .linha-dados b{font-weight:700;}
+      .caixa{border:1.3px solid #000;padding:6px 10px;margin-bottom:7px;}
+      .caixa-titulo{font-weight:bold;margin-bottom:4px;font-size:13px;}
+      .item-qualificacao{margin-bottom:2px;padding-left:34px;text-indent:-34px;}
+      .obs-box{border:1.3px solid #000;min-height:38px;padding:5px 8px;margin-bottom:6px;}
+      .bloco-fechamento{position:absolute;left:0;right:0;bottom:0;}
+      .assinaturas{margin-top:48px;display:flex;justify-content:space-between;gap:20px;flex-wrap:nowrap;}
+      .assinaturas .linha-assinatura{border-top:1.3px solid #000;width:190px;flex-shrink:0;text-align:center;padding-top:4px;font-size:10.5px;font-weight:600;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
@@ -7266,17 +7360,17 @@ function imprimirFichaOcorrencia(r, aluno){
       </div>
       <div class="titulo-doc">Ficha de Ocorrência Escolar</div>
 
-      <div class="linha-dados"><span><b>Estudante:</b> ${esc(aluno.nome)}</span></div>
+      <div class="linha-dados"><span><b>Estudante:</b> <b>${esc(aluno.nome)}</b></span></div>
       <div class="linha-dados">
-        <span><b>Turma:</b> ${esc(turma?.nome || '—')}</span>
-        <span><b>Data:</b> ${fmtData(r.data)}</span>
-        <span><b>Hora:</b> ${r.hora ? esc(r.hora.slice(0,5)) : '—'}</span>
+        <span><b>Turma:</b> <b>${esc(turma?.nome || '—')}</b></span>
+        <span><b>Data:</b> <b>${fmtData(r.data)}</b></span>
+        <span><b>Hora:</b> <b>${r.hora ? esc(r.hora.slice(0,5)) : '—'}</b></span>
       </div>
       <div class="linha-dados">
         <span>( ${r.espaco==='sala_de_aula'?'X':'&nbsp;'} ) Sala de Aula</span>
         <span>( ${r.espaco==='outro'?'X':'&nbsp;'} ) Outro: ${r.espaco==='outro' ? esc(r.espaco_outro||'') : '_______________'}</span>
       </div>
-      <div class="linha-dados"><span><b>Professor:</b> ${esc(r.professor || '—')}</span></div>
+      <div class="linha-dados"><span><b>Professor:</b> <b>${esc(r.professor || '—')}</b></span></div>
 
       <div class="caixa">
         <div class="caixa-titulo">QUALIFICAÇÃO DA OCORRÊNCIA</div>
@@ -7286,24 +7380,23 @@ function imprimirFichaOcorrencia(r, aluno){
       <div class="caixa-titulo">Observações</div>
       <div class="obs-box">${esc(r.observacoes || '')}</div>
 
-      <p style="text-align:right;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
-
-      <div class="assinaturas">
-        <div class="linha-assinatura">Assinatura do Estudante</div>
-        <div class="linha-assinatura">${r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou')}</div>
-        <div class="linha-assinatura">Assinatura do(a) Responsável</div>
+      <div class="bloco-fechamento">
+        <p style="text-align:right;margin:0;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
+        <div class="assinaturas">
+          <div class="linha-assinatura">Assinatura do Estudante</div>
+          <div class="linha-assinatura">${r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou')}</div>
+          <div class="linha-assinatura">Assinatura do(a) Responsável</div>
+        </div>
       </div>
       </div>
     <script>
       window.onload = function(){
         var ficha = document.getElementById('ficha-ocorrencia');
-        var alturaPaginaPx = 277 * (96/25.4); // A4 (297mm) menos margens de 10mm+10mm, a 96dpi
+        var alturaPaginaPx = 278 * (96/25.4); // A4 (297mm) menos margens de 8mm+8mm (e folga de segurança), a 96dpi
         var alturaConteudo = ficha.scrollHeight;
         if(alturaConteudo > alturaPaginaPx){
           var escala = alturaPaginaPx / alturaConteudo;
-          ficha.style.transformOrigin = 'top left';
-          ficha.style.transform = 'scale(' + escala + ')';
-          ficha.style.width = (100/escala) + '%';
+          ficha.style.zoom = escala; // zoom (ao contrário de transform:scale) reduz a altura real ocupada, evitando quebra de página
         }
         setTimeout(function(){ window.print(); }, 350);
       };
