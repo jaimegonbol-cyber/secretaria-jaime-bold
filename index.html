@@ -7026,6 +7026,7 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
           <div style="flex:1;min-width:220px;">
             <div style="font-weight:600;font-size:13px;">${esc(r.aluno?.nome || 'Estudante removido')} <span style="font-weight:400;color:var(--texto-suave);">· ${esc(nomeTurma(r.aluno_id))}</span></div>
             <div style="font-size:12.5px;color:var(--texto-suave);">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''} — ${esc(resumoTipos(r))}</div>
+            ${badgePresencaResponsavel(r)}
           </div>
           <button class="botao secundario pequeno" style="width:auto;" data-ver-aluno-ocorrencia="${r.aluno_id}">Ver estudante</button>
         </div>`).join('')
@@ -7039,12 +7040,14 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
           <td>${esc(nomeTurma(r.aluno_id))}</td>
           <td>${esc(resumoTipos(r))}</td>
           <td>${esc(r.registrado?.nome || '—')}</td>
+          <td>${r.presenca_responsavel_confirmada ? '<span style="color:#2E7D5B;font-size:12px;">✅ Confirmada</span>' : '<span style="color:#D98A1F;font-size:12px;">⏳ Pendente</span>'}</td>
           <td style="white-space:nowrap;">
+            ${!r.presenca_responsavel_confirmada ? `<button class="botao secundario pequeno" style="width:auto;padding:4px 10px;color:#2E7D5B;border-color:#2E7D5B;" data-confirmar-presenca-geral="${r.id}">✅ Confirmar</button>` : ''}
             <button class="botao secundario pequeno" style="width:auto;padding:4px 10px;" data-ver-aluno-ocorrencia="${r.aluno_id}">Ver estudante</button>
             <button class="botao secundario pequeno" style="width:auto;padding:4px 10px;" data-imprimir-ficha-geral="${r.id}">Imprimir</button>
           </td>
         </tr>`).join('')
-    : `<tr><td colspan="6" style="color:var(--texto-suave);font-size:13px;text-align:center;padding:16px;">Nenhuma ocorrência encontrada.</td></tr>`;
+    : `<tr><td colspan="7" style="color:var(--texto-suave);font-size:13px;text-align:center;padding:16px;">Nenhuma ocorrência encontrada.</td></tr>`;
 
   conteudo.innerHTML = `
     <h3 style="margin:0 0 10px;">Últimas ocorrências</h3>
@@ -7053,7 +7056,11 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
       <h3 style="margin:0;">Lista de ocorrências${ESTADO.ocorrenciasTurmaId ? ' — ' + esc(ESTADO.turmas.find(t=>t.id===ESTADO.ocorrenciasTurmaId)?.nome || '') : ''}</h3>
       <div class="campo" style="margin:0;min-width:220px;"><input type="text" id="oc-busca-geral" placeholder="Buscar por nome do estudante…" /></div>
     </div>
-    <div style="overflow-x:auto;"><table><thead><tr><th>Data</th><th>Estudante</th><th>Turma</th><th>Tipo</th><th>Registrado por</th><th class="col-acoes"></th></tr></thead><tbody id="oc-lista-geral">${linhasLista}</tbody></table></div>`;
+    <div style="overflow-x:auto;"><table><thead><tr><th>Data</th><th>Estudante</th><th>Turma</th><th>Tipo</th><th>Registrado por</th><th>Presença</th><th class="col-acoes"></th></tr></thead><tbody id="oc-lista-geral">${linhasLista}</tbody></table></div>`;
+
+  conteudo.querySelectorAll('[data-confirmar-presenca-geral]').forEach(b => {
+    b.addEventListener('click', () => confirmarPresencaResponsavelOcorrencia(b.dataset.confirmarPresencaGeral, () => carregarVisaoGeralOcorrencias(conteudo, elPai)));
+  });
 
   conteudo.querySelectorAll('[data-ver-aluno-ocorrencia]').forEach(b => {
     b.addEventListener('click', () => {
@@ -7100,10 +7107,12 @@ async function carregarOcorrencias(conteudo, elPai){
         return `
         <div class="item-lista" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;margin-bottom:8px;">
           <div style="flex:1;min-width:200px;">
-            <div style="font-weight:600;font-size:13px;">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''}</div>
+            <div style="font-weight:600;font-size:13px;">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''}${r.grupo_ocorrencia_id ? ' <span class="pill" style="font-size:10.5px;">Ocorrência conjunta</span>' : ''}</div>
             <div style="font-size:12.5px;color:var(--texto-suave);">${esc(resumoTipos)}</div>
+            ${badgePresencaResponsavel(r)}
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${!r.presenca_responsavel_confirmada ? `<button class="botao secundario pequeno" style="width:auto;color:#2E7D5B;border-color:#2E7D5B;" data-confirmar-presenca="${r.id}">✅ Confirmar presença</button>` : ''}
             <button class="botao secundario pequeno" style="width:auto;" data-imprimir-ficha="${r.id}">Imprimir ficha</button>
             <button class="botao terracota pequeno" style="width:auto;" data-gerar-comunicado="${r.id}">Gerar comunicado</button>
             <button class="botao secundario pequeno" style="width:auto;" data-editar-ocorrencia="${r.id}">Editar</button>
@@ -7127,6 +7136,9 @@ async function carregarOcorrencias(conteudo, elPai){
     <div id="oc-lista">${linhasHistorico}</div>`;
 
   document.getElementById('btn-nova-ocorrencia').addEventListener('click', () => abrirModalNovaOcorrencia(aluno, conteudo, elPai));
+  conteudo.querySelectorAll('[data-confirmar-presenca]').forEach(b => {
+    b.addEventListener('click', () => confirmarPresencaResponsavelOcorrencia(b.dataset.confirmarPresenca, () => carregarOcorrencias(conteudo, elPai)));
+  });
   conteudo.querySelectorAll('[data-imprimir-ficha]').forEach(b => {
     b.addEventListener('click', () => {
       const registro = registros.find(r => r.id === b.dataset.imprimirFicha);
@@ -7151,6 +7163,23 @@ async function carregarOcorrencias(conteudo, elPai){
       excluirOcorrencia(registro, aluno, conteudo, elPai);
     });
   });
+}
+
+function badgePresencaResponsavel(r){
+  if(r.presenca_responsavel_confirmada){
+    return `<div style="font-size:11.5px;color:#2E7D5B;margin-top:2px;">✅ Presença do responsável confirmada em ${fmtData(r.presenca_responsavel_confirmada_em?.slice(0,10))}</div>`;
+  }
+  return `<div style="font-size:11.5px;color:#D98A1F;margin-top:2px;">⏳ Pendente: comparecimento do responsável</div>`;
+}
+
+async function confirmarPresencaResponsavelOcorrencia(idRegistro, aoConcluir){
+  const { error } = await supabase.from('ocorrencias_estudantes').update({
+    presenca_responsavel_confirmada: true,
+    presenca_responsavel_confirmada_em: new Date().toISOString(),
+    presenca_responsavel_confirmada_por: ESTADO.perfil.id,
+  }).eq('id', idRegistro);
+  if(error){ alert('Erro ao confirmar presença: ' + error.message); return; }
+  if(aoConcluir) aoConcluir();
 }
 
 async function dataEhNaoLetiva(dataIso, turnoTurma){
@@ -7213,9 +7242,49 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
         </div>
       </div>
       <div class="campo" style="margin-bottom:0;"><label>Observações</label><textarea id="oc-observacoes" rows="2" style="width:100%;padding:7px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;">${editando ? esc(registroExistente.observacoes||'') : ''}</textarea></div>
+      ${!editando ? `
+      <div class="campo">
+        <label>Outros estudantes envolvidos nesta mesma ocorrência (opcional)</label>
+        <p style="font-size:12px;color:var(--texto-suave);margin:0 0 6px;">Os estudantes marcados aqui recebem o mesmo registro (mesma data, qualificação e observações), cada um com sua própria ficha pra assinatura do respectivo responsável.</p>
+        <input type="text" id="oc-busca-outros" placeholder="Buscar estudante para incluir…" style="margin-bottom:6px;" />
+        <div id="oc-lista-outros" style="max-height:150px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;font-size:13px;"></div>
+        <div id="oc-resumo-outros" style="margin-top:6px;font-size:12.5px;color:var(--texto-suave);"></div>
+      </div>` : ''}
       <button class="botao terracota" id="btn-salvar-ocorrencia" style="margin-top:16px;width:auto;">${editando ? 'Salvar alterações' : 'Salvar e gerar ficha de ocorrência'}</button>
     </div>`;
   document.body.appendChild(modal);
+  const outrosEstudantesSelecionados = new Set();
+  function renderizarListaOutrosEstudantes(termo){
+    const lista = document.getElementById('oc-lista-outros');
+    if(!lista) return;
+    const termoBusca = (termo||'').trim().toLowerCase();
+    const candidatos = ESTADO.alunos
+      .filter(a => a.id !== aluno.id && (a.situacao === 'matriculado' || !a.situacao))
+      .filter(a => !termoBusca || a.nome.toLowerCase().includes(termoBusca))
+      .sort((a,b) => a.nome.localeCompare(b.nome))
+      .slice(0, 80);
+    lista.innerHTML = candidatos.length ? candidatos.map(a => `
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;">
+        <input type="checkbox" class="chk-outro-estudante" data-id="${a.id}" ${outrosEstudantesSelecionados.has(a.id)?'checked':''} style="width:14px;height:14px;" />
+        <span>${esc(a.nome)} <span style="color:var(--texto-suave);">· ${esc(ESTADO.turmas.find(t=>t.id===a.turma_id)?.nome || 'sem turma')}</span></span>
+      </label>`).join('') : `<p style="color:var(--texto-suave);margin:0;">Nenhum estudante encontrado.</p>`;
+    lista.querySelectorAll('.chk-outro-estudante').forEach(chk => chk.addEventListener('change', e => {
+      if(e.target.checked) outrosEstudantesSelecionados.add(e.target.dataset.id);
+      else outrosEstudantesSelecionados.delete(e.target.dataset.id);
+      atualizarResumoOutros();
+    }));
+  }
+  function atualizarResumoOutros(){
+    const resumo = document.getElementById('oc-resumo-outros');
+    if(!resumo) return;
+    if(!outrosEstudantesSelecionados.size){ resumo.textContent = ''; return; }
+    const nomes = Array.from(outrosEstudantesSelecionados).map(id => ESTADO.alunos.find(a => a.id === id)?.nome).filter(Boolean);
+    resumo.innerHTML = `<b>${nomes.length}</b> estudante(s) adicionado(s): ${esc(nomes.join(', '))}`;
+  }
+  if(!editando){
+    renderizarListaOutrosEstudantes('');
+    document.getElementById('oc-busca-outros').addEventListener('input', e => renderizarListaOutrosEstudantes(e.target.value));
+  }
   let dataAnteriorOc = editando ? registroExistente.data : hojeISO();
   const seletorDataOc = criarSeletorData('oc-data-wrap', dataAnteriorOc, async (novaData) => {
     if(novaData && novaData > hojeISO()){
@@ -7290,9 +7359,30 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
     dados.registrado_por = ESTADO.perfil.id;
     const { data: registro, error } = await supabase.from('ocorrencias_estudantes').insert(dados).select().single();
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar e gerar ficha de ocorrência'; return; }
-    modal.remove();
     registro.registrado = { nome: ESTADO.perfil.nome };
-    imprimirFichaOcorrencia(registro, aluno);
+
+    const outrosIds = Array.from(outrosEstudantesSelecionados);
+    let todosRegistros = [registro];
+    let todosAlunos = { [aluno.id]: aluno };
+    if(outrosIds.length){
+      await supabase.from('ocorrencias_estudantes').update({ grupo_ocorrencia_id: registro.id }).eq('id', registro.id);
+      const registrosExtras = outrosIds.map(id => {
+        const alunoExtra = ESTADO.alunos.find(a => a.id === id);
+        return { ...dados, aluno_id: id, turma_id: alunoExtra?.turma_id || null, grupo_ocorrencia_id: registro.id };
+      });
+      const { data: inseridos, error: erroExtras } = await supabase.from('ocorrencias_estudantes').insert(registrosExtras).select();
+      if(erroExtras){
+        msg.innerHTML = `<div class="msg-erro">A ocorrência principal foi salva, mas houve um erro ao incluir os outros estudantes: ${esc(erroExtras.message)}</div>`;
+      } else if(inseridos){
+        inseridos.forEach(r => { r.registrado = { nome: ESTADO.perfil.nome }; });
+        todosRegistros = todosRegistros.concat(inseridos);
+        outrosIds.forEach(id => { const a = ESTADO.alunos.find(x => x.id === id); if(a) todosAlunos[id] = a; });
+      }
+    }
+
+    modal.remove();
+    if(todosRegistros.length > 1) imprimirFichasOcorrenciaGrupo(todosRegistros, todosAlunos);
+    else imprimirFichaOcorrencia(registro, aluno);
     carregarOcorrencias(conteudo, elPai);
   });
 }
@@ -7308,7 +7398,44 @@ function rotuloEspacoOcorrencia(r){
   return r.espaco === 'outro' ? (r.espaco_outro || 'Outro') : 'Sala de Aula';
 }
 
-function imprimirFichaOcorrencia(r, aluno){
+const CSS_FICHA_OCORRENCIA = `
+      @page{ size: A4; margin: 8mm 14mm; }
+      *{ box-sizing:border-box; }
+      html, body{ height:100%; margin:0; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:12.5px;line-height:1.34;}
+      .ficha-ocorrencia{ position:relative; height:278mm; }
+      .cabecalho-doc{text-align:center;padding-bottom:2px;margin-bottom:6px;}
+      .cabecalho-doc img{width:40px;height:40px;display:block;margin:0 auto 2px;}
+      .cabecalho-doc .orgao{font-size:11px;margin:0;line-height:1.2;font-weight:600;}
+      .titulo-doc{text-align:center;font-size:15.5px;font-weight:bold;text-transform:uppercase;margin:0 0 8px;}
+      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:4px;}
+      .linha-dados span{display:inline-block;}
+      .linha-dados b{font-weight:700;}
+      .caixa{border:1.3px solid #000;padding:6px 10px;margin-bottom:7px;}
+      .caixa-titulo{font-weight:bold;margin-bottom:4px;font-size:13px;}
+      .item-qualificacao{margin-bottom:2px;padding-left:34px;text-indent:-34px;}
+      .obs-box{border:1.3px solid #000;min-height:38px;padding:5px 8px;margin-bottom:6px;}
+      .bloco-fechamento{position:absolute;left:0;right:0;bottom:0;}
+      .assinaturas{margin-top:48px;display:flex;justify-content:space-between;gap:20px;flex-wrap:nowrap;}
+      .assinaturas .linha-assinatura{border-top:1.3px solid #000;width:190px;flex-shrink:0;text-align:center;padding-top:4px;font-size:10.5px;font-weight:600;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }`;
+
+const JS_AUTOAJUSTE_FICHA_OCORRENCIA = `
+      window.onload = function(){
+        document.querySelectorAll('.ficha-ocorrencia').forEach(function(ficha){
+          var alturaPaginaPx = 278 * (96/25.4); // A4 (297mm) menos margens de 8mm+8mm (e folga de segurança), a 96dpi
+          var alturaConteudo = ficha.scrollHeight;
+          if(alturaConteudo > alturaPaginaPx){
+            var escala = alturaPaginaPx / alturaConteudo;
+            ficha.style.zoom = escala; // zoom (ao contrário de transform:scale) reduz a altura real ocupada, evitando quebra de página
+          }
+        });
+        setTimeout(function(){ window.print(); }, 350);
+      };`;
+
+// Monta o HTML de UMA ficha (usado tanto sozinha quanto dentro de uma impressão em grupo).
+// comQuebra=true força início de nova página antes desta ficha (usado a partir da 2ª ficha do grupo).
+function montarBlocoFichaOcorrencia(r, aluno, comQuebra){
   const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || aluno.turma_id));
   const itensQualificacao = [...QUALIFICACOES_OCORRENCIA, { texto: '__OUTRAS__' }].map(item => {
     if(item.texto === '__OUTRAS__'){
@@ -7326,34 +7453,8 @@ function imprimirFichaOcorrencia(r, aluno){
     return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${textoItem}</div>`;
   }).join('');
 
-  const janela = window.open('', '_blank');
-  janela.document.write(`
-    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
-    <title>Ficha de Ocorrência - ${esc(aluno.nome)}</title>
-    <style>
-      @page{ size: A4; margin: 8mm 14mm; }
-      *{ box-sizing:border-box; }
-      html, body{ height:100%; margin:0; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:12.5px;line-height:1.34;}
-      #ficha-ocorrencia{ position:relative; height:278mm; }
-      .cabecalho-doc{text-align:center;padding-bottom:2px;margin-bottom:6px;}
-      .cabecalho-doc img{width:40px;height:40px;display:block;margin:0 auto 2px;}
-      .cabecalho-doc .orgao{font-size:11px;margin:0;line-height:1.2;font-weight:600;}
-      .titulo-doc{text-align:center;font-size:15.5px;font-weight:bold;text-transform:uppercase;margin:0 0 8px;}
-      .linha-dados{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:4px;}
-      .linha-dados span{display:inline-block;}
-      .linha-dados b{font-weight:700;}
-      .caixa{border:1.3px solid #000;padding:6px 10px;margin-bottom:7px;}
-      .caixa-titulo{font-weight:bold;margin-bottom:4px;font-size:13px;}
-      .item-qualificacao{margin-bottom:2px;padding-left:34px;text-indent:-34px;}
-      .obs-box{border:1.3px solid #000;min-height:38px;padding:5px 8px;margin-bottom:6px;}
-      .bloco-fechamento{position:absolute;left:0;right:0;bottom:0;}
-      .assinaturas{margin-top:48px;display:flex;justify-content:space-between;gap:20px;flex-wrap:nowrap;}
-      .assinaturas .linha-assinatura{border-top:1.3px solid #000;width:190px;flex-shrink:0;text-align:center;padding-top:4px;font-size:10.5px;font-weight:600;}
-      @media print{ body{-webkit-print-color-adjust:exact;} }
-    </style>
-    </head><body>
-      <div id="ficha-ocorrencia">
+  return `
+      <div class="ficha-ocorrencia" style="${comQuebra ? 'page-break-before:always;' : ''}">
       <div class="cabecalho-doc">
         <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
         <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><b style="font-size:14px;display:inline-block;margin-top:2px;">Escola Municipal Jaime Gonçalves Bold</b></p>
@@ -7388,19 +7489,37 @@ function imprimirFichaOcorrencia(r, aluno){
           <div class="linha-assinatura">Assinatura do(a) Responsável</div>
         </div>
       </div>
-      </div>
-    <script>
-      window.onload = function(){
-        var ficha = document.getElementById('ficha-ocorrencia');
-        var alturaPaginaPx = 278 * (96/25.4); // A4 (297mm) menos margens de 8mm+8mm (e folga de segurança), a 96dpi
-        var alturaConteudo = ficha.scrollHeight;
-        if(alturaConteudo > alturaPaginaPx){
-          var escala = alturaPaginaPx / alturaConteudo;
-          ficha.style.zoom = escala; // zoom (ao contrário de transform:scale) reduz a altura real ocupada, evitando quebra de página
-        }
-        setTimeout(function(){ window.print(); }, 350);
-      };
-    <\/script>
+      </div>`;
+}
+
+function imprimirFichaOcorrencia(r, aluno){
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Ficha de Ocorrência - ${esc(aluno.nome)}</title>
+    <style>${CSS_FICHA_OCORRENCIA}</style>
+    </head><body>
+      ${montarBlocoFichaOcorrencia(r, aluno, false)}
+    <script>${JS_AUTOAJUSTE_FICHA_OCORRENCIA}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+// Imprime uma ficha por estudante, uma por página, numa única sequência de impressão —
+// usado quando a mesma ocorrência envolve vários estudantes (cada um com sua própria folha
+// para a assinatura do respectivo responsável).
+function imprimirFichasOcorrenciaGrupo(registros, alunosPorId){
+  const blocos = registros.map((r, i) => montarBlocoFichaOcorrencia(r, alunosPorId[r.aluno_id], i > 0)).join('\n');
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Fichas de Ocorrência (${registros.length} estudantes)</title>
+    <style>${CSS_FICHA_OCORRENCIA}</style>
+    </head><body>
+      ${blocos}
+    <script>${JS_AUTOAJUSTE_FICHA_OCORRENCIA}<\/script>
     </body></html>
   `);
   janela.document.close();
