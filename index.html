@@ -831,7 +831,7 @@ function renderizarPainel(el){
   const tarde = ESTADO.alunos.filter(a => turnoDoAluno(a).includes('TARDE')).length;
 
   const porTurma = {};
-  ESTADO.alunos.forEach(a => {
+  ESTADO.alunos.filter(a => a.situacao !== 'transferido' && a.situacao !== 'cancelado').forEach(a => {
     const t = a.turmas?.nome || '—';
     if(!porTurma[t]) porTurma[t] = { total: 0, turno: a.turmas?.turno || a.turno || '' };
     porTurma[t].total += 1;
@@ -9531,7 +9531,7 @@ function renderizarRelatorios(el){
 function imprimirListaPastaEstudantes(turmaId){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
   if(!turma) return;
-  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const linhas = alunosTurma.map((a, i) => `
     <tr>
       <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
@@ -9594,7 +9594,7 @@ function imprimirListaPastaEstudantes(turmaId){
 function imprimirAtaPresenca(turmaId){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
   if(!turma) return;
-  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const linhas = alunosTurma.map((a, i) => `
     <tr>
       <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
@@ -9638,7 +9638,7 @@ function imprimirAtaPresenca(turmaId){
 async function imprimirFrequenciaEstudantes(turmaId){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
   if(!turma) return;
-  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   if(!alunosTurma.length){ alert('Esta turma não tem estudantes cadastrados.'); return; }
 
   const ano = new Date().getFullYear();
