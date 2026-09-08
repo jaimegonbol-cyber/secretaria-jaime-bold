@@ -8904,23 +8904,23 @@ function abrirModalImprimirAvaliacaoPersonalizada(avaliacao){
 function montarMeiaFichaAvaliacaoPersonalizada(avaliacao, aluno){
   const linhasItens = avaliacao.itens.map((item, i) => {
     const estiloOpcoes = item.opcoes.length <= 3
-      ? 'display:flex;gap:18px;flex-wrap:nowrap;padding-left:12px;'
-      : 'display:flex;flex-direction:column;gap:2px;padding-left:12px;';
+      ? 'display:flex;gap:20px;flex-wrap:nowrap;padding-left:14px;'
+      : 'display:flex;flex-direction:column;gap:3px;padding-left:14px;';
     return `
-    <div style="margin-bottom:6px;">
-      <div style="font-weight:600;font-size:10.5px;margin-bottom:2px;">${i+1}. ${esc(item.pergunta)}</div>
+    <div style="margin-bottom:8px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:3px;">${i+1}. ${esc(item.pergunta)}</div>
       <div style="${estiloOpcoes}">
-        ${item.opcoes.map(o => `<span style="display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap;">[&nbsp;&nbsp;]&nbsp;${o.emoji ? esc(o.emoji)+' ' : ''}${esc(o.rotulo)}</span>`).join('')}
+        ${item.opcoes.map(o => `<span style="display:flex;align-items:center;gap:5px;font-size:12.5px;white-space:nowrap;">[&nbsp;&nbsp;]&nbsp;${o.emoji ? esc(o.emoji)+' ' : ''}${esc(o.rotulo)}</span>`).join('')}
       </div>
     </div>`;
   }).join('');
   return `
-      <div style="text-align:center;margin-bottom:4px;">
-        <div style="font-weight:700;font-size:11.5px;">Escola Municipal Jaime Gonçalves Bold</div>
-        <div style="font-weight:700;font-size:13px;text-transform:uppercase;">${esc(avaliacao.titulo)}</div>
-        ${avaliacao.descricao ? `<p style="font-size:9.5px;color:#555;margin:1px 0 0;">${esc(avaliacao.descricao)}</p>` : ''}
+      <div style="text-align:center;margin-bottom:5px;">
+        <div style="font-weight:700;font-size:14px;">Escola Municipal Jaime Gonçalves Bold</div>
+        <div style="font-weight:700;font-size:16px;text-transform:uppercase;">${esc(avaliacao.titulo)}</div>
+        ${avaliacao.descricao ? `<p style="font-size:11.5px;color:#555;margin:2px 0 0;">${esc(avaliacao.descricao)}</p>` : ''}
       </div>
-      <div style="display:flex;gap:16px;margin:6px 0 8px;font-size:11px;">
+      <div style="display:flex;gap:16px;margin:8px 0 10px;font-size:13.5px;">
         <span style="flex:1;"><b>Nome:</b> ${aluno ? esc(aluno.nome) : '_________________________________________________'}</span>
         <span><b>Data:</b> ____/____/______</span>
       </div>
@@ -9020,13 +9020,7 @@ function abrirModalCorrigirAvaliacaoCamera(avaliacao, elPai){
     btn.disabled = true; btn.textContent = 'Analisando com IA…';
     msg.innerHTML = '';
     try{
-      const base64Completo = await new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = reject;
-        leitor.readAsDataURL(arquivoFoto);
-      });
-      const [, mediaType, base64] = base64Completo.match(/^data:([^;]+);base64,(.*)$/s) || [];
+      const { base64, mediaType } = await comprimirImagemParaBase64(arquivoFoto);
       const { data: resposta, error } = await supabase.functions.invoke('corrigir-avaliacao-camera', {
         body: { itens: avaliacao.itens, imagemBase64: base64, mediaType },
       });
@@ -9038,6 +9032,30 @@ function abrirModalCorrigirAvaliacaoCamera(avaliacao, elPai){
       btn.disabled = false; btn.textContent = '📷 Analisar foto com IA';
     }
   });
+}
+
+// Redimensiona e comprime a foto no próprio celular antes de enviar — fotos de câmera costumam
+// vir com vários MB, e isso estourava o limite de tamanho da requisição (erro 502).
+async function comprimirImagemParaBase64(arquivo, maxDimensao = 1568, qualidade = 0.82){
+  const bitmap = await createImageBitmap(arquivo);
+  let { width, height } = bitmap;
+  if(width > maxDimensao || height > maxDimensao){
+    const escala = maxDimensao / Math.max(width, height);
+    width = Math.round(width * escala);
+    height = Math.round(height * escala);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', qualidade));
+  const base64Completo = await new Promise((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(leitor.result);
+    leitor.onerror = reject;
+    leitor.readAsDataURL(blob);
+  });
+  const [, mediaType, base64] = base64Completo.match(/^data:([^;]+);base64,(.*)$/s) || [];
+  return { base64, mediaType };
 }
 
 function renderizarRevisaoCamcorr(avaliacao, alunoId, resultadoIA, modal, elPai){
