@@ -8892,7 +8892,7 @@ function abrirModalImprimirAvaliacaoPersonalizada(avaliacao){
   }
   renderizarListaImp('');
   document.getElementById('avalpers-busca-imp').addEventListener('input', e => renderizarListaImp(e.target.value));
-  document.getElementById('btn-imprimir-branco').addEventListener('click', () => imprimirFichasAvaliacaoPersonalizada(avaliacao, [null]));
+  document.getElementById('btn-imprimir-branco').addEventListener('click', () => imprimirFichasAvaliacaoPersonalizada(avaliacao, [null, null]));
   document.getElementById('btn-imprimir-selecionados').addEventListener('click', () => {
     if(!selecionados.size){ alert('Selecione ao menos um estudante, ou use "Imprimir ficha em branco".'); return; }
     const alunosSelecionados = Array.from(selecionados).map(id => ESTADO.alunos.find(a => a.id === id)).filter(Boolean);
@@ -8900,32 +8900,56 @@ function abrirModalImprimirAvaliacaoPersonalizada(avaliacao){
   });
 }
 
-function montarBlocoFichaAvaliacaoPersonalizada(avaliacao, aluno, comQuebra){
-  const linhasItens = avaliacao.itens.map((item, i) => `
-    <div style="margin-bottom:10px;">
-      <div style="font-weight:600;font-size:12.5px;margin-bottom:4px;">${i+1}. ${esc(item.pergunta)}</div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;padding-left:14px;">
-        ${item.opcoes.map(o => `<span style="display:flex;align-items:center;gap:5px;font-size:12px;">[&nbsp;&nbsp;]&nbsp;${o.emoji ? esc(o.emoji)+' ' : ''}${esc(o.rotulo)}</span>`).join('')}
+// Monta o conteúdo compacto de UMA ficha (meia página), reutilizado nas duas metades da folha.
+function montarMeiaFichaAvaliacaoPersonalizada(avaliacao, aluno){
+  const linhasItens = avaliacao.itens.map((item, i) => {
+    const estiloOpcoes = item.opcoes.length <= 3
+      ? 'display:flex;gap:18px;flex-wrap:nowrap;padding-left:12px;'
+      : 'display:flex;flex-direction:column;gap:2px;padding-left:12px;';
+    return `
+    <div style="margin-bottom:6px;">
+      <div style="font-weight:600;font-size:10.5px;margin-bottom:2px;">${i+1}. ${esc(item.pergunta)}</div>
+      <div style="${estiloOpcoes}">
+        ${item.opcoes.map(o => `<span style="display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap;">[&nbsp;&nbsp;]&nbsp;${o.emoji ? esc(o.emoji)+' ' : ''}${esc(o.rotulo)}</span>`).join('')}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   return `
-      <div class="ficha-avalpers" style="${comQuebra ? 'page-break-before:always;' : ''}position:relative;height:278mm;box-sizing:border-box;">
-      <div style="text-align:center;margin-bottom:10px;">
-        <img src="${LOGO_ESCOLA_URL}" style="width:44px;height:44px;display:block;margin:0 auto 4px;" />
-        <div style="font-weight:700;font-size:13px;">Escola Municipal Jaime Gonçalves Bold</div>
+      <div style="text-align:center;margin-bottom:4px;">
+        <div style="font-weight:700;font-size:11.5px;">Escola Municipal Jaime Gonçalves Bold</div>
+        <div style="font-weight:700;font-size:13px;text-transform:uppercase;">${esc(avaliacao.titulo)}</div>
+        ${avaliacao.descricao ? `<p style="font-size:9.5px;color:#555;margin:1px 0 0;">${esc(avaliacao.descricao)}</p>` : ''}
       </div>
-      <div style="text-align:center;font-weight:700;font-size:15px;text-transform:uppercase;margin-bottom:14px;">${esc(avaliacao.titulo)}</div>
-      ${avaliacao.descricao ? `<p style="text-align:center;font-size:12px;color:#555;margin:-8px 0 14px;">${esc(avaliacao.descricao)}</p>` : ''}
-      <div style="display:flex;gap:16px;margin-bottom:16px;font-size:13px;">
+      <div style="display:flex;gap:16px;margin:6px 0 8px;font-size:11px;">
         <span style="flex:1;"><b>Nome:</b> ${aluno ? esc(aluno.nome) : '_________________________________________________'}</span>
         <span><b>Data:</b> ____/____/______</span>
       </div>
-      ${linhasItens}
+      ${linhasItens}`;
+}
+
+// Monta uma página inteira com duas fichas (economiza papel) separadas por uma linha de corte com tesoura.
+function montarPaginaDuplaAvaliacaoPersonalizada(avaliacao, alunoA, alunoB, comQuebra){
+  // altura total da página útil = 278mm; a divisória fica com uma fatia fixa (%) e as duas
+  // metades dividem o restante em partes EXATAMENTE iguais (48.2% cada, sempre somando 100%).
+  const ALTURA_TOTAL_MM = 278;
+  const PCT_DIVISORIA = 3.6;
+  const PCT_METADE = (100 - PCT_DIVISORIA) / 2;
+  return `
+      <div style="${comQuebra ? 'page-break-before:always;' : ''}height:${ALTURA_TOTAL_MM}mm;box-sizing:border-box;">
+        <div style="height:${PCT_METADE}%;overflow:hidden;box-sizing:border-box;padding-bottom:4px;">${montarMeiaFichaAvaliacaoPersonalizada(avaliacao, alunoA)}</div>
+        <div style="position:relative;height:${PCT_DIVISORIA}%;box-sizing:border-box;">
+          <div style="position:absolute;top:50%;left:0;right:0;border-top:1.5px dashed #888;"></div>
+          <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:0 8px;font-size:13px;">✂️ &nbsp;recorte aqui&nbsp; ✂️</span>
+        </div>
+        <div style="height:${PCT_METADE}%;overflow:hidden;box-sizing:border-box;padding-top:4px;">${alunoB !== undefined ? montarMeiaFichaAvaliacaoPersonalizada(avaliacao, alunoB) : ''}</div>
       </div>`;
 }
 
 function imprimirFichasAvaliacaoPersonalizada(avaliacao, alunos){
-  const blocos = alunos.map((aluno, i) => montarBlocoFichaAvaliacaoPersonalizada(avaliacao, aluno, i > 0)).join('\n');
+  const paginas = [];
+  for(let i = 0; i < alunos.length; i += 2){
+    paginas.push(montarPaginaDuplaAvaliacaoPersonalizada(avaliacao, alunos[i], alunos[i+1], i > 0));
+  }
   const janela = window.open('', '_blank');
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
@@ -8938,7 +8962,7 @@ function imprimirFichasAvaliacaoPersonalizada(avaliacao, alunos){
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
-      ${blocos}
+      ${paginas.join('\n')}
     <script>
       window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
     <\/script>
