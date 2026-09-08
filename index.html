@@ -366,6 +366,9 @@ function estadoPadraoAbas(){
     saevEtapa: 'Formativa 1',
     saevPlanoEditando: null,
     saevPlanoMsg: null,
+    avalPersonalizadaTurmaId: '',
+    avalPersonalizadaGenero: '',
+    avalPersonalizadaSelecionadaId: '',
     agendaSemanaOffset: 0,
     agendaFiltro: 'todos',
     agendaMsg: null,
@@ -8668,6 +8671,7 @@ function renderizarAvaliacoes(el){
   const abasTopo = [
     { id:'fluencia', label:'Avaliação de Fluência' },
     { id:'saev', label:'SAEV' },
+    { id:'personalizada', label:'Avaliação Personalizada' },
   ];
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -8679,7 +8683,435 @@ function renderizarAvaliacoes(el){
   }));
   const alvoTopo = el.querySelector('#conteudo-avaliacoes-topo');
   if(ESTADO.subAvaliacoes === 'saev') renderizarSaev(alvoTopo);
+  else if(ESTADO.subAvaliacoes === 'personalizada') renderizarAvaliacaoPersonalizada(alvoTopo);
   else renderizarAvaliacaoFluencia(alvoTopo);
+}
+
+// ---------------------------------------------------------------
+// AVALIAÇÃO PERSONALIZADA — criação livre pelo professor + correção por foto (câmera)
+// ---------------------------------------------------------------
+const MODELO_OPCOES_PADRAO = [
+  { rotulo: 'Fiz bem!', emoji: '🙂' },
+  { rotulo: 'Posso melhorar', emoji: '😐' },
+  { rotulo: 'Esqueci', emoji: '🙁' },
+];
+
+const GENEROS_TEXTUAIS = [
+  { valor: 'narrativa', rotulo: 'Narrativa (reconto ou história inventada)' },
+  { valor: 'bilhete', rotulo: 'Bilhete' },
+  { valor: 'lista', rotulo: 'Lista (compras, brinquedos etc.)' },
+  { valor: 'receita', rotulo: 'Receita culinária' },
+  { valor: 'convite', rotulo: 'Convite' },
+  { valor: 'legenda', rotulo: 'Legenda de imagem / diário de campo' },
+  { valor: 'quadrinho', rotulo: 'Quadrinho / tirinha' },
+  { valor: 'poema', rotulo: 'Poema / cordel' },
+  { valor: 'relato', rotulo: 'Relato pessoal' },
+  { valor: 'outro', rotulo: 'Outro' },
+];
+
+async function renderizarAvaliacaoPersonalizada(el){
+  el.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.avalPersonalizadaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  let query = supabase.from('avaliacoes_personalizadas').select('*, turmas(nome)').eq('ativo', true).order('criado_em', { ascending: false });
+  if(ESTADO.avalPersonalizadaTurmaId) query = query.eq('turma_id', ESTADO.avalPersonalizadaTurmaId);
+  if(ESTADO.avalPersonalizadaGenero) query = query.eq('genero_textual', ESTADO.avalPersonalizadaGenero);
+  const { data: avaliacoes, error } = await query;
+  if(error){ el.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+
+  // conta quantas respostas cada avaliação já tem
+  const ids = (avaliacoes||[]).map(a => a.id);
+  let contagens = {};
+  if(ids.length){
+    const { data: respostas } = await supabase.from('avaliacoes_personalizadas_respostas').select('avaliacao_id').in('avaliacao_id', ids);
+    (respostas||[]).forEach(r => { contagens[r.avaliacao_id] = (contagens[r.avaliacao_id]||0) + 1; });
+  }
+
+  const rotuloGenero = valor => GENEROS_TEXTUAIS.find(g => g.valor === valor)?.rotulo || '';
+
+  const cards = (avaliacoes||[]).length ? avaliacoes.map(a => `
+    <div class="painel" style="margin-bottom:10px;padding:14px 16px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;font-size:14.5px;">${esc(a.titulo)} ${a.genero_textual ? `<span class="pill" style="font-size:10.5px;">${esc(rotuloGenero(a.genero_textual))}</span>` : ''}</div>
+          <div style="font-size:12.5px;color:var(--texto-suave);">${esc(a.turmas?.nome || 'Todas as turmas')} · ${a.itens.length} item(ns) · ${contagens[a.id]||0} ficha(s) corrigida(s)</div>
+          ${a.descricao ? `<div style="font-size:12.5px;color:var(--texto-suave);margin-top:2px;">${esc(a.descricao)}</div>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="botao terracota pequeno" style="width:auto;" data-imprimir-aval="${a.id}">🖨️ Imprimir ficha(s)</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-corrigir-aval="${a.id}">📷 Corrigir com a câmera</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-resultados-aval="${a.id}">📊 Ver resultados</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-excluir-aval="${a.id}">🗑️ Excluir</button>
+      </div>
+    </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma avaliação personalizada criada${ESTADO.avalPersonalizadaTurmaId || ESTADO.avalPersonalizadaGenero ? ' com esse filtro' : ''} ainda.</p>`;
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <select id="avalpers-filtro-turma" style="max-width:220px;"><option value="">Todas as turmas</option>${opcoesTurma}</select>
+        <select id="avalpers-filtro-genero" style="max-width:240px;"><option value="">Todos os gêneros textuais</option>${GENEROS_TEXTUAIS.map(g => `<option value="${g.valor}" ${ESTADO.avalPersonalizadaGenero===g.valor?'selected':''}>${esc(g.rotulo)}</option>`).join('')}</select>
+      </div>
+      <button class="botao terracota" style="width:auto;" id="btn-criar-avalpers">+ Criar avaliação</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:-6px 0 14px;">Crie fichas próprias (com os itens e opções que quiser, como um checklist de autoavaliação), imprima pra aplicar em papel, e depois corrija tirando uma foto de cada ficha preenchida — a IA identifica o que foi marcado e você confirma antes de salvar.</p>
+    <div id="avalpers-lista">${cards}</div>`;
+
+  document.getElementById('avalpers-filtro-turma').addEventListener('change', e => { ESTADO.avalPersonalizadaTurmaId = e.target.value; renderizarAvaliacaoPersonalizada(el); });
+  document.getElementById('avalpers-filtro-genero').addEventListener('change', e => { ESTADO.avalPersonalizadaGenero = e.target.value; renderizarAvaliacaoPersonalizada(el); });
+  document.getElementById('btn-criar-avalpers').addEventListener('click', () => abrirModalCriarAvaliacaoPersonalizada(el));
+  el.querySelectorAll('[data-imprimir-aval]').forEach(b => b.addEventListener('click', () => abrirModalImprimirAvaliacaoPersonalizada(avaliacoes.find(a => a.id === b.dataset.imprimirAval))));
+  el.querySelectorAll('[data-corrigir-aval]').forEach(b => b.addEventListener('click', () => abrirModalCorrigirAvaliacaoCamera(avaliacoes.find(a => a.id === b.dataset.corrigirAval), el)));
+  el.querySelectorAll('[data-resultados-aval]').forEach(b => b.addEventListener('click', () => abrirModalResultadosAvaliacaoPersonalizada(avaliacoes.find(a => a.id === b.dataset.resultadosAval))));
+  el.querySelectorAll('[data-excluir-aval]').forEach(b => b.addEventListener('click', async () => {
+    if(!confirm('Excluir esta avaliação e todas as fichas já corrigidas dela? Esta ação não pode ser desfeita.')) return;
+    const { error: erroExcluir } = await supabase.from('avaliacoes_personalizadas').delete().eq('id', b.dataset.excluirAval);
+    if(erroExcluir){ alert('Erro ao excluir: ' + erroExcluir.message); return; }
+    renderizarAvaliacaoPersonalizada(el);
+  }));
+}
+
+function abrirModalCriarAvaliacaoPersonalizada(elPai){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Criar avaliação personalizada</h3><button data-fechar>✕</button></div>
+      <div id="msg-criar-avalpers"></div>
+      <div class="campo"><label>Título da avaliação</label><input type="text" id="avalpers-titulo" placeholder="Ex: Autoavaliação de Escrita — 2º ano" /></div>
+      <div class="campo"><label>Descrição (opcional)</label><input type="text" id="avalpers-descricao" placeholder="Ex: Aplicar após a produção de texto" /></div>
+      <div class="campo"><label>Gênero textual (opcional)</label><select id="avalpers-genero"><option value="">Não especificado</option>${GENEROS_TEXTUAIS.map(g => `<option value="${g.valor}">${esc(g.rotulo)}</option>`).join('')}</select></div>
+      <div class="campo"><label>Turma (opcional — deixe em branco pra usar em qualquer turma)</label><select id="avalpers-turma"><option value="">Todas as turmas</option>${opcoesTurma}</select></div>
+      <div class="campo">
+        <label>Itens da ficha</label>
+        <div id="avalpers-itens"></div>
+        <button class="botao secundario pequeno" type="button" id="btn-add-item-avalpers" style="width:auto;margin-top:6px;">+ Adicionar item</button>
+      </div>
+      <button class="botao terracota" id="btn-salvar-avalpers" style="margin-top:16px;width:auto;">Salvar avaliação</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const listaItensEl = document.getElementById('avalpers-itens');
+  let itens = [];
+
+  function renderizarItensAvalpers(){
+    listaItensEl.innerHTML = itens.map((item, i) => `
+      <div style="border:1px solid var(--borda);border-radius:8px;padding:10px;margin-bottom:8px;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+          <input type="text" class="avalpers-item-pergunta" data-i="${i}" placeholder="Pergunta/critério ${i+1}" value="${esc(item.pergunta)}" style="flex:1;" />
+          <button type="button" class="btn-icone perigo" data-remover-item="${i}" title="Remover item">🗑️</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${item.opcoes.map((o, j) => `
+            <span style="display:flex;align-items:center;gap:4px;background:var(--areia);border-radius:6px;padding:3px 6px;font-size:12.5px;">
+              <input type="text" class="avalpers-opcao-emoji" data-i="${i}" data-j="${j}" value="${esc(o.emoji||'')}" style="width:32px;padding:2px 4px;text-align:center;" />
+              <input type="text" class="avalpers-opcao-rotulo" data-i="${i}" data-j="${j}" value="${esc(o.rotulo)}" style="width:110px;padding:2px 4px;" />
+              <button type="button" data-remover-opcao="${i}:${j}" style="background:none;border:none;cursor:pointer;color:var(--erro);">✕</button>
+            </span>`).join('')}
+          <button type="button" class="botao secundario pequeno" data-add-opcao="${i}" style="width:auto;padding:3px 8px;font-size:12px;">+ opção</button>
+        </div>
+      </div>`).join('');
+
+    listaItensEl.querySelectorAll('.avalpers-item-pergunta').forEach(inp => inp.addEventListener('input', e => { itens[e.target.dataset.i].pergunta = e.target.value; }));
+    listaItensEl.querySelectorAll('.avalpers-opcao-emoji').forEach(inp => inp.addEventListener('input', e => { itens[e.target.dataset.i].opcoes[e.target.dataset.j].emoji = e.target.value; }));
+    listaItensEl.querySelectorAll('.avalpers-opcao-rotulo').forEach(inp => inp.addEventListener('input', e => { itens[e.target.dataset.i].opcoes[e.target.dataset.j].rotulo = e.target.value; }));
+    listaItensEl.querySelectorAll('[data-remover-item]').forEach(b => b.addEventListener('click', () => { itens.splice(Number(b.dataset.removerItem), 1); renderizarItensAvalpers(); }));
+    listaItensEl.querySelectorAll('[data-add-opcao]').forEach(b => b.addEventListener('click', () => { itens[Number(b.dataset.addOpcao)].opcoes.push({ rotulo: 'Nova opção', emoji: '' }); renderizarItensAvalpers(); }));
+    listaItensEl.querySelectorAll('[data-remover-opcao]').forEach(b => b.addEventListener('click', () => {
+      const [i,j] = b.dataset.removerOpcao.split(':').map(Number);
+      itens[i].opcoes.splice(j, 1);
+      renderizarItensAvalpers();
+    }));
+  }
+
+  function adicionarItemAvalpers(){
+    itens.push({ pergunta: '', opcoes: MODELO_OPCOES_PADRAO.map(o => ({...o})) });
+    renderizarItensAvalpers();
+  }
+  document.getElementById('btn-add-item-avalpers').addEventListener('click', adicionarItemAvalpers);
+  adicionarItemAvalpers(); // começa com 1 item de exemplo
+
+  document.getElementById('btn-salvar-avalpers').addEventListener('click', async () => {
+    const msg = document.getElementById('msg-criar-avalpers');
+    const titulo = document.getElementById('avalpers-titulo').value.trim();
+    if(!titulo){ msg.innerHTML = `<div class="msg-erro">Dê um título pra avaliação.</div>`; return; }
+    const itensValidos = itens.filter(it => it.pergunta.trim() && it.opcoes.length >= 2 && it.opcoes.every(o => o.rotulo.trim()));
+    if(!itensValidos.length){ msg.innerHTML = `<div class="msg-erro">Adicione ao menos um item com pergunta preenchida e pelo menos 2 opções com rótulo.</div>`; return; }
+    const btn = document.getElementById('btn-salvar-avalpers');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error } = await supabase.from('avaliacoes_personalizadas').insert({
+      titulo,
+      descricao: document.getElementById('avalpers-descricao').value.trim() || null,
+      genero_textual: document.getElementById('avalpers-genero').value || null,
+      turma_id: document.getElementById('avalpers-turma').value || null,
+      itens: itensValidos,
+      criado_por: ESTADO.perfil.id,
+    });
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar avaliação'; return; }
+    modal.remove();
+    renderizarAvaliacaoPersonalizada(elPai);
+  });
+}
+
+function abrirModalImprimirAvaliacaoPersonalizada(avaliacao){
+  const alunosTurma = avaliacao.turma_id
+    ? ESTADO.alunos.filter(a => a.turma_id === avaliacao.turma_id && a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    : ESTADO.alunos.filter(a => a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-topo"><h3>Imprimir — ${esc(avaliacao.titulo)}</h3><button data-fechar>✕</button></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:-6px 0 12px;">Escolha os estudantes (uma ficha por estudante, com o nome já preenchido) ou imprima uma ficha em branco.</p>
+      <button class="botao secundario" id="btn-imprimir-branco" style="width:100%;margin-bottom:10px;">🖨️ Imprimir ficha em branco (sem nome)</button>
+      <div class="campo"><input type="text" id="avalpers-busca-imp" placeholder="Buscar estudante…" /></div>
+      <div id="avalpers-lista-imp" style="max-height:260px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;"></div>
+      <button class="botao terracota" id="btn-imprimir-selecionados" style="width:100%;margin-top:10px;">🖨️ Imprimir selecionados</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const selecionados = new Set();
+  function renderizarListaImp(termo){
+    const lista = document.getElementById('avalpers-lista-imp');
+    const t = (termo||'').toLowerCase();
+    const filtrados = alunosTurma.filter(a => !t || a.nome.toLowerCase().includes(t)).slice(0, 100);
+    lista.innerHTML = filtrados.length ? filtrados.map(a => `
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" class="chk-aluno-imp" data-id="${a.id}" ${selecionados.has(a.id)?'checked':''} />
+        ${esc(a.nome)}
+      </label>`).join('') : `<p style="color:var(--texto-suave);margin:0;">Nenhum estudante encontrado.</p>`;
+    lista.querySelectorAll('.chk-aluno-imp').forEach(chk => chk.addEventListener('change', e => {
+      if(e.target.checked) selecionados.add(e.target.dataset.id); else selecionados.delete(e.target.dataset.id);
+    }));
+  }
+  renderizarListaImp('');
+  document.getElementById('avalpers-busca-imp').addEventListener('input', e => renderizarListaImp(e.target.value));
+  document.getElementById('btn-imprimir-branco').addEventListener('click', () => imprimirFichasAvaliacaoPersonalizada(avaliacao, [null]));
+  document.getElementById('btn-imprimir-selecionados').addEventListener('click', () => {
+    if(!selecionados.size){ alert('Selecione ao menos um estudante, ou use "Imprimir ficha em branco".'); return; }
+    const alunosSelecionados = Array.from(selecionados).map(id => ESTADO.alunos.find(a => a.id === id)).filter(Boolean);
+    imprimirFichasAvaliacaoPersonalizada(avaliacao, alunosSelecionados);
+  });
+}
+
+function montarBlocoFichaAvaliacaoPersonalizada(avaliacao, aluno, comQuebra){
+  const linhasItens = avaliacao.itens.map((item, i) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-weight:600;font-size:12.5px;margin-bottom:4px;">${i+1}. ${esc(item.pergunta)}</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;padding-left:14px;">
+        ${item.opcoes.map(o => `<span style="display:flex;align-items:center;gap:5px;font-size:12px;">[&nbsp;&nbsp;]&nbsp;${o.emoji ? esc(o.emoji)+' ' : ''}${esc(o.rotulo)}</span>`).join('')}
+      </div>
+    </div>`).join('');
+  return `
+      <div class="ficha-avalpers" style="${comQuebra ? 'page-break-before:always;' : ''}position:relative;height:278mm;box-sizing:border-box;">
+      <div style="text-align:center;margin-bottom:10px;">
+        <img src="${LOGO_ESCOLA_URL}" style="width:44px;height:44px;display:block;margin:0 auto 4px;" />
+        <div style="font-weight:700;font-size:13px;">Escola Municipal Jaime Gonçalves Bold</div>
+      </div>
+      <div style="text-align:center;font-weight:700;font-size:15px;text-transform:uppercase;margin-bottom:14px;">${esc(avaliacao.titulo)}</div>
+      ${avaliacao.descricao ? `<p style="text-align:center;font-size:12px;color:#555;margin:-8px 0 14px;">${esc(avaliacao.descricao)}</p>` : ''}
+      <div style="display:flex;gap:16px;margin-bottom:16px;font-size:13px;">
+        <span style="flex:1;"><b>Nome:</b> ${aluno ? esc(aluno.nome) : '_________________________________________________'}</span>
+        <span><b>Data:</b> ____/____/______</span>
+      </div>
+      ${linhasItens}
+      </div>`;
+}
+
+function imprimirFichasAvaliacaoPersonalizada(avaliacao, alunos){
+  const blocos = alunos.map((aluno, i) => montarBlocoFichaAvaliacaoPersonalizada(avaliacao, aluno, i > 0)).join('\n');
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>${esc(avaliacao.titulo)}</title>
+    <style>
+      @page{ size: A4; margin: 8mm 14mm; }
+      *{ box-sizing:border-box; }
+      html, body{ height:100%; margin:0; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      ${blocos}
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+function abrirModalCorrigirAvaliacaoCamera(avaliacao, elPai){
+  const alunosTurma = avaliacao.turma_id
+    ? ESTADO.alunos.filter(a => a.turma_id === avaliacao.turma_id && a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    : ESTADO.alunos.filter(a => a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const opcoesAlunos = alunosTurma.map(a => `<option value="${a.id}">${esc(a.nome)}</option>`).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Corrigir com a câmera — ${esc(avaliacao.titulo)}</h3><button data-fechar>✕</button></div>
+      <div class="campo"><label>Estudante</label><select id="camcorr-aluno"><option value="">Selecione…</option>${opcoesAlunos}</select></div>
+      <div class="campo">
+        <label>Foto da ficha preenchida</label>
+        <input type="file" id="camcorr-foto" accept="image/*" capture="environment" />
+        <p style="font-size:11.5px;color:var(--texto-suave);margin:4px 0 0;">No celular, isso abre a câmera direto. Tire a foto bem enquadrada e com boa luz, mostrando todas as marcações.</p>
+      </div>
+      <div id="camcorr-preview" style="margin:10px 0;"></div>
+      <div id="msg-camcorr"></div>
+      <button class="botao terracota" id="btn-analisar-camcorr" style="width:100%;" disabled>📷 Analisar foto com IA</button>
+      <div id="camcorr-revisao" style="margin-top:14px;"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  let arquivoFoto = null;
+  document.getElementById('camcorr-foto').addEventListener('change', (e) => {
+    arquivoFoto = e.target.files[0] || null;
+    const preview = document.getElementById('camcorr-preview');
+    const btnAnalisar = document.getElementById('btn-analisar-camcorr');
+    if(arquivoFoto){
+      preview.innerHTML = `<img src="${URL.createObjectURL(arquivoFoto)}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--borda);" />`;
+      btnAnalisar.disabled = false;
+    } else {
+      preview.innerHTML = ''; btnAnalisar.disabled = true;
+    }
+  });
+
+  document.getElementById('btn-analisar-camcorr').addEventListener('click', async () => {
+    const alunoId = document.getElementById('camcorr-aluno').value;
+    const msg = document.getElementById('msg-camcorr');
+    if(!alunoId){ msg.innerHTML = `<div class="msg-erro">Selecione o estudante.</div>`; return; }
+    if(!arquivoFoto){ msg.innerHTML = `<div class="msg-erro">Selecione a foto da ficha.</div>`; return; }
+    const btn = document.getElementById('btn-analisar-camcorr');
+    btn.disabled = true; btn.textContent = 'Analisando com IA…';
+    msg.innerHTML = '';
+    try{
+      const base64Completo = await new Promise((resolve, reject) => {
+        const leitor = new FileReader();
+        leitor.onload = () => resolve(leitor.result);
+        leitor.onerror = reject;
+        leitor.readAsDataURL(arquivoFoto);
+      });
+      const [, mediaType, base64] = base64Completo.match(/^data:([^;]+);base64,(.*)$/s) || [];
+      const { data: resposta, error } = await supabase.functions.invoke('corrigir-avaliacao-camera', {
+        body: { itens: avaliacao.itens, imagemBase64: base64, mediaType },
+      });
+      if(error || !resposta || resposta.error) throw new Error((resposta && resposta.error) || 'Falha ao analisar a foto.');
+      renderizarRevisaoCamcorr(avaliacao, alunoId, resposta.resultado, modal, elPai);
+    } catch(err){
+      msg.innerHTML = `<div class="msg-erro">${esc(err.message)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = '📷 Analisar foto com IA';
+    }
+  });
+}
+
+function renderizarRevisaoCamcorr(avaliacao, alunoId, resultadoIA, modal, elPai){
+  const cores = { alta: '#2E7D5B', media: '#D98A1F', baixa: '#B4432E' };
+  const revisao = document.getElementById('camcorr-revisao');
+  revisao.innerHTML = `
+    <h4 style="margin:0 0 8px;">Confira e ajuste antes de salvar</h4>
+    ${avaliacao.itens.map((item, i) => {
+      const sugestao = resultadoIA.find(r => r.item_indice === i) || {};
+      const cor = cores[sugestao.confianca] || '#999';
+      return `
+      <div style="border:1px solid var(--borda);border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+        <div style="font-size:12.5px;font-weight:600;margin-bottom:4px;">${i+1}. ${esc(item.pergunta)} <span style="font-weight:400;color:${cor};font-size:11px;">(confiança IA: ${sugestao.confianca || 'baixa'})</span></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          ${item.opcoes.map((o, j) => `
+            <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer;">
+              <input type="radio" name="camcorr-item-${i}" value="${j}" ${sugestao.opcao_indice === j ? 'checked' : ''} />
+              ${o.emoji ? esc(o.emoji)+' ' : ''}${esc(o.rotulo)}
+            </label>`).join('')}
+        </div>
+        ${sugestao.observacao ? `<div style="font-size:11px;color:var(--texto-suave);margin-top:3px;">💬 ${esc(sugestao.observacao)}</div>` : ''}
+      </div>`;
+    }).join('')}
+    <button class="botao terracota" id="btn-salvar-camcorr" style="width:100%;margin-top:6px;">✅ Salvar correção desta ficha</button>
+    <div id="msg-salvar-camcorr"></div>`;
+
+  document.getElementById('btn-salvar-camcorr').addEventListener('click', async () => {
+    const respostas = avaliacao.itens.map((item, i) => {
+      const marcado = revisao.querySelector(`input[name="camcorr-item-${i}"]:checked`);
+      return { item_indice: i, opcao_indice: marcado ? Number(marcado.value) : null };
+    });
+    const msgSalvar = document.getElementById('msg-salvar-camcorr');
+    const btnSalvar = document.getElementById('btn-salvar-camcorr');
+    btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando…';
+    const { error } = await supabase.from('avaliacoes_personalizadas_respostas').upsert({
+      avaliacao_id: avaliacao.id,
+      aluno_id: alunoId,
+      respostas,
+      origem: 'camera',
+      corrigido_por: ESTADO.perfil.id,
+    }, { onConflict: 'avaliacao_id,aluno_id' });
+    if(error){ msgSalvar.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btnSalvar.disabled = false; btnSalvar.textContent = '✅ Salvar correção desta ficha'; return; }
+    modal.remove();
+    renderizarAvaliacaoPersonalizada(elPai);
+  });
+}
+
+async function abrirModalResultadosAvaliacaoPersonalizada(avaliacao){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Resultados — ${esc(avaliacao.titulo)}</h3><button data-fechar>✕</button></div>
+      <div id="avalpers-resultados-conteudo"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const { data: respostas, error } = await supabase.from('avaliacoes_personalizadas_respostas')
+    .select('*, alunos(nome)').eq('avaliacao_id', avaliacao.id);
+  const conteudo = document.getElementById('avalpers-resultados-conteudo');
+  if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!respostas || !respostas.length){ conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma ficha corrigida ainda pra essa avaliação.</p>`; return; }
+
+  const resumoPorItem = avaliacao.itens.map((item, i) => {
+    const contagemOpcoes = item.opcoes.map(() => 0);
+    let semResposta = 0;
+    respostas.forEach(r => {
+      const resp = (r.respostas||[]).find(x => x.item_indice === i);
+      if(resp && resp.opcao_indice !== null && resp.opcao_indice !== undefined) contagemOpcoes[resp.opcao_indice]++;
+      else semResposta++;
+    });
+    const total = respostas.length;
+    return `
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:5px;">${i+1}. ${esc(item.pergunta)}</div>
+        ${item.opcoes.map((o, j) => {
+          const pct = total ? Math.round(contagemOpcoes[j]/total*100) : 0;
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+            <span style="width:150px;font-size:12px;flex-shrink:0;">${o.emoji?esc(o.emoji)+' ':''}${esc(o.rotulo)}</span>
+            <div style="flex:1;background:var(--areia);border-radius:5px;height:14px;overflow:hidden;"><div style="width:${pct}%;background:#2E6BB8;height:100%;"></div></div>
+            <span style="width:70px;font-size:11.5px;color:var(--texto-suave);text-align:right;">${contagemOpcoes[j]} (${pct}%)</span>
+          </div>`;
+        }).join('')}
+        ${semResposta ? `<div style="font-size:11px;color:var(--texto-suave);">${semResposta} ficha(s) sem marcação identificada neste item.</div>` : ''}
+      </div>`;
+  }).join('');
+
+  const listaAlunos = respostas.map(r => `
+    <tr><td>${esc(r.alunos?.nome || 'Estudante removido')}</td><td>${fmtData(r.data_aplicacao)}</td><td>${r.origem === 'camera' ? '📷 Câmera' : '✍️ Manual'}</td></tr>
+  `).join('');
+
+  conteudo.innerHTML = `
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 14px;"><b>${respostas.length}</b> ficha(s) corrigida(s) no total.</p>
+    ${resumoPorItem}
+    <h4 style="margin:16px 0 8px;">Estudantes avaliados</h4>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th><th>Data</th><th>Origem</th></tr></thead><tbody>${listaAlunos}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------
