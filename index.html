@@ -332,7 +332,6 @@ function estadoPadraoAbas(){
     chamadaTurma: '',
     chamadaData: hojeISO(),
     chamadaTipoDia: 'normal',
-    chamadaEscopo: 'turma',
     chamadaTextoOutros: '',
     chamadaDataSincronizada: '',
     chamadaMsgSucesso: null,
@@ -4691,30 +4690,22 @@ async function renderizarChamada(el){
 
   const conteudo = document.getElementById('ch-conteudo');
 
-  // Feriado / Ponto Facultativo / Outros -> aplica em massa (turma selecionada ou toda a escola)
+  // Feriado / Ponto Facultativo / Outros -> aplica em massa (sempre só na turma selecionada)
   if(ESTADO.chamadaTipoDia !== 'normal'){
     const rotulos = { feriado:'Feriado', ponto_facultativo:'Ponto Facultativo', suspensao_aulas:'Suspensão de Aulas', outros:'Outros' };
     const turmaAtual = ESTADO.turmas.find(t => t.id === ESTADO.chamadaTurma);
-    if(!turmaAtual && ESTADO.chamadaEscopo === 'turma') ESTADO.chamadaEscopo = 'todas';
-    const alvoDescricao = ESTADO.chamadaEscopo === 'turma' && turmaAtual
-      ? `os estudantes da turma <strong>${esc(turmaAtual.nome)} · ${esc(turmaAtual.turno)}</strong>`
-      : `<strong>todos os estudantes da escola</strong>`;
+    if(!turmaAtual){
+      conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Selecione uma turma para aplicar este lançamento.</p>`;
+      return;
+    }
+    const alvoDescricao = `os estudantes da turma <strong>${esc(turmaAtual.nome)} · ${esc(turmaAtual.turno)}</strong>`;
     conteudo.innerHTML = `
-      ${turmaAtual ? `<div class="campo" style="max-width:420px;margin-bottom:10px;">
-        <label>Aplicar para</label>
-        <select id="ch-escopo">
-          <option value="turma" ${ESTADO.chamadaEscopo==='turma'?'selected':''}>Somente a turma selecionada (${esc(turmaAtual.nome)} · ${esc(turmaAtual.turno)})</option>
-          <option value="todas" ${ESTADO.chamadaEscopo==='todas'?'selected':''}>Todas as turmas da escola</option>
-        </select>
-      </div>` : ''}
-      <p style="font-size:13.5px;color:var(--texto-suave);margin-bottom:12px;">Ao aplicar, ${alvoDescricao} serão marcados como <strong>${rotulos[ESTADO.chamadaTipoDia]}</strong> na data ${formatarDataBR(ESTADO.chamadaData)}.</p>
-      ${ESTADO.chamadaTipoDia === 'outros' ? `<div class="campo" style="max-width:420px;"><label>Descrição</label><input type="text" id="ch-texto-outros" value="${esc(ESTADO.chamadaTextoOutros)}" placeholder="Ex: Recesso escolar" /></div>` : ''}
+      <p style="font-size:13.5px;color:var(--texto-suave);margin-bottom:12px;">Ao aplicar, ${alvoDescricao} serão marcados como <strong>${rotulos[ESTADO.chamadaTipoDia]}</strong> na data ${formatarDataBR(ESTADO.chamadaData)}. Esse lançamento vale só para esta turma — se outras turmas também precisarem, repita a operação selecionando cada uma.</p>
+      ${ESTADO.chamadaTipoDia === 'outros' ? `<div class="campo" style="max-width:420px;"><label>Descrição</label><input type="text" id="ch-texto-outros" value="${esc(ESTADO.chamadaTextoOutros)}" placeholder="Ex: Falta do professor com atestado" /></div>` : ''}
       ${podeRegistrar
         ? `<button class="botao terracota pequeno" id="btn-aplicar-todos" style="margin-top:12px;width:auto;">Aplicar</button>`
         : `<p style="margin-top:10px;color:var(--erro);font-size:13.5px;">Apenas Coordenação/Apoio Escolar ou Administrador podem registrar a chamada.</p>`}
     `;
-    const seletorEscopo = document.getElementById('ch-escopo');
-    if(seletorEscopo) seletorEscopo.addEventListener('change', e => { ESTADO.chamadaEscopo = e.target.value; renderizarChamada(el); });
     if(podeRegistrar){
       document.getElementById('btn-aplicar-todos').addEventListener('click', async () => {
         const btn = document.getElementById('btn-aplicar-todos');
@@ -4722,9 +4713,8 @@ async function renderizarChamada(el){
         const campoTexto = document.getElementById('ch-texto-outros');
         const texto = ESTADO.chamadaTipoDia === 'outros' ? ((campoTexto && campoTexto.value.trim()) || null) : null;
         ESTADO.chamadaTextoOutros = texto || '';
-        const aplicarSoNaTurma = ESTADO.chamadaEscopo === 'turma' && turmaAtual;
         const linhas = ESTADO.alunos
-          .filter(a => (!aplicarSoNaTurma || a.turma_id === ESTADO.chamadaTurma) && alunoTemFrequenciaNaData(a, ESTADO.chamadaData))
+          .filter(a => a.turma_id === ESTADO.chamadaTurma && alunoTemFrequenciaNaData(a, ESTADO.chamadaData))
           .map(a => ({
           aluno_id: a.id,
           turma_id: a.turma_id || null,
@@ -4737,7 +4727,7 @@ async function renderizarChamada(el){
         const msg = document.getElementById('msg-chamada');
         const { error } = await supabase.from('frequencia').upsert(linhas, { onConflict: 'aluno_id,data' });
         if(error) msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
-        else msg.innerHTML = `<div class="msg-ok">Frequência aplicada para ${aplicarSoNaTurma ? 'a turma ' + esc(turmaAtual.nome) : 'todos os estudantes da escola'}.</div>`;
+        else msg.innerHTML = `<div class="msg-ok">Frequência aplicada para a turma ${esc(turmaAtual.nome)}.</div>`;
         btn.disabled = false; btn.textContent = 'Aplicar';
       });
     }
@@ -4772,7 +4762,7 @@ async function renderizarChamada(el){
 
   const linhas = alunosTurma.map(a => {
     const reg = porAluno[a.id];
-    const status = reg?.status || 'presente';
+    const status = ['presente','falta','falta_justificada'].includes(reg?.status) ? reg.status : 'presente';
     const dias = reg?.dias_justificados || '';
     const motivo = reg?.motivo_justificativa || '';
     const disabled = podeRegistrar ? '' : 'disabled';
