@@ -7117,6 +7117,7 @@ async function carregarOcorrencias(conteudo, elPai){
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             ${!r.presenca_responsavel_confirmada ? `<button class="botao secundario pequeno" style="width:auto;color:#2E7D5B;border-color:#2E7D5B;" data-confirmar-presenca="${r.id}">✅ Confirmar presença</button>` : ''}
             <button class="botao secundario pequeno" style="width:auto;" data-imprimir-ficha="${r.id}">Imprimir ficha</button>
+            ${r.grupo_ocorrencia_id ? `<button class="botao secundario pequeno" style="width:auto;" data-imprimir-conjunta="${r.grupo_ocorrencia_id}">🖨️ Ficha conjunta</button>` : ''}
             <button class="botao terracota pequeno" style="width:auto;" data-gerar-comunicado="${r.id}">Gerar comunicado</button>
             <button class="botao secundario pequeno" style="width:auto;" data-editar-ocorrencia="${r.id}">Editar</button>
             <button class="botao secundario pequeno" style="width:auto;color:var(--erro);border-color:var(--erro);" data-excluir-ocorrencia="${r.id}">Excluir</button>
@@ -7142,6 +7143,17 @@ async function carregarOcorrencias(conteudo, elPai){
   conteudo.querySelectorAll('[data-confirmar-presenca]').forEach(b => {
     b.addEventListener('click', () => confirmarPresencaResponsavelOcorrencia(b.dataset.confirmarPresenca, () => carregarOcorrencias(conteudo, elPai)));
   });
+  conteudo.querySelectorAll('[data-imprimir-conjunta]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const { data: registrosGrupo, error: erroGrupo } = await supabase.from('ocorrencias_estudantes')
+        .select('*, registrado:registrado_por(nome)').eq('grupo_ocorrencia_id', b.dataset.imprimirConjunta);
+      if(erroGrupo || !registrosGrupo?.length){ alert('Erro ao carregar os estudantes do grupo: ' + (erroGrupo?.message || 'nenhum registro encontrado')); return; }
+      const idsAlunos = registrosGrupo.map(r => r.aluno_id);
+      const alunosPorId = {};
+      idsAlunos.forEach(id => { const a = ESTADO.alunos.find(x => x.id === id); if(a) alunosPorId[id] = a; });
+      imprimirFichaOcorrenciaConjunta(registrosGrupo, alunosPorId);
+    });
+  });
   conteudo.querySelectorAll('[data-imprimir-ficha]').forEach(b => {
     b.addEventListener('click', () => {
       const registro = registros.find(r => r.id === b.dataset.imprimirFicha);
@@ -7151,7 +7163,7 @@ async function carregarOcorrencias(conteudo, elPai){
   conteudo.querySelectorAll('[data-gerar-comunicado]').forEach(b => {
     b.addEventListener('click', () => {
       const registro = registros.find(r => r.id === b.dataset.gerarComunicado);
-      imprimirComunicadoOcorrencia(registro, aluno);
+      abrirModalGerarComunicadoOcorrencia(registro, aluno);
     });
   });
   conteudo.querySelectorAll('[data-editar-ocorrencia]').forEach(b => {
@@ -7384,10 +7396,27 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
     }
 
     modal.remove();
-    if(todosRegistros.length > 1) imprimirFichasOcorrenciaGrupo(todosRegistros, todosAlunos);
+    if(todosRegistros.length > 1) abrirModalEscolhaImpressaoOcorrenciaGrupo(todosRegistros, todosAlunos);
     else imprimirFichaOcorrencia(registro, aluno);
     carregarOcorrencias(conteudo, elPai);
   });
+}
+
+function abrirModalEscolhaImpressaoOcorrenciaGrupo(registros, alunosPorId){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-topo"><h3>Como imprimir?</h3><button data-fechar>✕</button></div>
+      <p style="font-size:13px;color:var(--texto-suave);margin:-4px 0 14px;">Ocorrência registrada para ${registros.length} estudantes. Escolha como gerar a ficha:</p>
+      <button class="botao terracota" id="btn-imp-conjunta" style="width:100%;margin-bottom:10px;">🖨️ Ficha conjunta (1 folha, todas as assinaturas)</button>
+      <button class="botao secundario" id="btn-imp-individual" style="width:100%;">🖨️ Uma ficha por estudante (1 folha cada)</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.getElementById('btn-imp-conjunta').addEventListener('click', () => { modal.remove(); imprimirFichaOcorrenciaConjunta(registros, alunosPorId); });
+  document.getElementById('btn-imp-individual').addEventListener('click', () => { modal.remove(); imprimirFichasOcorrenciaGrupo(registros, alunosPorId); });
 }
 
 async function excluirOcorrencia(registro, aluno, conteudo, elPai){
@@ -7529,70 +7558,240 @@ function imprimirFichasOcorrenciaGrupo(registros, alunosPorId){
   janela.focus();
 }
 
-async function imprimirComunicadoOcorrencia(r, aluno){
-  await supabase.from('ocorrencias_estudantes').update({ comunicado_gerado: true }).eq('id', r.id);
-  const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || aluno.turma_id));
-  const tipos = [...(r.qualificacoes||[]), r.outras_texto].filter(Boolean);
-  const listaTipos = tipos.map(t => `<li style="margin-bottom:4px;">${esc(t)}</li>`).join('');
+// Monta UMA ficha só com os dados compartilhados da ocorrência (mesma data/qualificação/observações,
+// já que é o mesmo incidente) e uma assinatura por estudante + respectivo responsável.
+function montarFichaOcorrenciaConjunta(registros, alunosPorId){
+  const base = registros[0];
+  const itensQualificacao = [...QUALIFICACOES_OCORRENCIA, { texto: '__OUTRAS__' }].map(item => {
+    if(item.texto === '__OUTRAS__'){
+      const marcado = !!base.outras_texto;
+      const textoItem = `Outras Ocorrências. Quais? ${marcado ? esc(base.outras_texto) : '_________________________________'}`;
+      return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${textoItem}</div>`;
+    }
+    const valorSalvo = encontrarValorQualificacaoSalva(item, base.qualificacoes);
+    const marcado = !!valorSalvo;
+    let textoItem = esc(item.texto);
+    if(item.detalhe){
+      const detalheValor = extrairDetalheQualificacaoSalva(item, valorSalvo);
+      textoItem = `${esc(item.texto)}: ${detalheValor ? esc(detalheValor) : '_________________________________'}`;
+    }
+    return `<div class="item-qualificacao">( ${marcado?'X':'&nbsp;'} )&nbsp; ${textoItem}</div>`;
+  }).join('');
 
+  const nomesAlunos = registros.map(r => {
+    const a = alunosPorId[r.aluno_id];
+    const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || a?.turma_id));
+    return `${esc(a?.nome || 'Estudante removido')}${turma ? ' (' + esc(turma.nome) + ')' : ''}`;
+  }).join(' · ');
+
+  const paresAssinatura = registros.map(r => {
+    const a = alunosPorId[r.aluno_id];
+    return `
+      <div class="linha-assinatura">Assinatura de ${esc(a?.nome || 'Estudante')}</div>
+      <div class="linha-assinatura">Assinatura do(a) Responsável de ${esc(a?.nome || 'Estudante')}</div>`;
+  }).join('');
+
+  return `
+      <div class="ficha-ocorrencia">
+      <div class="cabecalho-doc">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><b style="font-size:14px;display:inline-block;margin-top:2px;">Escola Municipal Jaime Gonçalves Bold</b></p>
+      </div>
+      <div class="titulo-doc">Ficha de Ocorrência Escolar (conjunta)</div>
+
+      <div class="linha-dados"><span><b>Estudantes envolvidos:</b> <b>${nomesAlunos}</b></span></div>
+      <div class="linha-dados">
+        <span><b>Data:</b> <b>${fmtData(base.data)}</b></span>
+        <span><b>Hora:</b> <b>${base.hora ? esc(base.hora.slice(0,5)) : '—'}</b></span>
+      </div>
+      <div class="linha-dados">
+        <span>( ${base.espaco==='sala_de_aula'?'X':'&nbsp;'} ) Sala de Aula</span>
+        <span>( ${base.espaco==='outro'?'X':'&nbsp;'} ) Outro: ${base.espaco==='outro' ? esc(base.espaco_outro||'') : '_______________'}</span>
+      </div>
+      <div class="linha-dados"><span><b>Professor:</b> <b>${esc(base.professor || '—')}</b></span></div>
+
+      <div class="caixa">
+        <div class="caixa-titulo">QUALIFICAÇÃO DA OCORRÊNCIA</div>
+        ${itensQualificacao}
+      </div>
+
+      <div class="caixa-titulo">Observações</div>
+      <div class="obs-box">${esc(base.observacoes || '')}</div>
+
+      <div class="bloco-fechamento">
+        <p style="text-align:right;margin:0 0 10px;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
+        <div class="assinaturas-conjunta">
+          ${paresAssinatura}
+        </div>
+        <div style="display:flex;justify-content:center;margin-top:24px;">
+          <div class="linha-registrou">${base.registrado?.nome ? esc(base.registrado.nome) : (base.professor ? esc(base.professor) : 'Assinatura de quem registrou')}</div>
+        </div>
+      </div>
+      </div>`;
+}
+
+function imprimirFichaOcorrenciaConjunta(registros, alunosPorId){
   const janela = window.open('', '_blank');
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
-    <title>Comunicado aos Responsáveis - ${esc(aluno.nome)}</title>
-    <style>
-      @page{ size: A4; margin: 10mm 12mm 14mm; }
-      *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:15px;line-height:1.6;}
-      .cabecalho-doc{text-align:center;padding-bottom:6px;margin-bottom:16px;}
-      .cabecalho-doc img{width:70px;height:70px;display:block;margin:0 auto 6px;}
-      .cabecalho-doc .orgao{font-size:15px;margin:0;line-height:1.4;}
-      .cabecalho-doc .escola{font-weight:bold;font-size:19px;}
-      .cabecalho-doc .contato{font-size:13.5px;line-height:1.6;margin:4px 0 0;}
-      .titulo-doc{text-align:center;font-size:18px;font-weight:bold;text-transform:uppercase;margin:24px 0 20px;letter-spacing:.02em;}
-      .doc-texto{text-align:justify;margin:0 0 14px;text-indent:40px;}
-      .caixa-destaque{border:1px solid #333;padding:12px 16px;margin:16px 0 20px;}
-      .doc-data{text-align:right;margin:20px 0 60px;}
-      .doc-assinatura{text-align:center;font-size:14px;}
-      .doc-assinatura .linha{border-top:1px solid #333;width:300px;margin:0 auto 6px;}
-      .ciencia{margin-top:50px;border-top:1px dashed #999;padding-top:14px;font-size:13.5px;}
-      @media print{ body{-webkit-print-color-adjust:exact;} }
+    <title>Ficha de Ocorrência Conjunta</title>
+    <style>${CSS_FICHA_OCORRENCIA}
+      .assinaturas-conjunta{margin-top:20px;display:flex;flex-wrap:wrap;gap:24px 20px;}
+      .assinaturas-conjunta .linha-assinatura{border-top:1.3px solid #000;text-align:center;padding-top:4px;font-size:10.5px;font-weight:600;width:calc(50% - 10px);box-sizing:border-box;flex-shrink:0;}
+      .linha-registrou{width:190px;flex-shrink:0;border-top:1.3px solid #000;text-align:center;padding-top:4px;font-size:10.5px;font-weight:600;}
     </style>
     </head><body>
-      <div class="cabecalho-doc">
-        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
-        <p class="orgao">PREFEITURA DO MUNICÍPIO DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/><span class="escola">Escola Municipal Jaime Gonçalves Bold</span></p>
-        <p class="contato">
-          Rua Marechal Hermes, Nº 108 – Vila Torres Galvão, Paulista/PE<br/>
-          Fone: (81) 3437-0833 / (81) 99679-8342 - CNPJ: 01933733/0001-41<br/>
-          Código INEP: 26116847 E-mail: jaime.gon.bol@edu.paulista.pe.gov.br
-        </p>
-      </div>
-      <div class="titulo-doc">Comunicado aos Pais ou Responsáveis</div>
-
-      <p class="doc-texto">Prezados(as) pais ou responsáveis pelo(a) estudante <b>${esc(aluno.nome)}</b>, da turma <b>${esc(turma?.nome || '—')}</b>, informamos que no dia <b>${fmtData(r.data)}</b>${r.hora ? ', às <b>' + esc(r.hora.slice(0,5)) + '</b>,' : ','} foi registrada uma ocorrência escolar envolvendo o(a) estudante, conforme descrito abaixo:</p>
-
-      <div class="caixa-destaque">
-        <ul style="margin:0;padding-left:20px;">${listaTipos || '<li>Ocorrência registrada — ver ficha em anexo.</li>'}</ul>
-        ${r.observacoes ? `<p style="margin-top:10px;"><b>Observações:</b> ${esc(r.observacoes)}</p>` : ''}
-      </div>
-
-      <p class="doc-texto">Solicitamos o comparecimento de um responsável a esta Unidade de Ensino, no prazo de até 2 (dois) dias letivos, para tratarmos do assunto e, juntos, buscarmos as melhores encaminhamentos para o desenvolvimento e bem-estar do(a) estudante.</p>
-
-      <p class="doc-data">Paulista, ${dataPorExtenso(hojeISO())}.</p>
-      <div class="doc-assinatura">
-        <div class="linha"></div>
-        <p style="margin:0;line-height:1.35;">Direção Escolar — Escola Municipal Jaime Gonçalves Bold</p>
-      </div>
-
-      <div class="ciencia">
-        Declaro estar ciente do comunicado acima e do comparecimento solicitado.<br/><br/>
-        Assinatura do(a) Responsável: ____________________________________________ &nbsp;&nbsp; Data: ____/____/______
-      </div>
+      ${montarFichaOcorrenciaConjunta(registros, alunosPorId)}
+    <script>${JS_AUTOAJUSTE_FICHA_OCORRENCIA}<\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
+}
+
+// Monta o conteúdo compacto de UMA via do comunicado (meia página).
+function montarMeioComunicadoOcorrencia(r, aluno, turma, listaTipos, comparecimento){
+  const textoComparecimento = (comparecimento && comparecimento.data)
+    ? `Solicitamos o comparecimento de um responsável a esta Unidade de Ensino no dia <b>${fmtData(comparecimento.data)}</b>${comparecimento.horario ? ', às <b>' + esc(comparecimento.horario) + '</b>,' : ','} para tratarmos do assunto e, juntos, buscarmos as melhores encaminhamentos para o desenvolvimento e bem-estar do(a) estudante.`
+    : `Solicitamos o comparecimento de um responsável a esta Unidade de Ensino, no prazo de até 2 (dois) dias letivos, para tratarmos do assunto e, juntos, buscarmos as melhores encaminhamentos para o desenvolvimento e bem-estar do(a) estudante.`;
+  return `
+      <div style="text-align:center;padding-bottom:3px;margin-bottom:8px;">
+        <div style="font-weight:700;font-size:13px;">Escola Municipal Jaime Gonçalves Bold</div>
+        <p style="font-size:10px;margin:2px 0 0;line-height:1.35;">
+          Rua Marechal Hermes, Nº 108 – Vila Torres Galvão, Paulista/PE · Fone: (81) 3437-0833 / (81) 99679-8342<br/>
+          CNPJ: 01933733/0001-41 · Código INEP: 26116847 · jaime.gon.bol@edu.paulista.pe.gov.br
+        </p>
+      </div>
+      <div style="text-align:center;font-size:13.5px;font-weight:bold;text-transform:uppercase;margin:10px 0 10px;letter-spacing:.02em;">Comunicado aos Pais ou Responsáveis</div>
+
+      <p style="text-align:justify;margin:0 0 8px;text-indent:28px;font-size:11.5px;line-height:1.4;">Prezados(as) pais ou responsáveis pelo(a) estudante <b>${esc(aluno.nome)}</b>, da turma <b>${esc(turma?.nome || '—')}</b>, informamos que no dia <b>${fmtData(r.data)}</b>${r.hora ? ', às <b>' + esc(r.hora.slice(0,5)) + '</b>,' : ','} foi registrada uma ocorrência escolar envolvendo o(a) estudante, conforme descrito abaixo:</p>
+
+      <div style="border:1px solid #333;padding:8px 10px;margin:8px 0 10px;font-size:11px;">
+        <ul style="margin:0;padding-left:16px;">${listaTipos}</ul>
+        ${r.observacoes ? `<p style="margin-top:6px;"><b>Observações:</b> ${esc(r.observacoes)}</p>` : ''}
+      </div>
+
+      <p style="text-align:justify;margin:0 0 10px;text-indent:28px;font-size:11.5px;line-height:1.4;">${textoComparecimento}</p>
+
+      <p style="text-align:right;margin:10px 0 20px;font-size:11px;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
+      <div style="text-align:center;font-size:10.5px;">
+        <div style="border-top:1px solid #333;width:220px;margin:0 auto 4px;"></div>
+        <p style="margin:0;line-height:1.3;">Direção Escolar — Escola Municipal Jaime Gonçalves Bold</p>
+      </div>
+
+      <div style="margin-top:14px;border-top:1px dashed #999;padding-top:8px;font-size:10.5px;">
+        Declaro estar ciente do comunicado acima e do comparecimento solicitado.<br/><br/>
+        Assinatura do(a) Responsável: ________________________________ &nbsp;&nbsp; Data: ____/____/______
+      </div>`;
+}
+
+function montarParComunicados(paresA, paresB, comparecimento, comQuebra){
+  const ALTURA_METADE = 48.2, ALTURA_DIVISORIA = 3.6;
+  const conteudoA = paresA ? montarMeioComunicadoOcorrencia(paresA.r, paresA.aluno, paresA.turma, paresA.listaTipos, comparecimento) : '';
+  const conteudoB = paresB ? montarMeioComunicadoOcorrencia(paresB.r, paresB.aluno, paresB.turma, paresB.listaTipos, comparecimento) : '';
+  return `
+      <div style="${comQuebra ? 'page-break-before:always;' : ''}height:278mm;box-sizing:border-box;">
+        <div style="height:${ALTURA_METADE}%;overflow:hidden;box-sizing:border-box;padding-bottom:4px;">${conteudoA}</div>
+        <div style="position:relative;height:${ALTURA_DIVISORIA}%;box-sizing:border-box;">
+          <div style="position:absolute;top:50%;left:0;right:0;border-top:1.5px dashed #888;"></div>
+          <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:0 8px;font-size:13px;">✂️ &nbsp;recorte aqui&nbsp; ✂️</span>
+        </div>
+        <div style="height:${ALTURA_METADE}%;overflow:hidden;box-sizing:border-box;padding-top:4px;">${conteudoB}</div>
+      </div>`;
+}
+
+// Gera os comunicados de um ou mais estudantes, dois por folha (economiza papel).
+async function imprimirComunicadosOcorrencia(pares, comparecimento){
+  await supabase.from('ocorrencias_estudantes').update({ comunicado_gerado: true }).in('id', pares.map(p => p.r.id));
+  const paginas = [];
+  for(let i = 0; i < pares.length; i += 2){
+    paginas.push(montarParComunicados(pares[i], pares[i+1], comparecimento, i > 0));
+  }
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Comunicado aos Responsáveis</title>
+    <style>
+      @page{ size: A4; margin: 8mm 14mm; }
+      *{ box-sizing:border-box; }
+      html, body{ height:100%; margin:0; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      ${paginas.join('\n')}
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+function montarParComunicadoDeRegistro(r, aluno){
+  const turma = ESTADO.turmas.find(t => t.id === (r.turma_id || aluno.turma_id));
+  const tipos = [...(r.qualificacoes||[]), r.outras_texto].filter(Boolean);
+  const listaTipos = tipos.map(t => `<li style="margin-bottom:4px;">${esc(t)}</li>`).join('') || '<li>Ocorrência registrada — ver ficha em anexo.</li>';
+  return { r, aluno, turma, listaTipos };
+}
+
+// Sempre abre um modal pra definir dia/horário de comparecimento; se a ocorrência envolve outros
+// estudantes (mesmo grupo), também deixa escolher quais entram no comunicado.
+async function abrirModalGerarComunicadoOcorrencia(registro, alunoPrincipal){
+  let registrosGrupo = [registro];
+  if(registro.grupo_ocorrencia_id){
+    const { data, error } = await supabase.from('ocorrencias_estudantes').select('*').eq('grupo_ocorrencia_id', registro.grupo_ocorrencia_id);
+    if(!error && data?.length) registrosGrupo = data;
+  }
+  const ehGrupo = registrosGrupo.length > 1;
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-topo"><h3>Gerar comunicado</h3><button data-fechar>✕</button></div>
+      ${ehGrupo ? `
+      <p style="font-size:13px;color:var(--texto-suave);margin:-4px 0 12px;">Esta ocorrência envolve mais de um estudante. Selecione para quais gerar o comunicado (2 por folha):</p>
+      <div id="lista-alunos-comunicado" style="margin-bottom:14px;">
+        ${registrosGrupo.map(r => {
+          const a = ESTADO.alunos.find(x => x.id === r.aluno_id);
+          return `<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:13.5px;">
+            <input type="checkbox" class="chk-aluno-comunicado" data-id="${r.id}" checked style="width:15px;height:15px;" />
+            ${esc(a?.nome || 'Estudante removido')}
+          </label>`;
+        }).join('')}
+      </div>` : `<p style="font-size:13.5px;margin:-4px 0 14px;">Estudante: <b>${esc(alunoPrincipal.nome)}</b></p>`}
+      <div class="grade-2">
+        <div class="campo"><label>Dia do comparecimento</label><input type="date" id="comunicado-data" /></div>
+        <div class="campo"><label>Horário (opcional)</label><input type="time" id="comunicado-horario" /></div>
+      </div>
+      <p style="font-size:11.5px;color:var(--texto-suave);margin:-6px 0 12px;">Se deixar em branco, o comunicado usa o texto padrão ("no prazo de até 2 dias letivos") em vez de um dia marcado.</p>
+      <button class="botao terracota" id="btn-confirmar-comunicado" style="width:100%;">🖨️ Gerar comunicado(s)</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.getElementById('btn-confirmar-comunicado').addEventListener('click', () => {
+    const comparecimento = {
+      data: document.getElementById('comunicado-data').value || null,
+      horario: document.getElementById('comunicado-horario').value || null,
+    };
+    let pares;
+    if(ehGrupo){
+      const idsSelecionados = Array.from(modal.querySelectorAll('.chk-aluno-comunicado:checked')).map(chk => chk.dataset.id);
+      if(!idsSelecionados.length){ alert('Selecione ao menos um estudante.'); return; }
+      pares = idsSelecionados.map(id => {
+        const r = registrosGrupo.find(x => x.id === id);
+        const a = ESTADO.alunos.find(x => x.id === r.aluno_id);
+        return montarParComunicadoDeRegistro(r, a);
+      });
+    } else {
+      pares = [montarParComunicadoDeRegistro(registro, alunoPrincipal)];
+    }
+    modal.remove();
+    imprimirComunicadosOcorrencia(pares, comparecimento);
+  });
 }
 
 // ---------------------------------------------------------------
