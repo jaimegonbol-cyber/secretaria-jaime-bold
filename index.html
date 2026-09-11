@@ -875,10 +875,18 @@ function renderizarPainel(el){
     <div class="cabecalho-pagina" style="margin-bottom:6px;"><div><h2>Painel geral</h2><p>Ano letivo 2026 · visão consolidada da secretaria</p></div></div>
     <div class="stats-compactas">${statsHtml}</div>
     <div class="grade-painel-geral">
-      <div class="painel">
-        <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">Documentos pendentes</strong></div>
-        <div id="painel-docs-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
-          <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="painel">
+          <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">Documentos pendentes</strong></div>
+          <div id="painel-docs-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
+            <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+          </div>
+        </div>
+        <div class="painel">
+          <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">Presença de responsáveis pendente</strong></div>
+          <div id="painel-presencas-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
+            <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+          </div>
         </div>
       </div>
       <div class="painel">
@@ -899,6 +907,7 @@ function renderizarPainel(el){
     </div>`;
 
   carregarDocsPendentesPainel();
+  carregarPresencasPendentesPainel();
 
   if(graficoEtapaChart){ graficoEtapaChart.destroy(); graficoEtapaChart = null; }
   if(graficoTurmasChart){ graficoTurmasChart.destroy(); graficoTurmasChart = null; }
@@ -1078,6 +1087,31 @@ async function carregarDocsPendentesPainel(){
       <span class="ip-doc" title="${esc(s.tipo_documento === 'Outro' ? (s.documento_outro || 'Outro') : s.tipo_documento)}">${esc(s.tipo_documento === 'Outro' ? (s.documento_outro || 'Outro') : s.tipo_documento)}</span>
       <span class="ip-aluno" title="${esc(s.alunos?.nome || '—')}">${esc(s.alunos?.nome || '—')}</span>
     </div>`).join('');
+}
+
+async function carregarPresencasPendentesPainel(){
+  const alvo = document.getElementById('painel-presencas-pendentes');
+  if(!alvo) return;
+  const { data, error } = await supabase.from('ocorrencias_estudantes')
+    .select('id, data, aluno_id, alunos(nome)')
+    .eq('presenca_responsavel_confirmada', false)
+    .order('data', { ascending: true });
+  if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!data || !data.length){
+    alvo.innerHTML = `<p style="padding:14px;color:var(--texto-suave);font-size:13px;">Nenhuma presença pendente. 🎉</p>`;
+    return;
+  }
+  alvo.innerHTML = data.map(r => `
+    <div class="item-pendente" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <span style="display:flex;gap:10px;align-items:center;min-width:0;">
+        <span class="ip-data">${fmtData(r.data)}</span>
+        <span class="ip-aluno" title="${esc(r.alunos?.nome || '—')}">${esc(r.alunos?.nome || 'Estudante removido')}</span>
+      </span>
+      <button class="botao secundario pequeno" style="width:auto;flex-shrink:0;padding:3px 9px;font-size:12px;color:#2E7D5B;border-color:#2E7D5B;" data-confirmar-presenca-painel="${r.id}">✅ Confirmar</button>
+    </div>`).join('');
+  alvo.querySelectorAll('[data-confirmar-presenca-painel]').forEach(b => {
+    b.addEventListener('click', () => confirmarPresencaResponsavelOcorrencia(b.dataset.confirmarPresencaPainel, carregarPresencasPendentesPainel));
+  });
 }
 
 // ---------------------------------------------------------------
@@ -7009,7 +7043,9 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
   const nomeTurma = alunoId => ESTADO.turmas.find(t => t.id === ESTADO.alunos.find(a => a.id === alunoId)?.turma_id)?.nome || '—';
   const resumoTipos = r => {
     const tipos = [...(r.qualificacoes||[]), r.outras_texto ? `Outras: ${r.outras_texto}` : null].filter(Boolean);
-    return tipos.length ? tipos[0] + (tipos.length > 1 ? ` (+${tipos.length-1})` : '') : '—';
+    if(!tipos.length) return '—';
+    const primeiro = tipos[0].length > 70 ? tipos[0].slice(0, 70).trim() + '…' : tipos[0];
+    return primeiro + (tipos.length > 1 ? ` (+${tipos.length-1})` : '');
   };
 
   const ultimas = registros.slice(0, 8);
@@ -7096,7 +7132,8 @@ async function carregarOcorrencias(conteudo, elPai){
   const linhasHistorico = registros.length
     ? registros.map(r => {
         const tipos = [...(r.qualificacoes||[]), r.outras_texto ? `Outras: ${r.outras_texto}` : null].filter(Boolean);
-        const resumoTipos = tipos.length ? tipos[0] + (tipos.length > 1 ? ` (+${tipos.length-1})` : '') : '—';
+        const primeiroTipo = tipos.length && tipos[0].length > 70 ? tipos[0].slice(0, 70).trim() + '…' : (tipos[0] || '');
+        const resumoTipos = tipos.length ? primeiroTipo + (tipos.length > 1 ? ` (+${tipos.length-1})` : '') : '—';
         return `
         <div class="item-lista" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;margin-bottom:8px;">
           <div style="flex:1;min-width:200px;">
@@ -10266,22 +10303,36 @@ function imprimirAtaPresenca(turmaId){
       <td></td>
     </tr>`).join('');
 
+  // Tamanho inicial razoável — o ajuste fino de verdade acontece no navegador (script de
+  // autoajuste abaixo), medindo o espaço real disponível em vez de um número fixo calculado
+  // aqui, porque diferentes motores de renderização (e o próprio navegador do usuário)
+  // medem altura de linha/fonte de forma um pouco diferente.
+  const rowPad = 6, fontBase = 11;
+
   const janela = window.open('', '_blank');
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Ata de Presença - ${esc(turma.nome)}</title>
     <style>
-      @page{ size: A4; margin: 10mm 12mm; }
+      @page{ size: A4; margin: 8mm; }
       *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:${fontBase}px;}
+      .linha-professor{display:flex;flex-wrap:wrap;gap:16px 24px;margin:6px 0 8px;font-size:${fontBase+1}px;}
+      .linha-professor span{display:flex;align-items:center;gap:6px;}
+      .linha-professor .traco{display:inline-block;border-bottom:1px solid #333;min-width:220px;height:14px;}
       table.lista{width:100%;border-collapse:collapse;}
-      table.lista thead th{background:#15325C;color:#fff;font-size:11.5px;text-transform:uppercase;padding:6px 4px;border:1px solid #15325C;}
-      table.lista tbody td{padding:9px 4px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:${fontBase-0.5}px;text-transform:uppercase;padding:4px 4px;border:1px solid #15325C;}
+      table.lista tbody td{padding:${rowPad}px 4px;border-bottom:1.5px solid #000;border-left:1.5px solid #000;border-right:1.5px solid #000;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
       ${cabecalhoImpressaoTurma('ATA DE PRESENÇA', turma)}
+      <div class="linha-professor">
+        <span>Professor(a): <span class="traco" style="min-width:190px;"></span></span>
+        <span>Disciplina: <span class="traco" style="min-width:140px;"></span></span>
+        <span>Data: <span class="traco" style="min-width:34px;"></span> / <span class="traco" style="min-width:34px;"></span> / <span class="traco" style="min-width:50px;"></span></span>
+      </div>
       <table class="lista">
         <thead><tr>
           <th style="width:6%;">NUM</th>
@@ -10291,11 +10342,67 @@ function imprimirAtaPresenca(turmaId){
         </tr></thead>
         <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
       </table>
+    <script>
+      window.onload = function(){
+        try{ ajustarAtaParaFolhaUnica(); } catch(e){ /* segue com o tamanho padrão se algo der errado */ }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+      // Mede o espaço real da página NO PRÓPRIO NAVEGADOR (em vez de usar um número fixo
+      // calculado de antemão) e ajusta fonte/espaçamento das linhas pra sempre caber numa
+      // única folha, preenchendo o máximo de espaço possível quando sobra página.
+      function ajustarAtaParaFolhaUnica(){
+        var tabela = document.querySelector('table.lista');
+        var linhas = tabela ? tabela.querySelectorAll('tbody tr') : [];
+        if(!tabela || !linhas.length) return;
+
+        var medidor = document.createElement('div');
+        medidor.style.height = '1mm';
+        medidor.style.position = 'absolute';
+        medidor.style.visibility = 'hidden';
+        document.body.appendChild(medidor);
+        var pxPorMm = medidor.offsetHeight || 3.78;
+        document.body.removeChild(medidor);
+        var alturaPaginaPx = 281 * pxPorMm; // A4 (297mm) menos 8mm de margem em cima e embaixo
+
+        function alturaNecessaria(){
+          var topoTabela = tabela.getBoundingClientRect().top;
+          var alturaLinha = linhas[0].getBoundingClientRect().height;
+          // usa sempre pelo menos 35 "linhas" como referência de cálculo — assim o tamanho da
+          // fonte/linha fica padronizado entre turmas (uma turma com poucos estudantes não fica
+          // com letras gigantes só pra preencher a folha); turmas com mais de 35 continuam usando
+          // a quantidade real, pra garantir que ainda cabe tudo numa página só.
+          var linhasParaCalculo = Math.max(linhas.length, 35);
+          return topoTabela + (alturaLinha * linhasParaCalculo) + 14;
+        }
+
+        function aplicarAjuste(fator){
+          var tds = tabela.querySelectorAll('tbody td');
+          var padAtual = parseFloat(getComputedStyle(tds[0]).paddingTop) || 8;
+          var fontAtual = parseFloat(getComputedStyle(document.body).fontSize) || 13;
+          var novoPad = Math.max(2, Math.min(30, padAtual * fator));
+          var novaFonte = Math.max(7, Math.min(15, fontAtual * fator));
+          document.body.style.fontSize = novaFonte + 'px';
+          for(var i=0;i<tds.length;i++){ tds[i].style.paddingTop = novoPad + 'px'; tds[i].style.paddingBottom = novoPad + 'px'; }
+        }
+
+        // até 3 rodadas de ajuste: mede, corrige, mede de novo (a correção da fonte muda
+        // ligeiramente a altura do cabeçalho/linha, então confere outra vez pra garantir);
+        // folga de segurança de 12% e nunca aumenta o tamanho — só encolhe se precisar,
+        // priorizando caber numa página só acima de preencher o espaço perfeitamente
+        for(var rodada = 0; rodada < 3; rodada++){
+          var necessaria = alturaNecessaria();
+          var fator = (alturaPaginaPx / necessaria) * 0.88;
+          fator = Math.min(fator, 1); // nunca aumenta, só reduz
+          fator = Math.max(0.3, fator);
+          if(fator >= 0.97) break; // já cabe com folga suficiente
+          aplicarAjuste(fator);
+        }
+      }
+    <\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
 }
 
 async function imprimirFrequenciaEstudantes(turmaId){
