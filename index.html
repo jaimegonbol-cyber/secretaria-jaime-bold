@@ -10228,6 +10228,67 @@ function renderizarRelatorios(el){
   btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
 }
 
+// CSS e script de autoajuste padronizados, compartilhados entre as impressões de lista de
+// estudantes (Relação de Estudantes, Frequência de Estudantes) — mesmo padrão calibrado e
+// testado na Ata de Presença: fonte maior, linhas com mais espaço, bordas pretas e grossas,
+// e sempre calculado como se fossem no mínimo 35 estudantes (visual consistente entre turmas).
+const CSS_LISTA_ESTUDANTES_PADRAO = `
+      @page{ size: A4; margin: 8mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:10.5px;text-transform:uppercase;padding:5px 4px;border:1px solid #15325C;}
+      table.lista tbody td{padding:6px 4px;border-bottom:1.5px solid #000;border-left:1.5px solid #000;border-right:1.5px solid #000;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }`;
+
+function scriptAutoajusteLista(alturaUtilMm){
+  return `
+      window.onload = function(){
+        try{ ajustarListaParaFolhaUnica(); } catch(e){ /* segue com o tamanho padrão se algo der errado */ }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+      function ajustarListaParaFolhaUnica(){
+        var tabela = document.querySelector('table.lista');
+        var linhas = tabela ? tabela.querySelectorAll('tbody tr') : [];
+        if(!tabela || !linhas.length) return;
+
+        var medidor = document.createElement('div');
+        medidor.style.height = '1mm';
+        medidor.style.position = 'absolute';
+        medidor.style.visibility = 'hidden';
+        document.body.appendChild(medidor);
+        var pxPorMm = medidor.offsetHeight || 3.78;
+        document.body.removeChild(medidor);
+        var alturaPaginaPx = ${alturaUtilMm} * pxPorMm;
+
+        function alturaNecessaria(){
+          var topoTabela = tabela.getBoundingClientRect().top;
+          var alturaLinha = linhas[0].getBoundingClientRect().height;
+          var linhasParaCalculo = Math.max(linhas.length, 35);
+          return topoTabela + (alturaLinha * linhasParaCalculo) + 14;
+        }
+        function aplicarAjuste(fator){
+          var tds = tabela.querySelectorAll('tbody td');
+          var padAtual = parseFloat(getComputedStyle(tds[0]).paddingTop) || 6;
+          var fontAtual = parseFloat(getComputedStyle(document.body).fontSize) || 11;
+          var novoPad = Math.max(1, Math.min(30, padAtual * fator));
+          var novaFonte = Math.max(6, Math.min(15, fontAtual * fator));
+          document.body.style.fontSize = novaFonte + 'px';
+          for(var i=0;i<tds.length;i++){ tds[i].style.paddingTop = novoPad + 'px'; tds[i].style.paddingBottom = novoPad + 'px'; }
+        }
+        for(var rodada = 0; rodada < 3; rodada++){
+          var necessaria = alturaNecessaria();
+          var fator = (alturaPaginaPx / necessaria) * 0.88;
+          fator = Math.min(fator, 1);
+          fator = Math.max(0.3, fator);
+          if(fator >= 0.97) break;
+          aplicarAjuste(fator);
+        }
+      }`;
+}
+const JS_AUTOAJUSTE_LISTA_ESTUDANTES = scriptAutoajusteLista(281); // A4 retrato, margem 8mm
+
 function imprimirListaPastaEstudantes(turmaId){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
   if(!turma) return;
@@ -10246,45 +10307,21 @@ function imprimirListaPastaEstudantes(turmaId){
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Relação de Estudantes - ${esc(turma.nome)}</title>
-    <style>
-      @page{ size: A4; margin: 9mm 11mm; }
-      *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:10.5px;}
-      table.lista{width:100%;border-collapse:collapse;}
-      table.lista thead th{background:#15325C;color:#fff;font-size:10px;text-transform:uppercase;padding:3px 3px;border:1px solid #15325C;}
-      table.lista tbody td{padding:1.5px 3px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
-      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
-      @media print{ body{-webkit-print-color-adjust:exact;} }
-    </style>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
     </head><body>
-      <div id="capa">
-        ${cabecalhoImpressaoTurma('RELAÇÃO DE ESTUDANTES', turma)}
-        <table class="lista">
-          <thead><tr>
-            <th style="width:6%;">NUM</th>
-            <th style="width:42%;">NOME</th>
-            <th style="width:10%;">AEE</th>
-            <th style="width:14%;">DATA NASC.</th>
-            <th style="width:12%;">IDADE</th>
-            <th style="width:16%;">FONE</th>
-          </tr></thead>
-          <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
-        </table>
-      </div>
-    <script>
-      window.onload = function(){
-        var capa = document.getElementById('capa');
-        var alturaPaginaPx = 279 * (96/25.4); // A4 (297mm) menos margens de 9mm+9mm, a 96dpi
-        var alturaConteudo = capa.scrollHeight;
-        if(alturaConteudo > alturaPaginaPx){
-          var escala = alturaPaginaPx / alturaConteudo;
-          capa.style.transformOrigin = 'top left';
-          capa.style.transform = 'scale(' + escala + ')';
-          capa.style.width = (100/escala) + '%';
-        }
-        setTimeout(function(){ window.print(); }, 350);
-      };
-    <\/script>
+      ${cabecalhoImpressaoTurma('RELAÇÃO DE ESTUDANTES', turma)}
+      <table class="lista">
+        <thead><tr>
+          <th style="width:6%;">NUM</th>
+          <th style="width:42%;">NOME</th>
+          <th style="width:10%;">AEE</th>
+          <th style="width:14%;">DATA NASC.</th>
+          <th style="width:12%;">IDADE</th>
+          <th style="width:16%;">FONE</th>
+        </tr></thead>
+        <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
+      </table>
+    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
     </body></html>
   `);
   janela.document.close();
@@ -10498,12 +10535,12 @@ async function imprimirFrequenciaEstudantes(turmaId){
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Frequência de Estudantes - ${esc(turma.nome)}</title>
     <style>
-      @page{ size: A4 landscape; margin: 8mm 10mm; }
+      @page{ size: A4 landscape; margin: 8mm; }
       *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:10.5px;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;}
       table.lista{width:100%;border-collapse:collapse;}
-      table.lista thead th{background:#15325C;color:#fff;font-size:9.5px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;white-space:nowrap;}
-      table.lista tbody td{padding:4px 3px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:10px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;white-space:nowrap;}
+      table.lista tbody td{padding:6px 3px;border-bottom:1.5px solid #000;border-left:1.5px solid #000;border-right:1.5px solid #000;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
@@ -10521,11 +10558,11 @@ async function imprimirFrequenciaEstudantes(turmaId){
         </tr></thead>
         <tbody>${linhas}</tbody>
       </table>
+    <script>${scriptAutoajusteLista(194)}<\/script>
     </body></html>
   `);
   janela.document.close();
   janela.focus();
-  setTimeout(() => janela.print(), 400);
 }
 
 iniciar();
