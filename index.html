@@ -2486,7 +2486,10 @@ function renderizarFuncionarios(el){
   const linhas = lista.map(f => `
     <tr data-id="${f.id}">
       ${ehAdmin ? `<td style="width:1%;"><input type="checkbox" class="chk-imprimir-func" data-id="${f.id}" ${selecionados.has(f.id)?'checked':''} style="width:15px;height:15px;" /></td>` : ''}
-      <td>${esc(f.nome)}</td>
+      <td style="display:flex;align-items:center;gap:9px;">
+        ${f.foto_url ? `<img src="${esc(f.foto_url)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;" />` : `<span style="width:26px;height:26px;border-radius:50%;background:var(--areia-escura);display:inline-block;flex-shrink:0;"></span>`}
+        ${esc(f.nome)}
+      </td>
       <td><span class="pill verde">${esc(f.funcao)}</span></td>
       <td>${f.vinculo ? `<span class="pill azul">${esc(rotuloVinculo(f.vinculo))}</span>` : '—'}</td>
       <td>${f.categoria ? esc(rotuloCategoria(f.categoria)) : '—'}</td>
@@ -3705,6 +3708,11 @@ function abrirModalFuncionario(funcionario){
       </div>
       <form id="form-novo-funcionario">
         <div class="secao-titulo">Dados gerais</div>
+        <div class="campo" style="max-width:320px;">
+          <label>Foto do funcionário (opcional)</label>
+          ${editando && funcionario.foto_url ? `<img src="${esc(funcionario.foto_url)}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;display:block;margin-bottom:6px;" />` : ''}
+          <input type="file" id="func-foto" accept="image/*" />
+        </div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
           <div class="campo"><label>Nome completo</label><input type="text" id="func-nome" value="${v('nome')}" required /></div>
           <div class="campo"><label>Telefone</label><input type="text" id="func-telefone" value="${v('telefone')}" /></div>
@@ -3957,13 +3965,24 @@ function abrirModalFuncionario(funcionario){
       carga_horaria: campo('func-carga-horaria') ? parseInt(campo('func-carga-horaria'), 10) : null,
     };
     if(editando) dados.ativo = document.getElementById('func-ativo').checked;
-    const { error } = editando
-      ? await supabase.from('funcionarios').update(dados).eq('id', funcionario.id)
-      : await supabase.from('funcionarios').insert(dados);
+    const { data: registroFunc, error } = editando
+      ? await supabase.from('funcionarios').update(dados).eq('id', funcionario.id).select().single()
+      : await supabase.from('funcionarios').insert(dados).select().single();
     if(error){
       document.getElementById('msg-novo-funcionario').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
       btn.disabled = false; btn.textContent = editando ? 'Salvar alterações' : 'Salvar funcionário';
       return;
+    }
+    const funcionarioId = editando ? funcionario.id : registroFunc.id;
+    const arquivoFotoFunc = document.getElementById('func-foto').files[0];
+    if(arquivoFotoFunc){
+      const extensao = arquivoFotoFunc.name.split('.').pop();
+      const caminho = `${funcionarioId}/foto.${extensao}`;
+      const { error: erroUploadFoto } = await supabase.storage.from('fotos-funcionarios').upload(caminho, arquivoFotoFunc, { upsert: true });
+      if(!erroUploadFoto){
+        const { data: urlAssinadaFoto } = await supabase.storage.from('fotos-funcionarios').createSignedUrl(caminho, EXPIRACAO_LINK_STORAGE);
+        if(urlAssinadaFoto) await supabase.from('funcionarios').update({ foto_url: urlAssinadaFoto.signedUrl }).eq('id', funcionarioId);
+      }
     }
     modal.remove();
     await carregarDadosBase();
