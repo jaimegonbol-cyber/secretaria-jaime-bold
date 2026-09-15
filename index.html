@@ -322,6 +322,7 @@ function estadoPadraoAbas(){
     alunosSelecionadosExport: [],
     buscaArquivoMorto: '',
     buscaFuncionario: '',
+    funcionariosSelecionadosImpressao: [],
     freqFuncData: hojeISO(),
     alunoSelecionado: null,
     subFrequencia: 'estudantes',
@@ -368,6 +369,8 @@ function estadoPadraoAbas(){
     avalPersonalizadaTurmaId: '',
     avalPersonalizadaGenero: '',
     avalPersonalizadaSelecionadaId: '',
+    gabaritoTurmaId: '',
+    gabaritoDisciplina: '',
     agendaSemanaOffset: 0,
     agendaFiltro: 'todos',
     agendaMsg: null,
@@ -2479,8 +2482,10 @@ async function proximoRegistroArquivoMorto(){
 function renderizarFuncionarios(el){
   const lista = funcionariosFiltrados();
   const ehAdmin = ESTADO.perfil.role === 'admin';
+  const selecionados = new Set(ESTADO.funcionariosSelecionadosImpressao || []);
   const linhas = lista.map(f => `
     <tr data-id="${f.id}">
+      ${ehAdmin ? `<td style="width:1%;"><input type="checkbox" class="chk-imprimir-func" data-id="${f.id}" ${selecionados.has(f.id)?'checked':''} style="width:15px;height:15px;" /></td>` : ''}
       <td>${esc(f.nome)}</td>
       <td><span class="pill verde">${esc(f.funcao)}</span></td>
       <td>${f.vinculo ? `<span class="pill azul">${esc(rotuloVinculo(f.vinculo))}</span>` : '—'}</td>
@@ -2500,16 +2505,46 @@ function renderizarFuncionarios(el){
         <button class="botao terracota pequeno" id="btn-novo-funcionario" style="width:auto;">+ Novo funcionário</button>
       </div>
     </div>
+    ${ehAdmin ? `
+    <div class="painel" style="margin-bottom:14px;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="font-size:13px;color:var(--texto-suave);">
+        <b>${selecionados.size}</b> funcionário(s) selecionado(s)
+        ${selecionados.size ? `<button id="btn-limpar-selecao-func" style="background:none;border:none;color:var(--terracota);font-size:12.5px;font-weight:600;cursor:pointer;margin-left:8px;">limpar seleção</button>` : ''}
+      </div>
+      <button class="botao secundario" id="btn-imprimir-relacao-func" style="width:auto;" ${selecionados.size?'':'disabled'}>🖨️ Gerar relação impressa</button>
+    </div>` : ''}
     <div class="painel">
       <div class="barra"><input type="text" id="busca-funcionario" placeholder="Buscar por nome ou função…" value="${esc(ESTADO.buscaFuncionario)}" /></div>
-      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Função</th><th>Vínculo</th><th>Categoria</th><th>Telefone</th><th>Status</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
+      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr>${ehAdmin ? `<th style="width:1%;"><input type="checkbox" id="chk-imprimir-func-todos" title="Selecionar todos os visíveis" style="width:15px;height:15px;" /></th>` : ''}<th>Nome</th><th>Função</th><th>Vínculo</th><th>Categoria</th><th>Telefone</th><th>Status</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
         : `<div class="vazio">Nenhum funcionário cadastrado ainda.</div>`}
     </div>`;
 
   document.getElementById('busca-funcionario').addEventListener('input', (e) => { ESTADO.buscaFuncionario = e.target.value; renderizarFuncionarios(el); preservarFoco('busca-funcionario'); });
   document.getElementById('btn-novo-funcionario').addEventListener('click', () => abrirModalFuncionario(null));
+  if(ehAdmin){
+    el.querySelectorAll('.chk-imprimir-func').forEach(chk => {
+      chk.addEventListener('click', (e) => e.stopPropagation());
+      chk.addEventListener('change', (e) => {
+        const conjunto = new Set(ESTADO.funcionariosSelecionadosImpressao || []);
+        if(e.target.checked) conjunto.add(e.target.dataset.id); else conjunto.delete(e.target.dataset.id);
+        ESTADO.funcionariosSelecionadosImpressao = Array.from(conjunto);
+        renderizarFuncionarios(el);
+      });
+    });
+    const chkTodos = document.getElementById('chk-imprimir-func-todos');
+    if(chkTodos) chkTodos.addEventListener('change', (e) => {
+      const conjunto = new Set(ESTADO.funcionariosSelecionadosImpressao || []);
+      lista.forEach(f => { if(e.target.checked) conjunto.add(f.id); else conjunto.delete(f.id); });
+      ESTADO.funcionariosSelecionadosImpressao = Array.from(conjunto);
+      renderizarFuncionarios(el);
+    });
+    const btnLimpar = document.getElementById('btn-limpar-selecao-func');
+    if(btnLimpar) btnLimpar.addEventListener('click', () => { ESTADO.funcionariosSelecionadosImpressao = []; renderizarFuncionarios(el); });
+    const btnImprimir = document.getElementById('btn-imprimir-relacao-func');
+    if(btnImprimir) btnImprimir.addEventListener('click', () => abrirModalColunasRelacaoFuncionarios(Array.from(selecionados)));
+  }
   el.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
-    if(e.target.closest('[data-editar-func], [data-excluir-func]')) return;
+    if(e.target.closest('[data-editar-func], [data-excluir-func], .chk-imprimir-func')) return;
     abrirFichaFuncionario(ESTADO.funcionarios.find(f => f.id === tr.dataset.id));
   }));
   el.querySelectorAll('[data-editar-func]').forEach(b => b.addEventListener('click', (e) => {
@@ -2524,6 +2559,90 @@ function renderizarFuncionarios(el){
     await carregarDadosBase();
     renderizarApp();
   }));
+}
+
+// Colunas disponíveis pra montar a relação impressa de funcionários (Nome é sempre incluído).
+const COLUNAS_RELACAO_FUNCIONARIOS = [
+  { chave: 'matricula', rotulo: 'Matrícula', largura: '10%', valor: f => f.matricula || '—' },
+  { chave: 'funcao', rotulo: 'Função', largura: '16%', valor: f => f.funcao || '—', padrao: true },
+  { chave: 'cargo', rotulo: 'Cargo', largura: '14%', valor: f => f.cargo || '—' },
+  { chave: 'vinculo', rotulo: 'Vínculo', largura: '12%', valor: f => f.vinculo ? rotuloVinculo(f.vinculo) : '—' },
+  { chave: 'cpf', rotulo: 'CPF', largura: '12%', valor: f => f.cpf || '—' },
+  { chave: 'rg', rotulo: 'RG', largura: '12%', valor: f => f.rg || '—' },
+  { chave: 'telefone', rotulo: 'Telefone', largura: '13%', valor: f => f.telefone || '—', padrao: true },
+  { chave: 'email', rotulo: 'E-mail', largura: '18%', valor: f => f.email || '—' },
+  { chave: 'turno', rotulo: 'Turno', largura: '9%', valor: f => f.turno || '—' },
+  { chave: 'data_nascimento', rotulo: 'Data Nasc.', largura: '11%', valor: f => f.data_nascimento ? formatarDataBR(f.data_nascimento) : '—' },
+  { chave: 'endereco', rotulo: 'Endereço', largura: '22%', valor: f => [f.endereco, f.bairro, f.cidade].filter(Boolean).join(', ') || '—' },
+];
+
+function abrirModalColunasRelacaoFuncionarios(idsSelecionados){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-topo"><h3>Quais informações imprimir?</h3><button data-fechar>✕</button></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:-4px 0 12px;">O cadastro não tem foto de funcionário — a relação impressa é em formato de tabela (Nome sempre incluído). Marque as demais colunas que quiser:</p>
+      <div id="lista-colunas-func">
+        ${COLUNAS_RELACAO_FUNCIONARIOS.map(c => `
+          <label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:13.5px;">
+            <input type="checkbox" class="chk-coluna-func" data-chave="${c.chave}" ${c.padrao ? 'checked' : ''} style="width:15px;height:15px;" />
+            ${esc(c.rotulo)}
+          </label>`).join('')}
+      </div>
+      <button class="botao terracota" id="btn-confirmar-colunas-func" style="width:100%;margin-top:10px;">🖨️ Gerar relação</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.getElementById('btn-confirmar-colunas-func').addEventListener('click', () => {
+    const chavesSelecionadas = Array.from(modal.querySelectorAll('.chk-coluna-func:checked')).map(chk => chk.dataset.chave);
+    modal.remove();
+    imprimirRelacaoFuncionarios(idsSelecionados, chavesSelecionadas);
+  });
+}
+
+function imprimirRelacaoFuncionarios(idsSelecionados, chavesColunas){
+  const funcionariosSelecionados = idsSelecionados.map(id => ESTADO.funcionarios.find(f => f.id === id)).filter(Boolean)
+    .sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const colunas = COLUNAS_RELACAO_FUNCIONARIOS.filter(c => chavesColunas.includes(c.chave));
+
+  const linhas = funcionariosSelecionados.map((f, i) => `
+    <tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(f.nome)}</td>
+      ${colunas.map(c => `<td style="text-align:center;">${esc(c.valor(f))}</td>`).join('')}
+    </tr>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Relação de Funcionários</title>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
+    </head><body>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
+        <tr>
+          <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
+          <td style="text-align:center;">
+            <div style="font-size:15px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+            <div style="font-size:15px;font-weight:800;color:#111;margin-top:2px;">RELAÇÃO DE FUNCIONÁRIOS - ${new Date().getFullYear()}</div>
+          </td>
+          <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td>
+        </tr>
+      </table>
+      <table class="lista">
+        <thead><tr>
+          <th style="width:6%;">NUM</th>
+          <th>NOME</th>
+          ${colunas.map(c => `<th style="width:${c.largura};">${esc(c.rotulo).toUpperCase()}</th>`).join('')}
+        </tr></thead>
+        <tbody>${linhas || `<tr><td colspan="${2+colunas.length}" style="text-align:center;padding:14px;">Nenhum funcionário selecionado.</td></tr>`}</tbody>
+      </table>
+    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
 }
 
 const TIPOS_JUSTIFICATIVA_FUNCIONARIO = [
@@ -8898,6 +9017,7 @@ function renderizarAvaliacoes(el){
     { id:'fluencia', label:'Avaliação de Fluência' },
     { id:'saev', label:'SAEV' },
     { id:'personalizada', label:'Avaliação Personalizada' },
+    { id:'gabarito', label:'Gabarito de Provas' },
   ];
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -8910,6 +9030,7 @@ function renderizarAvaliacoes(el){
   const alvoTopo = el.querySelector('#conteudo-avaliacoes-topo');
   if(ESTADO.subAvaliacoes === 'saev') renderizarSaev(alvoTopo);
   else if(ESTADO.subAvaliacoes === 'personalizada') renderizarAvaliacaoPersonalizada(alvoTopo);
+  else if(ESTADO.subAvaliacoes === 'gabarito') renderizarGabaritoProvas(alvoTopo);
   else renderizarAvaliacaoFluencia(alvoTopo);
 }
 
@@ -9380,6 +9501,422 @@ async function abrirModalResultadosAvaliacaoPersonalizada(avaliacao){
     ${resumoPorItem}
     <h4 style="margin:16px 0 8px;">Estudantes avaliados</h4>
     <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th><th>Data</th><th>Origem</th></tr></thead><tbody>${listaAlunos}</tbody></table></div>`;
+}
+
+// ---------------------------------------------------------------
+// GABARITO DE PROVAS — criação com descritor por questão + correção por foto
+// ---------------------------------------------------------------
+const LETRAS_GABARITO = ['A','B','C','D','E'];
+
+async function buscarDescritoresSaevExistentes(){
+  const { data } = await supabase.from('saev_resultados_descritores').select('descritor');
+  const unicos = Array.from(new Set((data||[]).map(d => d.descritor).filter(Boolean)));
+  return unicos.sort((a,b) => a.localeCompare(b, 'pt-BR'));
+}
+
+async function renderizarGabaritoProvas(el){
+  el.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.gabaritoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  let query = supabase.from('gabaritos_provas').select('*, turmas(nome)').eq('ativo', true).order('criado_em', { ascending: false });
+  if(ESTADO.gabaritoTurmaId) query = query.eq('turma_id', ESTADO.gabaritoTurmaId);
+  const { data: gabaritos, error } = await query;
+  if(error){ el.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+
+  const ids = (gabaritos||[]).map(g => g.id);
+  let contagens = {};
+  if(ids.length){
+    const { data: respostas } = await supabase.from('gabaritos_provas_respostas').select('gabarito_id').in('gabarito_id', ids);
+    (respostas||[]).forEach(r => { contagens[r.gabarito_id] = (contagens[r.gabarito_id]||0) + 1; });
+  }
+
+  const cards = (gabaritos||[]).length ? gabaritos.map(g => `
+    <div class="painel" style="margin-bottom:10px;padding:14px 16px;">
+      <div style="font-weight:700;font-size:14.5px;">${esc(g.titulo)} ${g.disciplina ? `<span class="pill" style="font-size:10.5px;">${esc(g.disciplina)}</span>` : ''}</div>
+      <div style="font-size:12.5px;color:var(--texto-suave);">${esc(g.turmas?.nome || 'Todas as turmas')} · ${g.questoes.length} questão(ões) · ${contagens[g.id]||0} corrigida(s)</div>
+      ${g.descricao ? `<div style="font-size:12.5px;color:var(--texto-suave);margin-top:2px;">${esc(g.descricao)}</div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="botao terracota pequeno" style="width:auto;" data-imprimir-gab="${g.id}">🖨️ Imprimir folha(s)</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-corrigir-gab="${g.id}">📷 Corrigir com a câmera</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-resultados-gab="${g.id}">📊 Ver resultados</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-excluir-gab="${g.id}">🗑️ Excluir</button>
+      </div>
+    </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhum gabarito criado${ESTADO.gabaritoTurmaId ? ' para esta turma' : ''} ainda.</p>`;
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <select id="gab-filtro-turma" style="max-width:260px;"><option value="">Todas as turmas</option>${opcoesTurma}</select>
+      <button class="botao terracota" style="width:auto;" id="btn-criar-gabarito">+ Criar gabarito</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:-6px 0 14px;">Monte o gabarito com a resposta certa e o descritor de cada questão, imprima a folha de respostas (5 alternativas, A a E), e depois corrija tirando uma foto — a IA identifica o que foi marcado, você confirma, e o sistema calcula acertos e o desempenho por descritor.</p>
+    <div id="gab-lista">${cards}</div>`;
+
+  document.getElementById('gab-filtro-turma').addEventListener('change', e => { ESTADO.gabaritoTurmaId = e.target.value; renderizarGabaritoProvas(el); });
+  document.getElementById('btn-criar-gabarito').addEventListener('click', () => abrirModalCriarGabarito(el));
+  el.querySelectorAll('[data-imprimir-gab]').forEach(b => b.addEventListener('click', () => abrirModalImprimirGabarito(gabaritos.find(g => g.id === b.dataset.imprimirGab))));
+  el.querySelectorAll('[data-corrigir-gab]').forEach(b => b.addEventListener('click', () => abrirModalCorrigirGabaritoCamera(gabaritos.find(g => g.id === b.dataset.corrigirGab), el)));
+  el.querySelectorAll('[data-resultados-gab]').forEach(b => b.addEventListener('click', () => abrirModalResultadosGabarito(gabaritos.find(g => g.id === b.dataset.resultadosGab))));
+  el.querySelectorAll('[data-excluir-gab]').forEach(b => b.addEventListener('click', async () => {
+    if(!confirm('Excluir este gabarito e todas as correções já feitas dele? Esta ação não pode ser desfeita.')) return;
+    const { error: erroExcluir } = await supabase.from('gabaritos_provas').delete().eq('id', b.dataset.excluirGab);
+    if(erroExcluir){ alert('Erro ao excluir: ' + erroExcluir.message); return; }
+    renderizarGabaritoProvas(el);
+  }));
+}
+
+async function abrirModalCriarGabarito(elPai){
+  const descritoresExistentes = await buscarDescritoresSaevExistentes();
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Criar gabarito</h3><button data-fechar>✕</button></div>
+      <div id="msg-criar-gab"></div>
+      <div class="campo"><label>Título</label><input type="text" id="gab-titulo" placeholder="Ex: Avaliação de Matemática — 1º Bimestre" /></div>
+      <div class="grade-2">
+        <div class="campo"><label>Disciplina (opcional)</label><input type="text" id="gab-disciplina" placeholder="Ex: Matemática" /></div>
+        <div class="campo"><label>Turma (opcional)</label><select id="gab-turma"><option value="">Todas as turmas</option>${opcoesTurma}</select></div>
+      </div>
+      <div class="campo"><label>Descrição (opcional)</label><input type="text" id="gab-descricao" placeholder="Ex: Prova bimestral, 10 questões objetivas" /></div>
+      <datalist id="datalist-descritores">${descritoresExistentes.map(d => `<option value="${esc(d)}"></option>`).join('')}</datalist>
+      <div class="campo">
+        <label>Questões (5 alternativas: A a E)</label>
+        <div id="gab-questoes"></div>
+        <button class="botao secundario pequeno" type="button" id="btn-add-questao-gab" style="width:auto;margin-top:6px;">+ Adicionar questão</button>
+      </div>
+      <button class="botao terracota" id="btn-salvar-gab" style="margin-top:16px;width:auto;">Salvar gabarito</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const listaQuestoesEl = document.getElementById('gab-questoes');
+  let questoes = [];
+
+  function renderizarQuestoesGab(){
+    listaQuestoesEl.innerHTML = questoes.map((q, i) => `
+      <div style="display:flex;gap:8px;align-items:center;border:1px solid var(--borda);border-radius:8px;padding:8px 10px;margin-bottom:6px;flex-wrap:wrap;">
+        <span style="font-weight:700;font-size:13px;min-width:22px;">${i+1}.</span>
+        <input type="text" class="gab-questao-descritor" data-i="${i}" list="datalist-descritores" placeholder="Descritor (ex: D5 — Interpretar texto narrativo)" value="${esc(q.descritor)}" style="flex:1;min-width:220px;" />
+        <select class="gab-questao-resposta" data-i="${i}" style="width:auto;">
+          ${LETRAS_GABARITO.map(l => `<option value="${l}" ${q.resposta_correta===l?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <button type="button" class="btn-icone perigo" data-remover-questao="${i}" title="Remover">🗑️</button>
+      </div>`).join('');
+    listaQuestoesEl.querySelectorAll('.gab-questao-descritor').forEach(inp => inp.addEventListener('input', e => { questoes[e.target.dataset.i].descritor = e.target.value; }));
+    listaQuestoesEl.querySelectorAll('.gab-questao-resposta').forEach(sel => sel.addEventListener('change', e => { questoes[e.target.dataset.i].resposta_correta = e.target.value; }));
+    listaQuestoesEl.querySelectorAll('[data-remover-questao]').forEach(b => b.addEventListener('click', () => { questoes.splice(Number(b.dataset.removerQuestao), 1); renderizarQuestoesGab(); }));
+  }
+  function adicionarQuestaoGab(){
+    questoes.push({ descritor: '', resposta_correta: 'A' });
+    renderizarQuestoesGab();
+  }
+  document.getElementById('btn-add-questao-gab').addEventListener('click', adicionarQuestaoGab);
+  for(let i=0;i<5;i++) adicionarQuestaoGab(); // começa com 5 questões de exemplo
+
+  document.getElementById('btn-salvar-gab').addEventListener('click', async () => {
+    const msg = document.getElementById('msg-criar-gab');
+    const titulo = document.getElementById('gab-titulo').value.trim();
+    if(!titulo){ msg.innerHTML = `<div class="msg-erro">Dê um título pro gabarito.</div>`; return; }
+    const questoesValidas = questoes.map((q,i) => ({ numero: i+1, descritor: q.descritor.trim() || `Questão ${i+1}`, resposta_correta: q.resposta_correta }));
+    if(!questoesValidas.length){ msg.innerHTML = `<div class="msg-erro">Adicione ao menos uma questão.</div>`; return; }
+    const btn = document.getElementById('btn-salvar-gab');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error } = await supabase.from('gabaritos_provas').insert({
+      titulo,
+      disciplina: document.getElementById('gab-disciplina').value.trim() || null,
+      descricao: document.getElementById('gab-descricao').value.trim() || null,
+      turma_id: document.getElementById('gab-turma').value || null,
+      questoes: questoesValidas,
+      criado_por: ESTADO.perfil.id,
+    });
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar gabarito'; return; }
+    modal.remove();
+    renderizarGabaritoProvas(elPai);
+  });
+}
+
+function abrirModalImprimirGabarito(gabarito){
+  const alunosTurma = gabarito.turma_id
+    ? ESTADO.alunos.filter(a => a.turma_id === gabarito.turma_id && a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    : ESTADO.alunos.filter(a => a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-topo"><h3>Imprimir — ${esc(gabarito.titulo)}</h3><button data-fechar>✕</button></div>
+      <button class="botao secundario" id="btn-gab-imprimir-branco" style="width:100%;margin-bottom:10px;">🖨️ Imprimir folha em branco (sem nome)</button>
+      <div class="campo"><input type="text" id="gab-busca-imp" placeholder="Buscar estudante…" /></div>
+      <div id="gab-lista-imp" style="max-height:260px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;"></div>
+      <button class="botao terracota" id="btn-gab-imprimir-selecionados" style="width:100%;margin-top:10px;">🖨️ Imprimir selecionados</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const selecionados = new Set();
+  function renderizarListaImpGab(termo){
+    const lista = document.getElementById('gab-lista-imp');
+    const t = (termo||'').toLowerCase();
+    const filtrados = alunosTurma.filter(a => !t || a.nome.toLowerCase().includes(t)).slice(0, 100);
+    lista.innerHTML = filtrados.length ? filtrados.map(a => `
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" class="chk-aluno-imp-gab" data-id="${a.id}" ${selecionados.has(a.id)?'checked':''} />
+        ${esc(a.nome)}
+      </label>`).join('') : `<p style="color:var(--texto-suave);margin:0;">Nenhum estudante encontrado.</p>`;
+    lista.querySelectorAll('.chk-aluno-imp-gab').forEach(chk => chk.addEventListener('change', e => {
+      if(e.target.checked) selecionados.add(e.target.dataset.id); else selecionados.delete(e.target.dataset.id);
+    }));
+  }
+  renderizarListaImpGab('');
+  document.getElementById('gab-busca-imp').addEventListener('input', e => renderizarListaImpGab(e.target.value));
+  document.getElementById('btn-gab-imprimir-branco').addEventListener('click', () => imprimirGabaritos(gabarito, [null, null, null, null]));
+  document.getElementById('btn-gab-imprimir-selecionados').addEventListener('click', () => {
+    if(!selecionados.size){ alert('Selecione ao menos um estudante, ou use "Imprimir folha em branco".'); return; }
+    const alunosSelecionados = Array.from(selecionados).map(id => ESTADO.alunos.find(a => a.id === id)).filter(Boolean);
+    imprimirGabaritos(gabarito, alunosSelecionados);
+  });
+}
+
+// Monta o conteúdo compacto de UMA folha (meia página) com a grade de alternativas A-E por questão.
+// Monta o conteúdo compacto de UM quadrante (1/4 da folha) com a grade de alternativas A-E.
+function montarQuadranteGabarito(gabarito, aluno){
+  const circulo = `<span style="display:inline-block;width:11px;height:11px;border:1.3px solid #000;border-radius:50%;flex-shrink:0;"></span>`;
+  const linhasQuestoes = gabarito.questoes.map(q => `
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px;">
+      <span style="font-weight:700;font-size:10px;min-width:16px;">${q.numero}.</span>
+      ${LETRAS_GABARITO.map(l => `<span style="display:flex;align-items:center;gap:3px;font-size:12.5px;font-weight:600;">${circulo}${l}</span>`).join('')}
+    </div>`).join('');
+  return `
+      <div style="text-align:center;margin-bottom:4px;">
+        <div style="font-weight:700;font-size:10.5px;">Escola Municipal Jaime Gonçalves Bold</div>
+        <div style="font-weight:700;font-size:12px;text-transform:uppercase;">${esc(gabarito.titulo)}</div>
+        ${gabarito.disciplina ? `<p style="font-size:9px;color:#555;margin:1px 0 0;">${esc(gabarito.disciplina)}</p>` : ''}
+      </div>
+      <div style="font-size:10px;margin:4px 0 2px;"><b>Nome:</b> ${aluno ? esc(aluno.nome) : '_______________________________'}</div>
+      <div style="font-size:10px;margin:0 0 6px;"><b>Data:</b> ____/____/______</div>
+      ${linhasQuestoes}`;
+}
+
+// Monta uma página com 4 folhas (2 colunas x 2 linhas), separadas por linhas de corte
+// horizontal e vertical — economiza ainda mais papel que o modelo de 2 por folha.
+function montarPaginaQuadruplaGabarito(alunos4, gabarito, comQuebra){
+  const ALTURA = 48.2, DIV_H = 3.6, LARGURA = 48.2, DIV_V = 3.6;
+  const celula = (a, ladoEsquerdo) => `<div style="width:${LARGURA}%;overflow:hidden;box-sizing:border-box;padding:${ladoEsquerdo ? '2px 6px 2px 2px' : '2px 2px 2px 6px'};">${a !== undefined ? montarQuadranteGabarito(gabarito, a) : ''}</div>`;
+  const divisoriaVertical = `
+        <div style="width:${DIV_V}%;position:relative;box-sizing:border-box;">
+          <div style="position:absolute;left:50%;top:4%;bottom:4%;border-left:1.5px dashed #888;"></div>
+        </div>`;
+  const divisoriaHorizontal = `
+      <div style="height:${DIV_H}%;position:relative;box-sizing:border-box;">
+        <div style="position:absolute;top:50%;left:0;right:0;border-top:1.5px dashed #888;"></div>
+        <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:0 6px;font-size:11px;">✂️</span>
+      </div>`;
+  return `
+      <div style="${comQuebra ? 'page-break-before:always;' : ''}height:278mm;box-sizing:border-box;">
+        <div style="height:${ALTURA}%;display:flex;box-sizing:border-box;">
+          ${celula(alunos4[0], true)}
+          ${divisoriaVertical}
+          ${celula(alunos4[1], false)}
+        </div>
+        ${divisoriaHorizontal}
+        <div style="height:${ALTURA}%;display:flex;box-sizing:border-box;">
+          ${celula(alunos4[2], true)}
+          ${divisoriaVertical}
+          ${celula(alunos4[3], false)}
+        </div>
+      </div>`;
+}
+
+function imprimirGabaritos(gabarito, alunos){
+  const paginas = [];
+  for(let i = 0; i < alunos.length; i += 4){
+    paginas.push(montarPaginaQuadruplaGabarito([alunos[i], alunos[i+1], alunos[i+2], alunos[i+3]], gabarito, i > 0));
+  }
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>${esc(gabarito.titulo)}</title>
+    <style>
+      @page{ size: A4; margin: 8mm; }
+      *{ box-sizing:border-box; }
+      html, body{ height:100%; margin:0; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      ${paginas.join('\n')}
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+function abrirModalCorrigirGabaritoCamera(gabarito, elPai){
+  const alunosTurma = gabarito.turma_id
+    ? ESTADO.alunos.filter(a => a.turma_id === gabarito.turma_id && a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    : ESTADO.alunos.filter(a => a.situacao !== 'transferido' && a.situacao !== 'cancelado').sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const opcoesAlunos = alunosTurma.map(a => `<option value="${a.id}">${esc(a.nome)}</option>`).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Corrigir com a câmera — ${esc(gabarito.titulo)}</h3><button data-fechar>✕</button></div>
+      <div class="campo"><label>Estudante</label><select id="gabcorr-aluno"><option value="">Selecione…</option>${opcoesAlunos}</select></div>
+      <div class="campo">
+        <label>Foto do gabarito preenchido</label>
+        <input type="file" id="gabcorr-foto" accept="image/*" capture="environment" />
+        <p style="font-size:11.5px;color:var(--texto-suave);margin:4px 0 0;">No celular, isso abre a câmera direto. Enquadre bem e com boa luz, mostrando todas as marcações.</p>
+      </div>
+      <div id="gabcorr-preview" style="margin:10px 0;"></div>
+      <div id="msg-gabcorr"></div>
+      <button class="botao terracota" id="btn-analisar-gabcorr" style="width:100%;" disabled>📷 Analisar foto com IA</button>
+      <div id="gabcorr-revisao" style="margin-top:14px;"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  let arquivoFoto = null;
+  document.getElementById('gabcorr-foto').addEventListener('change', (e) => {
+    arquivoFoto = e.target.files[0] || null;
+    const preview = document.getElementById('gabcorr-preview');
+    const btnAnalisar = document.getElementById('btn-analisar-gabcorr');
+    if(arquivoFoto){
+      preview.innerHTML = `<img src="${URL.createObjectURL(arquivoFoto)}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--borda);" />`;
+      btnAnalisar.disabled = false;
+    } else {
+      preview.innerHTML = ''; btnAnalisar.disabled = true;
+    }
+  });
+
+  document.getElementById('btn-analisar-gabcorr').addEventListener('click', async () => {
+    const alunoId = document.getElementById('gabcorr-aluno').value;
+    const msg = document.getElementById('msg-gabcorr');
+    if(!alunoId){ msg.innerHTML = `<div class="msg-erro">Selecione o estudante.</div>`; return; }
+    if(!arquivoFoto){ msg.innerHTML = `<div class="msg-erro">Selecione a foto do gabarito.</div>`; return; }
+    const btn = document.getElementById('btn-analisar-gabcorr');
+    btn.disabled = true; btn.textContent = 'Analisando com IA…';
+    msg.innerHTML = '';
+    try{
+      const { base64, mediaType } = await comprimirImagemParaBase64(arquivoFoto);
+      const { data: resposta, error } = await supabase.functions.invoke('corrigir-gabarito-camera', {
+        body: { numeroQuestoes: gabarito.questoes.length, imagemBase64: base64, mediaType },
+      });
+      if(error || !resposta || resposta.error) throw new Error((resposta && resposta.error) || 'Falha ao analisar a foto.');
+      renderizarRevisaoGabcorr(gabarito, alunoId, resposta.resultado, modal, elPai);
+    } catch(err){
+      msg.innerHTML = `<div class="msg-erro">${esc(err.message)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = '📷 Analisar foto com IA';
+    }
+  });
+}
+
+function renderizarRevisaoGabcorr(gabarito, alunoId, resultadoIA, modal, elPai){
+  const cores = { alta: '#2E7D5B', media: '#D98A1F', baixa: '#B4432E' };
+  const revisao = document.getElementById('gabcorr-revisao');
+  revisao.innerHTML = `
+    <h4 style="margin:0 0 8px;">Confira e ajuste antes de salvar</h4>
+    ${gabarito.questoes.map(q => {
+      const sugestao = resultadoIA.find(r => r.numero === q.numero) || {};
+      const cor = cores[sugestao.confianca] || '#999';
+      return `
+      <div style="border:1px solid var(--borda);border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:12.5px;font-weight:600;min-width:26px;">${q.numero}.</span>
+        <span style="font-size:11px;color:var(--texto-suave);flex:1;min-width:140px;">${esc(q.descritor)} <span style="color:${cor};">(IA: ${sugestao.confianca || 'baixa'})</span></span>
+        ${LETRAS_GABARITO.map(l => `
+          <label style="display:flex;align-items:center;gap:3px;font-size:12.5px;cursor:pointer;">
+            <input type="radio" name="gabcorr-q-${q.numero}" value="${l}" ${sugestao.alternativa === l ? 'checked' : ''} /> ${l}
+          </label>`).join('')}
+      </div>`;
+    }).join('')}
+    <button class="botao terracota" id="btn-salvar-gabcorr" style="width:100%;margin-top:6px;">✅ Salvar correção</button>
+    <div id="msg-salvar-gabcorr"></div>`;
+
+  document.getElementById('btn-salvar-gabcorr').addEventListener('click', async () => {
+    const respostas = gabarito.questoes.map(q => {
+      const marcado = revisao.querySelector(`input[name="gabcorr-q-${q.numero}"]:checked`);
+      return { numero: q.numero, alternativa: marcado ? marcado.value : null };
+    });
+    const acertos = respostas.filter(r => {
+      const q = gabarito.questoes.find(x => x.numero === r.numero);
+      return q && r.alternativa === q.resposta_correta;
+    }).length;
+    const msgSalvar = document.getElementById('msg-salvar-gabcorr');
+    const btnSalvar = document.getElementById('btn-salvar-gabcorr');
+    btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando…';
+    const { error } = await supabase.from('gabaritos_provas_respostas').upsert({
+      gabarito_id: gabarito.id,
+      aluno_id: alunoId,
+      respostas,
+      acertos,
+      total: gabarito.questoes.length,
+      origem: 'camera',
+      corrigido_por: ESTADO.perfil.id,
+    }, { onConflict: 'gabarito_id,aluno_id' });
+    if(error){ msgSalvar.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btnSalvar.disabled = false; btnSalvar.textContent = '✅ Salvar correção'; return; }
+    modal.remove();
+    renderizarGabaritoProvas(elPai);
+  });
+}
+
+async function abrirModalResultadosGabarito(gabarito){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Resultados — ${esc(gabarito.titulo)}</h3><button data-fechar>✕</button></div>
+      <div id="gab-resultados-conteudo"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  const { data: respostas, error } = await supabase.from('gabaritos_provas_respostas')
+    .select('*, alunos(nome)').eq('gabarito_id', gabarito.id);
+  const conteudo = document.getElementById('gab-resultados-conteudo');
+  if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!respostas || !respostas.length){ conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma folha corrigida ainda pra esse gabarito.</p>`; return; }
+
+  // desempenho por descritor: agrega acertos/total de todas as correções, por descritor de cada questão
+  const porDescritor = {};
+  gabarito.questoes.forEach(q => { porDescritor[q.descritor] = porDescritor[q.descritor] || { acertos: 0, total: 0 }; });
+  respostas.forEach(r => {
+    (r.respostas || []).forEach(resp => {
+      const q = gabarito.questoes.find(x => x.numero === resp.numero);
+      if(!q) return;
+      porDescritor[q.descritor].total++;
+      if(resp.alternativa === q.resposta_correta) porDescritor[q.descritor].acertos++;
+    });
+  });
+
+  const linhasDescritor = Object.entries(porDescritor).map(([descritor, d]) => {
+    const pct = d.total ? Math.round(d.acertos/d.total*100) : 0;
+    return `<div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>${esc(descritor)}</span><span style="color:var(--texto-suave);">${d.acertos}/${d.total} (${pct}%)</span></div>
+      <div style="background:var(--areia);border-radius:5px;height:14px;overflow:hidden;"><div style="width:${pct}%;background:${pct<60?'#B4432E':pct<80?'#D98A1F':'#2E7D5B'};height:100%;"></div></div>
+    </div>`;
+  }).join('');
+
+  const mediaGeral = respostas.length ? Math.round(respostas.reduce((s,r) => s + (r.acertos/r.total*100), 0) / respostas.length) : 0;
+
+  const linhasAlunos = respostas.sort((a,b) => (b.acertos/b.total) - (a.acertos/a.total)).map(r => `
+    <tr><td>${esc(r.alunos?.nome || 'Estudante removido')}</td><td>${r.acertos}/${r.total}</td><td>${Math.round(r.acertos/r.total*100)}%</td><td>${fmtData(r.data_aplicacao)}</td></tr>
+  `).join('');
+
+  conteudo.innerHTML = `
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 14px;"><b>${respostas.length}</b> estudante(s) corrigido(s) · média geral <b>${mediaGeral}%</b> de acertos.</p>
+    <h4 style="margin:0 0 8px;">Desempenho por descritor</h4>
+    ${linhasDescritor}
+    <h4 style="margin:16px 0 8px;">Notas individuais</h4>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th><th>Acertos</th><th>%</th><th>Data</th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------
