@@ -2292,12 +2292,17 @@ function renderizarTurmas(el){
   document.getElementById('btn-nova-turma').addEventListener('click', () => abrirModalEditarTurma(null));
 }
 
+const DISCIPLINAS_TURMA = [
+  'Arte', 'Ciências', 'EDHC', 'EDI', 'Educação Física', 'Geografia',
+  'História', 'Língua Inglesa', 'Língua Portuguesa', 'Matemática', 'Polivalente',
+];
+
 function abrirModalEditarTurma(turma){
   const editando = !!turma;
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
   modal.innerHTML = `
-    <div class="modal" style="max-width:400px;">
+    <div class="modal" style="max-width:480px;max-height:92vh;overflow-y:auto;">
       <div class="modal-topo"><h3>${editando ? 'Editar turma' : 'Nova turma'}</h3><button data-fechar>✕</button></div>
       <div id="msg-turma"></div>
       <form id="form-turma">
@@ -2313,10 +2318,55 @@ function abrirModalEditarTurma(turma){
         <div class="campo"><label>Ano letivo</label><input type="number" id="turma-ano" value="${editando ? turma.ano_letivo : 2026}" /></div>
         <button class="botao terracota" type="submit" id="btn-salvar-turma">${editando ? 'Salvar alterações' : 'Criar turma'}</button>
       </form>
+      ${editando ? `
+      <div style="margin-top:20px;border-top:1px solid var(--borda);padding-top:14px;">
+        <h4 style="margin:0 0 8px;">Professores e disciplinas desta turma</h4>
+        <div id="lista-vinculos-turma"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <select id="vinculo-professor" style="flex:1;min-width:160px;"><option value="">Selecione o professor…</option>${ESTADO.funcionarios.filter(f=>f.ativo!==false).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('')}</select>
+          <select id="vinculo-disciplina" style="flex:1;min-width:160px;"><option value="">Selecione a disciplina…</option>${DISCIPLINAS_TURMA.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('')}</select>
+          <button class="botao secundario pequeno" type="button" id="btn-add-vinculo" style="width:auto;">+ Vincular</button>
+        </div>
+        <div id="msg-vinculo-turma"></div>
+      </div>` : ''}
     </div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  if(editando) carregarVinculosTurma(turma.id);
+
+  async function carregarVinculosTurma(turmaId){
+    const alvo = document.getElementById('lista-vinculos-turma');
+    const { data, error } = await supabase.from('turma_professor_disciplina')
+      .select('id, disciplina, funcionarios(nome)').eq('turma_id', turmaId).order('disciplina');
+    if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    alvo.innerHTML = (data && data.length) ? data.map(v => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 2px;border-bottom:1px solid var(--borda);font-size:13px;">
+        <span><b>${esc(v.disciplina)}</b> — ${esc(v.funcionarios?.nome || 'Funcionário removido')}</span>
+        <button type="button" class="btn-icone perigo" data-remover-vinculo="${v.id}" title="Remover">🗑️</button>
+      </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhum professor vinculado ainda.</p>`;
+    alvo.querySelectorAll('[data-remover-vinculo]').forEach(b => b.addEventListener('click', async () => {
+      await supabase.from('turma_professor_disciplina').delete().eq('id', b.dataset.removerVinculo);
+      carregarVinculosTurma(turmaId);
+    }));
+  }
+
+  if(editando){
+    document.getElementById('btn-add-vinculo').addEventListener('click', async () => {
+      const funcionarioId = document.getElementById('vinculo-professor').value;
+      const disciplina = document.getElementById('vinculo-disciplina').value.trim();
+      const msgVinculo = document.getElementById('msg-vinculo-turma');
+      if(!funcionarioId || !disciplina){ msgVinculo.innerHTML = `<div class="msg-erro">Selecione o professor e informe a disciplina.</div>`; return; }
+      const { error: erroVinculo } = await supabase.from('turma_professor_disciplina').insert({
+        turma_id: turma.id, funcionario_id: funcionarioId, disciplina, criado_por: ESTADO.perfil.id,
+      });
+      if(erroVinculo){ msgVinculo.innerHTML = `<div class="msg-erro">${esc(erroVinculo.message)}</div>`; return; }
+      msgVinculo.innerHTML = '';
+      document.getElementById('vinculo-disciplina').value = '';
+      carregarVinculosTurma(turma.id);
+    });
+  }
 
   document.getElementById('form-turma').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -10759,11 +10809,13 @@ function renderizarRelatorios(el){
           <button class="botao terracota pequeno" id="btn-rel-lista-pasta" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Lista de Pasta de Estudante</button>
           <button class="botao secundario pequeno" id="btn-rel-ata" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ ATA de Presença</button>
           <button class="botao secundario pequeno" id="btn-rel-frequencia" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Frequência de Estudantes</button>
+          <button class="botao secundario pequeno" id="btn-rel-aee" style="width:auto;">🖨️ Estudantes com AEE</button>
         </div>
         <p style="font-size:12.5px;color:var(--texto-suave);margin-top:14px;">
           <b>Lista de Pasta de Estudante</b> — nome, AEE, data de nascimento, idade e telefone, para arquivo da pasta da turma.<br/>
           <b>ATA de Presença</b> — nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.<br/>
-          <b>Frequência de Estudantes</b> — percentual de frequência mês a mês (Fevereiro a Dezembro) e média anual, com AEE, Bolsa Família e NIS.
+          <b>Frequência de Estudantes</b> — percentual de frequência mês a mês (Fevereiro a Dezembro) e média anual, com AEE, Bolsa Família e NIS.<br/>
+          <b>Estudantes com AEE</b> — lista de todos os estudantes com AEE marcado, de toda a escola (ou só da turma selecionada acima, se houver uma).
         </p>
       </div>
     </div>`;
@@ -10782,6 +10834,69 @@ function renderizarRelatorios(el){
   btnLista.addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
   btnAta.addEventListener('click', () => imprimirAtaPresenca(ESTADO.relatorioTurmaId));
   btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
+  document.getElementById('btn-rel-aee').addEventListener('click', () => imprimirListaAEE(ESTADO.relatorioTurmaId));
+}
+
+function imprimirListaAEE(turmaIdOpcional){
+  const alunosAEE = ESTADO.alunos
+    .filter(a => a.aee && a.situacao !== 'transferido' && a.situacao !== 'cancelado')
+    .filter(a => !turmaIdOpcional || a.turma_id === turmaIdOpcional)
+    .slice()
+    .sort((a,b) => {
+      const turmaA = ESTADO.turmas.find(t => t.id === a.turma_id)?.nome || '';
+      const turmaB = ESTADO.turmas.find(t => t.id === b.turma_id)?.nome || '';
+      return turmaA.localeCompare(turmaB, 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR');
+    });
+
+  const linhas = alunosAEE.map((a, i) => {
+    const turma = ESTADO.turmas.find(t => t.id === a.turma_id);
+    const cid = Array.isArray(a.cids_aee) && a.cids_aee.length ? a.cids_aee.join(', ') : '—';
+    return `
+    <tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}</td>
+      <td style="text-align:center;">${esc(turma?.nome || '—')}</td>
+      <td style="text-align:center;font-weight:700;">${esc(cid)}</td>
+      <td style="text-align:left;padding-left:8px;">${esc(a.transtorno || '—')}</td>
+      <td style="text-align:left;padding-left:8px;">${esc(a.descricao_aee || '—')}</td>
+    </tr>`;
+  }).join('');
+
+  const turmaFiltro = turmaIdOpcional ? ESTADO.turmas.find(t => t.id === turmaIdOpcional) : null;
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Estudantes com AEE</title>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
+    </head><body>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
+        <tr>
+          <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
+          <td style="text-align:center;">
+            <div style="font-size:15px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+            <div style="font-size:15px;font-weight:800;color:#111;margin-top:2px;">ESTUDANTES COM AEE - ${new Date().getFullYear()}</div>
+          </td>
+          <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td>
+        </tr>
+      </table>
+      ${turmaFiltro ? `<div style="text-align:center;font-size:15px;font-weight:800;color:#B4432E;margin:4px 0 12px;">${esc(turmaFiltro.nome)} · ${esc(turmaFiltro.turno)}</div>` : ''}
+      <table class="lista">
+        <thead><tr>
+          <th style="width:5%;">NUM</th>
+          <th style="width:22%;">NOME</th>
+          <th style="width:12%;">TURMA</th>
+          <th style="width:13%;">CID</th>
+          <th style="width:14%;">TRANSTORNO</th>
+          <th>DESCRIÇÃO AEE</th>
+        </tr></thead>
+        <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante com AEE encontrado.</td></tr>`}</tbody>
+      </table>
+    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
 }
 
 // CSS e script de autoajuste padronizados, compartilhados entre as impressões de lista de
