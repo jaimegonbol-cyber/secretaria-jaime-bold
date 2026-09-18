@@ -11006,6 +11006,8 @@ async function imprimirFrequenciaMensalDiaADia(turmaId, ano, mes, btn){
 // sem precisar de nenhuma tabela de calendário. Feriados móveis (Carnaval, Corpus Christi etc.)
 // não entram aqui — esses só são excluídos se já tiverem sido lançados em massa no sistema.
 const FERIADOS_NACIONAIS_FIXOS = [[1,1],[4,21],[5,1],[9,7],[10,12],[11,2],[11,15],[11,20],[12,25]];
+// Feriados municipais fixos de Paulista/PE
+const FERIADOS_MUNICIPAIS_FIXOS = [[9,4]]; // 4 de setembro — Aniversário de Paulista
 
 async function imprimirFrequenciaMensalEmBranco(turmaId, ano, mes, btn){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
@@ -11032,6 +11034,7 @@ async function imprimirFrequenciaMensalEmBranco(turmaId, ano, mes, btn){
     const diaSemana = new Date(ano, mes - 1, d).getDay(); // 0=domingo, 6=sábado
     if(diaSemana === 0 || diaSemana === 6) continue;
     if(FERIADOS_NACIONAIS_FIXOS.some(([m,dd]) => m === mes && dd === d)) continue;
+    if(FERIADOS_MUNICIPAIS_FIXOS.some(([m,dd]) => m === mes && dd === d)) continue;
     const iso = `${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     if(naoLetivosSet.has(iso)) continue;
     diasUteis.push(d);
