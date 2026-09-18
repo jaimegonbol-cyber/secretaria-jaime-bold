@@ -327,6 +327,7 @@ function estadoPadraoAbas(){
     alunoSelecionado: null,
     subFrequencia: 'estudantes',
     relatorioTurmaId: '',
+    ataTurmaId: '',
     relatorioMes: new Date().getMonth() + 1,
     relatorioAno: new Date().getFullYear(),
     subFrequenciaEstudantes: 'chamada',
@@ -372,6 +373,8 @@ function estadoPadraoAbas(){
     avalPersonalizadaGenero: '',
     avalPersonalizadaSelecionadaId: '',
     gabaritoTurmaId: '',
+    conselhoTurmaId: '',
+    conselhoBimestre: 1,
     gabaritoDisciplina: '',
     agendaSemanaOffset: 0,
     agendaFiltro: 'todos',
@@ -640,6 +643,7 @@ function itensNav(){
     { id:'cadastro', label:'Cadastro', icone:'▤' },
     { id:'frequencia', label:'Frequência', icone:'📅' },
     { id:'documentos', label:'Documentos', icone:'📄' },
+    { id:'atas', label:'Atas', icone:'📋' },
     { id:'ocorrencias', label:'Ocorrências', icone:'⚠️' },
     { id:'avaliacoes', label:'Avaliações', icone:'📊' },
     { id:'relatorios', label:'Relatórios', icone:'🖨️' },
@@ -737,6 +741,7 @@ function renderizarApp(){
   else if(ESTADO.pagina === 'cadastro') renderizarCadastro(conteudoPagina);
   else if(ESTADO.pagina === 'frequencia') renderizarFrequencia(conteudoPagina);
   else if(ESTADO.pagina === 'documentos') renderizarDocumentos(conteudoPagina);
+  else if(ESTADO.pagina === 'atas') renderizarAtas(conteudoPagina);
   else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(conteudoPagina);
   else if(ESTADO.pagina === 'avaliacoes') renderizarAvaliacoes(conteudoPagina);
   else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(conteudoPagina);
@@ -4051,6 +4056,7 @@ const ABAS_PERMISSIVEIS = [
   { id:'cadastro', label:'Cadastro' },
   { id:'frequencia', label:'Frequência' },
   { id:'documentos', label:'Documentos' },
+  { id:'atas', label:'Atas' },
   { id:'ocorrencias', label:'Ocorrências' },
   { id:'avaliacoes', label:'Avaliações' },
   { id:'relatorios', label:'Relatórios' },
@@ -9114,6 +9120,7 @@ function renderizarAvaliacoes(el){
     { id:'saev', label:'SAEV' },
     { id:'personalizada', label:'Avaliação Personalizada' },
     { id:'gabarito', label:'Gabarito de Provas' },
+    { id:'conselho', label:'Conselho de Classe' },
   ];
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -9127,6 +9134,7 @@ function renderizarAvaliacoes(el){
   if(ESTADO.subAvaliacoes === 'saev') renderizarSaev(alvoTopo);
   else if(ESTADO.subAvaliacoes === 'personalizada') renderizarAvaliacaoPersonalizada(alvoTopo);
   else if(ESTADO.subAvaliacoes === 'gabarito') renderizarGabaritoProvas(alvoTopo);
+  else if(ESTADO.subAvaliacoes === 'conselho') renderizarConselhoClasse(alvoTopo);
   else renderizarAvaliacaoFluencia(alvoTopo);
 }
 
@@ -10016,6 +10024,307 @@ async function abrirModalResultadosGabarito(gabarito){
 }
 
 // ---------------------------------------------------------------
+// CONSELHO DE CLASSE — disciplinas em recuperação + observações por estudante
+// ---------------------------------------------------------------
+const OBSERVACOES_CONSELHO = [
+  { chave: 'nao_responde', rotulo: 'Não responde as atividades' },
+  { chave: 'falta_muito', rotulo: 'Falta muito' },
+  { chave: 'conversa_aula', rotulo: 'Conversa durante a aula' },
+  { chave: 'nao_presta_atencao', rotulo: 'Não presta atenção às aulas' },
+  { chave: 'outros', rotulo: 'Outros' },
+];
+
+async function renderizarConselhoClasse(el){
+  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.conselhoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+      <div class="campo" style="margin:0;max-width:260px;"><label>Turma</label><select id="conselho-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
+      <div class="campo" style="margin:0;max-width:160px;"><label>Bimestre</label>
+        <select id="conselho-bimestre">
+          ${[1,2,3,4].map(b => `<option value="${b}" ${ESTADO.conselhoBimestre===b?'selected':''}>${b}º Bimestre</option>`).join('')}
+        </select>
+      </div>
+      <button class="botao secundario pequeno" id="btn-imprimir-conselho" style="width:auto;" ${ESTADO.conselhoTurmaId?'':'disabled'}>🖨️ Imprimir resumo da turma</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:-8px 0 14px;">Marque as disciplinas em que o(a) estudante ficou em recuperação (aparecem em vermelho) e as observações da turma sobre o comportamento/desempenho dele(a) nesse bimestre.</p>
+    <div id="conselho-lista"><p style="color:var(--texto-suave);font-size:13px;">Selecione a turma para começar.</p></div>`;
+
+  document.getElementById('conselho-turma').addEventListener('change', (e) => { ESTADO.conselhoTurmaId = e.target.value; renderizarConselhoClasse(el); });
+  document.getElementById('conselho-bimestre').addEventListener('change', (e) => { ESTADO.conselhoBimestre = Number(e.target.value); renderizarConselhoClasse(el); });
+  const btnImprimirConselho = document.getElementById('btn-imprimir-conselho');
+  if(btnImprimirConselho) btnImprimirConselho.addEventListener('click', () => imprimirResumoConselhoClasse(ESTADO.conselhoTurmaId, ESTADO.conselhoBimestre, btnImprimirConselho));
+
+  if(!ESTADO.conselhoTurmaId) return;
+  await carregarListaConselhoClasse(el);
+}
+
+async function carregarListaConselhoClasse(el){
+  const alvo = document.getElementById('conselho-lista');
+  alvo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Carregando…</p>`;
+
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === ESTADO.conselhoTurmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  if(!alunosTurma.length){ alvo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhum estudante nesta turma.</p>`; return; }
+
+  const anoLetivo = new Date().getFullYear();
+  const { data: registros, error } = await supabase.from('conselho_classe')
+    .select('*').eq('turma_id', ESTADO.conselhoTurmaId).eq('bimestre', ESTADO.conselhoBimestre).eq('ano_letivo', anoLetivo);
+  if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const porAluno = {};
+  (registros||[]).forEach(r => { porAluno[r.aluno_id] = r; });
+
+  alvo.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="border-collapse:collapse;white-space:nowrap;">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 10px;">Estudante</th>
+          ${DISCIPLINAS_TURMA.map(d => `<th style="padding:6px 4px;font-size:11px;font-weight:600;writing-mode:vertical-rl;text-orientation:mixed;height:90px;">${esc(d)}</th>`).join('')}
+          ${OBSERVACOES_CONSELHO.filter(o => o.chave !== 'outros').map(o => `<th style="padding:6px 4px;font-size:11px;font-weight:600;writing-mode:vertical-rl;text-orientation:mixed;height:90px;">${esc(o.rotulo)}</th>`).join('')}
+          <th style="text-align:left;padding:6px 8px;">Outros</th>
+          <th style="padding:6px 8px;"></th>
+        </tr></thead>
+        <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id])).join('')}</tbody>
+      </table>
+    </div>`;
+
+  alunosTurma.forEach(a => {
+    const linha = alvo.querySelector(`[data-linha-conselho="${a.id}"]`);
+    if(!linha) return;
+    linha.querySelectorAll('.chk-disciplina-recuperacao').forEach(chk => {
+      chk.addEventListener('change', () => { chk.parentElement.style.background = chk.checked ? '#FBE0DC' : ''; });
+    });
+    linha.querySelector('.btn-salvar-conselho').addEventListener('click', async () => {
+      const btn = linha.querySelector('.btn-salvar-conselho');
+      const iconeOriginal = btn.textContent;
+      btn.disabled = true; btn.textContent = '…';
+      const disciplinasRecuperacao = Array.from(linha.querySelectorAll('.chk-disciplina-recuperacao:checked')).map(c => c.dataset.disciplina);
+      const textoOutros = linha.querySelector('.campo-outros-conselho').value.trim();
+      const observacoes = Array.from(linha.querySelectorAll('.chk-observacao:checked')).map(c => ({ chave: c.dataset.chave }));
+      if(textoOutros) observacoes.push({ chave: 'outros', texto: textoOutros });
+      const { error: erroSalvar } = await supabase.from('conselho_classe').upsert({
+        turma_id: ESTADO.conselhoTurmaId, aluno_id: a.id, bimestre: ESTADO.conselhoBimestre, ano_letivo: anoLetivo,
+        disciplinas_recuperacao: disciplinasRecuperacao, observacoes, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString(),
+      }, { onConflict: 'turma_id,aluno_id,bimestre,ano_letivo' });
+      btn.disabled = false;
+      btn.textContent = erroSalvar ? '⚠️' : '✅';
+      if(erroSalvar) alert('Erro ao salvar: ' + erroSalvar.message);
+      setTimeout(() => { btn.textContent = iconeOriginal; }, 2000);
+    });
+  });
+}
+
+function montarLinhaConselhoAluno(aluno, registro){
+  const disciplinasMarcadas = new Set(registro?.disciplinas_recuperacao || []);
+  const observacoesMarcadas = new Set((registro?.observacoes || []).map(o => o.chave));
+  const outrosSalvo = (registro?.observacoes || []).find(o => o.chave === 'outros');
+  return `
+    <tr data-linha-conselho="${aluno.id}" style="border-bottom:1px solid var(--borda);">
+      <td style="padding:5px 10px;font-size:12.5px;white-space:nowrap;">${esc(aluno.nome)}</td>
+      ${DISCIPLINAS_TURMA.map(d => `
+        <td style="text-align:center;padding:4px;${disciplinasMarcadas.has(d) ? 'background:#FBE0DC;' : ''}">
+          <input type="checkbox" class="chk-disciplina-recuperacao" data-disciplina="${esc(d)}" ${disciplinasMarcadas.has(d)?'checked':''} style="width:14px;height:14px;" />
+        </td>`).join('')}
+      ${OBSERVACOES_CONSELHO.filter(o => o.chave !== 'outros').map(o => `
+        <td style="text-align:center;padding:4px;">
+          <input type="checkbox" class="chk-observacao" data-chave="${o.chave}" ${observacoesMarcadas.has(o.chave)?'checked':''} style="width:14px;height:14px;" />
+        </td>`).join('')}
+      <td style="padding:4px 6px;"><input type="text" class="campo-outros-conselho" value="${esc(outrosSalvo?.texto || '')}" placeholder="Descreva…" style="width:150px;font-size:12px;padding:3px 6px;" /></td>
+      <td style="text-align:center;padding:4px 8px;"><button class="btn-icone btn-salvar-conselho" title="Salvar">💾</button></td>
+    </tr>`;
+}
+
+async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const textoOriginal = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando…'; }
+
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const anoLetivo = new Date().getFullYear();
+  const { data: registros, error } = await supabase.from('conselho_classe')
+    .select('*').eq('turma_id', turmaId).eq('bimestre', bimestre).eq('ano_letivo', anoLetivo);
+  if(btn){ btn.disabled = false; btn.textContent = textoOriginal; }
+  if(error){ alert('Erro ao carregar o conselho de classe: ' + error.message); return; }
+  const porAluno = {};
+  (registros||[]).forEach(r => { porAluno[r.aluno_id] = r; });
+
+  const rotulosObs = Object.fromEntries(OBSERVACOES_CONSELHO.map(o => [o.chave, o.rotulo]));
+  const linhas = alunosTurma.map((a, i) => {
+    const r = porAluno[a.id];
+    const disciplinas = (r?.disciplinas_recuperacao || []).join(', ') || '—';
+    const observacoes = (r?.observacoes || []).map(o => o.chave === 'outros' ? (o.texto || 'Outros') : rotulosObs[o.chave]).filter(Boolean).join(', ') || '—';
+    return `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}</td>
+      <td style="text-align:left;padding-left:8px;${disciplinas!=='—'?'color:#B4432E;font-weight:600;':''}">${esc(disciplinas)}</td>
+      <td style="text-align:left;padding-left:8px;">${esc(observacoes)}</td>
+    </tr>`;
+  }).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Conselho de Classe - ${esc(turma.nome)}</title>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
+    </head><body>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
+        <tr>
+          <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
+          <td style="text-align:center;">
+            <div style="font-size:15px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+            <div style="font-size:15px;font-weight:800;color:#111;margin-top:2px;">CONSELHO DE CLASSE — ${bimestre}º BIMESTRE DE ${anoLetivo}</div>
+          </td>
+          <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td>
+        </tr>
+      </table>
+      <div style="text-align:center;font-size:15px;font-weight:800;color:#B4432E;margin:4px 0 12px;">${esc(turma.nome)} · ${esc(turma.turno)}</div>
+      <table class="lista">
+        <thead><tr>
+          <th style="width:5%;">NUM</th>
+          <th style="width:22%;">NOME</th>
+          <th style="width:30%;">DISCIPLINAS EM RECUPERAÇÃO</th>
+          <th>OBSERVAÇÕES</th>
+        </tr></thead>
+        <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
+      </table>
+    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+// ---------------------------------------------------------------
+// ATAS — Ata de Presença + Ata do Conselho de Classe
+// ---------------------------------------------------------------
+function renderizarAtas(el){
+  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.ataTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="cabecalho-pagina"><div><h2>Atas</h2><p>Ata de Presença e Ata do Conselho de Classe</p></div></div>
+
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="ata-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
+    </div>
+
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Ata de Presença</b></div>
+      <div style="padding:14px 16px;">
+        <button class="botao terracota pequeno" id="btn-ata-presenca" style="width:auto;" ${ESTADO.ataTurmaId?'':'disabled'}>🖨️ Gerar Ata de Presença</button>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.</p>
+      </div>
+    </div>
+
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Ata do Conselho de Classe</b></div>
+      <div style="padding:14px 16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+          <div class="campo" style="margin:0;max-width:150px;"><label>Bimestre</label>
+            <select id="ata-conselho-bimestre">${[1,2,3,4].map(b => `<option value="${b}">${b}º Bimestre</option>`).join('')}</select>
+          </div>
+          <div class="campo" style="margin:0;max-width:150px;"><label>Turno da reunião</label>
+            <select id="ata-conselho-turno"><option value="manha">Manhã</option><option value="tarde">Tarde</option></select>
+          </div>
+          <div class="campo" style="margin:0;max-width:170px;"><label>Data da reunião</label><input type="date" id="ata-conselho-data" value="${hojeISO()}" /></div>
+        </div>
+        <div class="campo"><label>Professores participantes</label>
+          <div id="ata-conselho-professores" style="max-height:180px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;">
+            ${ESTADO.funcionarios.filter(f=>f.ativo!==false).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `
+              <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" class="chk-professor-ata" data-id="${f.id}" data-nome="${esc(f.nome)}" style="width:14px;height:14px;" />
+                ${esc(f.nome)} <span style="color:var(--texto-suave);">· ${esc(f.funcao||'')}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="campo"><label>Pauta / Deliberações (opcional)</label><textarea id="ata-conselho-deliberacoes" rows="3" style="width:100%;padding:7px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;" placeholder="Ex: Discutidos os casos de recuperação e encaminhamentos pedagógicos do bimestre."></textarea></div>
+        <div id="msg-ata-conselho"></div>
+        <button class="botao terracota" id="btn-ata-conselho" style="margin-top:10px;width:auto;" ${ESTADO.ataTurmaId?'':'disabled'}>🖨️ Salvar e gerar Ata</button>
+      </div>
+    </div>`;
+
+  document.getElementById('ata-turma').addEventListener('change', (e) => {
+    ESTADO.ataTurmaId = e.target.value;
+    const temTurma = !!ESTADO.ataTurmaId;
+    document.getElementById('btn-ata-presenca').disabled = !temTurma;
+    document.getElementById('btn-ata-conselho').disabled = !temTurma;
+  });
+  document.getElementById('btn-ata-presenca').addEventListener('click', () => imprimirAtaPresenca(ESTADO.ataTurmaId));
+  document.getElementById('btn-ata-conselho').addEventListener('click', () => salvarEGerarAtaConselhoClasse(el));
+}
+
+async function salvarEGerarAtaConselhoClasse(el){
+  const msg = document.getElementById('msg-ata-conselho');
+  const turma = ESTADO.turmas.find(t => t.id === ESTADO.ataTurmaId);
+  if(!turma){ msg.innerHTML = `<div class="msg-erro">Selecione a turma.</div>`; return; }
+  const bimestre = Number(document.getElementById('ata-conselho-bimestre').value);
+  const turno = document.getElementById('ata-conselho-turno').value;
+  const dataReuniao = document.getElementById('ata-conselho-data').value;
+  const deliberacoes = document.getElementById('ata-conselho-deliberacoes').value.trim();
+  const professores = Array.from(document.querySelectorAll('.chk-professor-ata:checked')).map(c => ({ funcionario_id: c.dataset.id, nome: c.dataset.nome }));
+  if(!professores.length){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos um professor participante.</div>`; return; }
+
+  const btn = document.getElementById('btn-ata-conselho');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  const anoLetivo = new Date(dataReuniao).getFullYear();
+  const { data: registro, error } = await supabase.from('atas_conselho_classe').insert({
+    turma_id: turma.id, bimestre, ano_letivo: anoLetivo, turno, data_reuniao: dataReuniao,
+    professores_participantes: professores, deliberacoes: deliberacoes || null, criado_por: ESTADO.perfil.id,
+  }).select().single();
+  btn.disabled = false; btn.textContent = '🖨️ Salvar e gerar Ata';
+  if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  msg.innerHTML = '';
+  imprimirAtaConselhoClasse(turma, registro);
+}
+
+function imprimirAtaConselhoClasse(turma, ata){
+  const rotuloTurno = ata.turno === 'manha' ? 'Manhã' : 'Tarde';
+  const numerosRomanos = ['', 'I', 'II', 'III', 'IV'];
+  const dataReuniaoBR = formatarDataBR(ata.data_reuniao);
+  const linhasAssinatura = ata.professores_participantes.map(p => `
+    <div class="linha-assinatura-ata">${esc(p.nome)}</div>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Ata do Conselho de Classe - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4; margin: 12mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.5;}
+      .cabecalho-doc{text-align:center;margin-bottom:10px;}
+      .cabecalho-doc img{width:64px;height:64px;display:block;margin:0 auto 6px;}
+      .cabecalho-doc .secretaria{font-weight:800;font-size:17px;text-transform:uppercase;padding-bottom:10px;border-bottom:1px solid #000;}
+      .titulo-doc{text-align:center;font-size:15px;font-weight:800;text-transform:uppercase;margin:14px 0 18px;}
+      .linha-dados{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px;font-size:13px;}
+      .corpo-ata{text-align:justify;text-indent:32px;margin:18px 0;}
+      .assinaturas-ata{display:flex;flex-wrap:wrap;gap:24px 20px;margin-top:40px;}
+      .linha-assinatura-ata{border-top:1.3px solid #000;width:220px;text-align:center;padding-top:4px;font-size:12px;font-weight:600;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <div class="cabecalho-doc">
+        <img src="${LOGO_PREFEITURA_URL}" alt="Logo Prefeitura do Paulista" />
+        <div class="secretaria">Secretaria de Educação</div>
+      </div>
+      <div class="titulo-doc">${ata.bimestre}º Conselho Pedagógico do ${numerosRomanos[ata.bimestre]} Bimestre: ${dataReuniaoBR}</div>
+
+      <div class="linha-dados"><span><b>Escola:</b> Escola Municipal Jaime Gonçalves Bold</span><span><b>Turma:</b> ${esc(turma.nome)}</span><span><b>Turno da reunião:</b> ${rotuloTurno}</span></div>
+
+      <p class="corpo-ata">Aos ${dataPorExtenso(ata.data_reuniao)}, no turno da ${rotuloTurno.toLowerCase()}, reuniu-se o Conselho de Classe da turma <b>${esc(turma.nome)}</b> para deliberar sobre o desempenho e a frequência dos(as) estudantes referentes ao <b>${ata.bimestre}º Bimestre de ${ata.ano_letivo}</b>, com a participação dos(as) professores(as) abaixo assinados(as).${ata.deliberacoes ? ` ${esc(ata.deliberacoes)}` : ''} Nada mais havendo a tratar, foi lavrada a presente ata, que segue assinada por todos(as) os(as) participantes.</p>
+
+      <div class="assinaturas-ata">
+        ${linhasAssinatura}
+      </div>
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
+    <\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+// ---------------------------------------------------------------
 // SAEV — resultados por descritor + plano de ação
 // ---------------------------------------------------------------
 function corPercentualSaev(p){
@@ -10843,11 +11152,10 @@ function renderizarRelatorios(el){
       <div style="padding:14px 16px;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;">
           <button class="botao terracota pequeno" id="btn-rel-lista-pasta" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Lista de Pasta de Estudante</button>
-          <button class="botao secundario pequeno" id="btn-rel-ata" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ ATA de Presença</button>
         </div>
         <p style="font-size:12.5px;color:var(--texto-suave);margin:12px 0 0;">
           <b>Lista de Pasta de Estudante</b> — nome, AEE, data de nascimento, idade e telefone, para arquivo da pasta da turma.<br/>
-          <b>ATA de Presença</b> — nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.
+          A <b>ATA de Presença</b> e a <b>ATA do Conselho de Classe</b> agora ficam na aba <b>📋 Atas</b>, no menu.
         </p>
       </div>
     </div>
@@ -10885,7 +11193,6 @@ function renderizarRelatorios(el){
 
   const sel = document.getElementById('rel-turma');
   const btnLista = document.getElementById('btn-rel-lista-pasta');
-  const btnAta = document.getElementById('btn-rel-ata');
   const btnFrequencia = document.getElementById('btn-rel-frequencia');
   const btnFrequenciaMensal = document.getElementById('btn-rel-frequencia-mensal');
   const btnFrequenciaMensalBranco = document.getElementById('btn-rel-frequencia-mensal-branco');
@@ -10893,7 +11200,6 @@ function renderizarRelatorios(el){
     ESTADO.relatorioTurmaId = e.target.value;
     const temTurma = !!ESTADO.relatorioTurmaId;
     btnLista.disabled = !temTurma;
-    btnAta.disabled = !temTurma;
     btnFrequencia.disabled = !temTurma;
     btnFrequenciaMensal.disabled = !temTurma;
     btnFrequenciaMensalBranco.disabled = !temTurma;
@@ -10901,7 +11207,6 @@ function renderizarRelatorios(el){
   document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
   document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
   btnLista.addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
-  btnAta.addEventListener('click', () => imprimirAtaPresenca(ESTADO.relatorioTurmaId));
   btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
   btnFrequenciaMensal.addEventListener('click', () => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensal));
   btnFrequenciaMensalBranco.addEventListener('click', () => imprimirFrequenciaMensalEmBranco(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensalBranco));
