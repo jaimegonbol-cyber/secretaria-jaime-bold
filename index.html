@@ -327,6 +327,8 @@ function estadoPadraoAbas(){
     alunoSelecionado: null,
     subFrequencia: 'estudantes',
     relatorioTurmaId: '',
+    relatorioMes: new Date().getMonth() + 1,
+    relatorioAno: new Date().getFullYear(),
     subFrequenciaEstudantes: 'chamada',
     diasLetivosAno: new Date().getFullYear(),
     diasLetivos: [],
@@ -5009,7 +5011,7 @@ async function renderizarChamada(el){
       ? `<table style="font-size:13px;"><thead><tr><th style="padding:6px 12px;">Estudante</th><th style="padding:6px 12px;">Situação</th><th style="padding:6px 12px;">Nº dias (se justificada)</th><th style="padding:6px 12px;">Motivo (se justificada)</th></tr></thead><tbody>${linhas}</tbody></table>`
       : `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum estudante nessa turma.</p>`}
     ${!podeRegistrar ? `<p style="margin-top:10px;color:var(--erro);font-size:13.5px;">Apenas Coordenação/Apoio Escolar ou Administrador podem registrar a chamada.</p>` : ''}
-    ${podeRegistrar && alunosTurma.length ? `<p style="font-size:12px;color:var(--texto-suave);margin-top:8px;">Ao informar mais de 1 dia numa falta justificada, os dias seguintes são preenchidos automaticamente com o mesmo motivo, em contagem regressiva (ex: 3, 2, 1 dia restante).</p>` : ''}
+    ${podeRegistrar && alunosTurma.length ? `<p style="font-size:12px;color:var(--texto-suave);margin-top:8px;">Ao informar mais de 1 dia numa falta justificada, os dias seguintes são preenchidos automaticamente com o mesmo motivo, em contagem regressiva (ex: 3, 2, 1 dia restante) — pulando fins de semana e dias já marcados como feriado/ponto facultativo/suspensão de aulas para esta turma.</p>` : ''}
     ${podeRegistrar && alunosTurma.length ? `<button class="botao terracota pequeno" id="btn-salvar-chamada" style="margin-top:12px;width:auto;">Salvar chamada</button>` : ''}
   `;
 
@@ -5030,6 +5032,23 @@ async function renderizarChamada(el){
       btn.disabled = true; btn.textContent = 'Salvando…';
       const linhasSalvar = [];
       const dataBase = new Date(ESTADO.chamadaData + 'T00:00:00');
+
+      // pra não propagar falta justificada em fim de semana ou em dia já declarado não letivo
+      // (feriado/ponto facultativo/suspensão de aulas) pra essa turma, primeiro descobre até
+      // quantos dias à frente pode ser necessário checar, e busca o que já existe nesse intervalo
+      const maiorNumeroDias = alunosTurma.reduce((max, a) => {
+        const campo = conteudo.querySelector(`.input-dias-justificados[data-aluno="${a.id}"]`);
+        return Math.max(max, campo ? (parseInt(campo.value, 10) || 1) : 1);
+      }, 1);
+      const dataFimIntervalo = new Date(dataBase); dataFimIntervalo.setDate(dataFimIntervalo.getDate() + maiorNumeroDias);
+      const { data: diasNaoLetivosExistentes } = await supabase.from('frequencia')
+        .select('data')
+        .eq('turma_id', ESTADO.chamadaTurma)
+        .in('status', ['feriado','ponto_facultativo','suspensao_aulas','outros'])
+        .gte('data', ESTADO.chamadaData)
+        .lte('data', dataObjParaISO(dataFimIntervalo));
+      const diasNaoLetivosSet = new Set((diasNaoLetivosExistentes||[]).map(r => r.data));
+
       for(const a of alunosTurma){
         const radioMarcado = conteudo.querySelector(`input[name="st-${a.id}"]:checked`);
         const status = radioMarcado ? radioMarcado.value : 'presente';
@@ -5037,14 +5056,22 @@ async function renderizarChamada(el){
         const campoMotivo = conteudo.querySelector(`.input-motivo-justificativa[data-aluno="${a.id}"]`);
         const nDias = status === 'falta_justificada' ? (parseInt(campoDias.value, 10) || 1) : null;
         const motivo = status === 'falta_justificada' ? (campoMotivo.value.trim() || null) : null;
-        // contagem regressiva: o primeiro dia mostra o total de dias, e cada dia seguinte mostra
-        // quantos dias ainda restam (ex: falta justificada de 3 dias → 3, 2, 1)
         linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:ESTADO.chamadaData, status, registrado_por:ESTADO.perfil.id, dias_justificados:nDias, motivo_justificativa:motivo, texto_outros:null });
         if(status === 'falta_justificada' && nDias > 1){
-          for(let i=1;i<nDias;i++){
-            const d = new Date(dataBase); d.setDate(d.getDate()+i);
-            const diasRestantes = nDias - i;
-            linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:dataObjParaISO(d), status:'falta_justificada', registrado_por:ESTADO.perfil.id, dias_justificados:diasRestantes, motivo_justificativa:motivo, texto_outros:null });
+          // contagem regressiva pulando fins de semana e dias já não letivos pra essa turma —
+          // só conta de fato dias letivos restantes (ex: falta justificada de 3 dias → 3, 2, 1)
+          let contador = 1;
+          const d = new Date(dataBase);
+          let tentativas = 0;
+          while(contador < nDias && tentativas < 60){
+            d.setDate(d.getDate() + 1);
+            tentativas++;
+            const diaSemana = d.getDay(); // 0=domingo, 6=sábado
+            const iso = dataObjParaISO(d);
+            if(diaSemana === 0 || diaSemana === 6 || diasNaoLetivosSet.has(iso)) continue;
+            const diasRestantes = nDias - contador;
+            linhasSalvar.push({ aluno_id:a.id, turma_id:a.turma_id||null, data:iso, status:'falta_justificada', registrado_por:ESTADO.perfil.id, dias_justificados:diasRestantes, motivo_justificativa:motivo, texto_outros:null });
+            contador++;
           }
         }
       }
@@ -10800,23 +10827,59 @@ function imprimirAvaliacaoFluencia(turmaId, ano, alunosTurma, porAluno){
 function renderizarRelatorios(el){
   const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
+
   el.innerHTML = `
-    <div class="cabecalho-pagina"><div><h2>Relatórios</h2><p>Documentos para impressão, organizados por turma</p></div></div>
-    <div class="painel">
-      <div style="padding:16px;">
-        <div class="campo" style="max-width:340px;"><label>Turma</label><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;">
+    <div class="cabecalho-pagina"><div><h2>Relatórios</h2><p>Documentos para impressão, organizados por tipo</p></div></div>
+
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b><p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 0;">Escolha a turma pra habilitar os documentos abaixo que dependem dela.</p></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div></div>
+    </div>
+
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Documentos da turma</b></div>
+      <div style="padding:14px 16px;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
           <button class="botao terracota pequeno" id="btn-rel-lista-pasta" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Lista de Pasta de Estudante</button>
           <button class="botao secundario pequeno" id="btn-rel-ata" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ ATA de Presença</button>
-          <button class="botao secundario pequeno" id="btn-rel-frequencia" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Frequência de Estudantes</button>
-          <button class="botao secundario pequeno" id="btn-rel-aee" style="width:auto;">🖨️ Estudantes com AEE</button>
         </div>
-        <p style="font-size:12.5px;color:var(--texto-suave);margin-top:14px;">
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:12px 0 0;">
           <b>Lista de Pasta de Estudante</b> — nome, AEE, data de nascimento, idade e telefone, para arquivo da pasta da turma.<br/>
-          <b>ATA de Presença</b> — nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.<br/>
-          <b>Frequência de Estudantes</b> — percentual de frequência mês a mês (Fevereiro a Dezembro) e média anual, com AEE, Bolsa Família e NIS.<br/>
-          <b>Estudantes com AEE</b> — lista de todos os estudantes com AEE marcado, de toda a escola (ou só da turma selecionada acima, se houver uma).
+          <b>ATA de Presença</b> — nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.
         </p>
+      </div>
+    </div>
+
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Frequência</b></div>
+      <div style="padding:14px 16px;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <button class="botao secundario pequeno" id="btn-rel-frequencia" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Frequência de Estudantes (% por mês)</button>
+        </div>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 14px;">
+          <b>Frequência de Estudantes</b> — percentual de frequência mês a mês (Fevereiro a Dezembro) e média anual, com AEE, Bolsa Família e NIS.
+        </p>
+        <div style="border-top:1px dashed var(--borda);padding-top:14px;">
+          <b style="font-size:13.5px;">Lista de Frequência Mensal (dia a dia)</b>
+          <p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 10px;">Grade com um estudante por linha e uma coluna pra cada dia letivo do mês escolhido — só os dias em que a chamada foi de fato registrada como dia letivo aparecem (feriados/pontos facultativos ficam de fora automaticamente).</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="campo" style="margin:0;max-width:180px;"><label>Mês</label><select id="rel-mes">${opcoesMeses}</select></div>
+            <div class="campo" style="margin:0;max-width:120px;"><label>Ano</label><input type="number" id="rel-ano" value="${ESTADO.relatorioAno}" /></div>
+            <button class="botao terracota pequeno" id="btn-rel-frequencia-mensal" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>🖨️ Gerar lista mensal (já preenchida)</button>
+            <button class="botao secundario pequeno" id="btn-rel-frequencia-mensal-branco" style="width:auto;" ${ESTADO.relatorioTurmaId?'':'disabled'}>📝 Gerar lista em branco (preenchimento manual)</button>
+          </div>
+          <p style="font-size:12px;color:var(--texto-suave);margin:8px 0 0;">A lista em branco traz todos os dias úteis (segunda a sexta) do mês, com as colunas vazias — pro professor preencher a chamada no papel quando não tiver acesso ao sistema.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Geral (toda a escola)</b></div>
+      <div style="padding:14px 16px;">
+        <button class="botao secundario pequeno" id="btn-rel-aee" style="width:auto;">🖨️ Estudantes com AEE</button>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Lista de todos os estudantes com AEE marcado, de toda a escola (ou só da turma selecionada acima, se houver uma).</p>
       </div>
     </div>`;
 
@@ -10824,17 +10887,212 @@ function renderizarRelatorios(el){
   const btnLista = document.getElementById('btn-rel-lista-pasta');
   const btnAta = document.getElementById('btn-rel-ata');
   const btnFrequencia = document.getElementById('btn-rel-frequencia');
+  const btnFrequenciaMensal = document.getElementById('btn-rel-frequencia-mensal');
+  const btnFrequenciaMensalBranco = document.getElementById('btn-rel-frequencia-mensal-branco');
   sel.addEventListener('change', (e) => {
     ESTADO.relatorioTurmaId = e.target.value;
     const temTurma = !!ESTADO.relatorioTurmaId;
     btnLista.disabled = !temTurma;
     btnAta.disabled = !temTurma;
     btnFrequencia.disabled = !temTurma;
+    btnFrequenciaMensal.disabled = !temTurma;
+    btnFrequenciaMensalBranco.disabled = !temTurma;
   });
+  document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
+  document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
   btnLista.addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
   btnAta.addEventListener('click', () => imprimirAtaPresenca(ESTADO.relatorioTurmaId));
   btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
+  btnFrequenciaMensal.addEventListener('click', () => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensal));
+  btnFrequenciaMensalBranco.addEventListener('click', () => imprimirFrequenciaMensalEmBranco(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensalBranco));
   document.getElementById('btn-rel-aee').addEventListener('click', () => imprimirListaAEE(ESTADO.relatorioTurmaId));
+}
+
+async function imprimirFrequenciaMensalDiaADia(turmaId, ano, mes, btn){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando…';
+
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const primeiroDia = `${ano}-${String(mes).padStart(2,'0')}-01`;
+  const ultimoDiaNum = new Date(ano, mes, 0).getDate();
+  const ultimoDia = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDiaNum).padStart(2,'0')}`;
+
+  const idsAlunos = alunosTurma.map(a => a.id);
+  const { data: registros, error } = idsAlunos.length
+    ? await supabase.from('frequencia').select('aluno_id, data, status').in('aluno_id', idsAlunos).gte('data', primeiroDia).lte('data', ultimoDia)
+    : { data: [], error: null };
+  btn.disabled = false; btn.textContent = textoOriginal;
+  if(error){ alert('Erro ao carregar a frequência: ' + error.message); return; }
+
+  // um dia só entra na lista se, pra ALGUM estudante da turma, ele foi registrado como dia letivo
+  // de verdade (presente/falta/falta justificada) — feriado/ponto facultativo/suspensão/outros ficam de fora
+  const diasLetivosSet = new Set();
+  (registros||[]).forEach(r => { if(['presente','falta','falta_justificada'].includes(r.status)) diasLetivosSet.add(r.data); });
+  const diasLetivos = Array.from(diasLetivosSet).sort();
+
+  if(!diasLetivos.length){
+    alert('Nenhum dia letivo com chamada registrada foi encontrado para essa turma nesse mês.');
+    return;
+  }
+
+  const porAlunoData = {};
+  (registros||[]).forEach(r => { porAlunoData[`${r.aluno_id}|${r.data}`] = r.status; });
+  const abreviacao = { presente:'P', falta:'F', falta_justificada:'FJ' };
+
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const cabecalhosDias = diasLetivos.map(d => `<th style="width:${60/diasLetivos.length}%;">${d.slice(8,10)}</th>`).join('');
+  const linhas = alunosTurma.map((a, i) => {
+    const celulasDias = diasLetivos.map(d => {
+      const status = porAlunoData[`${a.id}|${d}`];
+      const abrev = abreviacao[status] || (status ? '—' : '');
+      const cor = status === 'falta' ? 'color:#B4432E;font-weight:700;' : status === 'falta_justificada' ? 'color:#D98A1F;font-weight:700;' : '';
+      return `<td style="text-align:center;${cor}">${abrev}</td>`;
+    }).join('');
+    return `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}</td>
+      ${celulasDias}
+    </tr>`;
+  }).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Frequência Mensal - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4 landscape; margin: 8mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:15px;font-weight:600;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:13.5px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;}
+      table.lista tbody td{padding:6px 3px;border-bottom:1.3px solid #000;border-left:1.3px solid #000;border-right:1.3px solid #000;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      .legenda{font-size:12px;margin-top:8px;color:#222;font-weight:400;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
+        <tr>
+          <td style="width:56px;"><img src="${LOGO_PREFEITURA_URL}" style="width:48px;height:48px;" /></td>
+          <td style="text-align:center;">
+            <div style="font-size:14px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+            <div style="font-size:14px;font-weight:800;color:#111;margin-top:2px;">FREQUÊNCIA MENSAL — ${nomesMeses[mes-1].toUpperCase()} DE ${ano}</div>
+          </td>
+          <td style="width:56px;"><img src="${LOGO_ESCOLA_URL}" style="width:48px;height:48px;" /></td>
+        </tr>
+      </table>
+      <div style="text-align:center;font-size:15px;font-weight:800;color:#B4432E;margin:4px 0 10px;">${esc(turma.nome)} · ${esc(turma.turno)}</div>
+      <table class="lista">
+        <thead><tr>
+          <th style="width:4%;">NUM</th>
+          <th>ESTUDANTE</th>
+          ${cabecalhosDias}
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+      <p class="legenda">P = Presente · F = Falta · FJ = Falta Justificada · em branco = sem registro de chamada nesse dia.</p>
+    <script>${scriptAutoajusteLista(194)}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
+// Gera a mesma grade, mas em branco (todos os dias úteis do mês, sem consultar a frequência já
+// registrada) — pro professor preencher no papel quando não tem acesso ao sistema.
+// Feriados nacionais fixos (mês, dia) — sempre caem na mesma data todo ano, então dá pra excluir
+// sem precisar de nenhuma tabela de calendário. Feriados móveis (Carnaval, Corpus Christi etc.)
+// não entram aqui — esses só são excluídos se já tiverem sido lançados em massa no sistema.
+const FERIADOS_NACIONAIS_FIXOS = [[1,1],[4,21],[5,1],[9,7],[10,12],[11,2],[11,15],[11,20],[12,25]];
+
+async function imprimirFrequenciaMensalEmBranco(turmaId, ano, mes, btn){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const textoOriginal = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando…'; }
+
+  const primeiroDia = `${ano}-${String(mes).padStart(2,'0')}-01`;
+  const ultimoDiaNum = new Date(ano, mes, 0).getDate();
+  const ultimoDia = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDiaNum).padStart(2,'0')}`;
+  const { data: naoLetivosLancados } = await supabase.from('frequencia')
+    .select('data')
+    .eq('turma_id', turmaId)
+    .in('status', ['feriado','ponto_facultativo','suspensao_aulas','outros'])
+    .gte('data', primeiroDia).lte('data', ultimoDia);
+  const naoLetivosSet = new Set((naoLetivosLancados||[]).map(r => r.data));
+
+  if(btn){ btn.disabled = false; btn.textContent = textoOriginal; }
+
+  const diasUteis = [];
+  for(let d = 1; d <= ultimoDiaNum; d++){
+    const diaSemana = new Date(ano, mes - 1, d).getDay(); // 0=domingo, 6=sábado
+    if(diaSemana === 0 || diaSemana === 6) continue;
+    if(FERIADOS_NACIONAIS_FIXOS.some(([m,dd]) => m === mes && dd === d)) continue;
+    const iso = `${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if(naoLetivosSet.has(iso)) continue;
+    diasUteis.push(d);
+  }
+
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const cabecalhosDias = diasUteis.map(d => `<th style="width:${60/diasUteis.length}%;">${String(d).padStart(2,'0')}</th>`).join('');
+  const linhas = alunosTurma.map((a, i) => `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}</td>
+      ${diasUteis.map(() => `<td>&nbsp;</td>`).join('')}
+    </tr>`).join('');
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Frequência Mensal (em branco) - ${esc(turma.nome)}</title>
+    <style>
+      @page{ size: A4 landscape; margin: 8mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#000;font-size:15px;font-weight:600;}
+      table.lista{width:100%;border-collapse:collapse;}
+      table.lista thead th{background:#15325C;color:#fff;font-size:13.5px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;}
+      table.lista tbody td{padding:9px 3px;border-bottom:1.3px solid #000;border-left:1.3px solid #000;border-right:1.3px solid #000;}
+      table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
+      .linha-professor{display:flex;gap:24px;margin:8px 0;font-size:15px;}
+      .linha-professor span{display:flex;align-items:center;gap:6px;}
+      .linha-professor .traco{display:inline-block;border-bottom:1px solid #333;min-width:200px;height:13px;}
+      .legenda{font-size:12px;margin-top:8px;color:#222;}
+      @media print{ body{-webkit-print-color-adjust:exact;} }
+    </style>
+    </head><body>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
+        <tr>
+          <td style="width:56px;"><img src="${LOGO_PREFEITURA_URL}" style="width:48px;height:48px;" /></td>
+          <td style="text-align:center;">
+            <div style="font-size:14px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+            <div style="font-size:14px;font-weight:800;color:#111;margin-top:2px;">FREQUÊNCIA MENSAL (PREENCHIMENTO MANUAL) — ${nomesMeses[mes-1].toUpperCase()} DE ${ano}</div>
+          </td>
+          <td style="width:56px;"><img src="${LOGO_ESCOLA_URL}" style="width:48px;height:48px;" /></td>
+        </tr>
+      </table>
+      <div style="text-align:center;font-size:15px;font-weight:800;color:#B4432E;margin:4px 0 6px;">${esc(turma.nome)} · ${esc(turma.turno)}</div>
+      <div class="linha-professor">
+        <span>Professor(a): <span class="traco"></span></span>
+        <span>Disciplina: <span class="traco" style="min-width:140px;"></span></span>
+      </div>
+      <table class="lista">
+        <thead><tr>
+          <th style="width:4%;">NUM</th>
+          <th>ESTUDANTE</th>
+          ${cabecalhosDias}
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+      <p class="legenda">Marque com P (presente), F (falta) ou FJ (falta justificada) em cada dia. Feriados nacionais fixos e dias já lançados como não letivos para esta turma já saem de fora da lista — se surgir um ponto facultativo ou feriado móvel de última hora, risque a coluna correspondente à mão. Depois, lance esses dados no sistema assim que possível.</p>
+    <script>${scriptAutoajusteLista(194)}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
 }
 
 function imprimirListaAEE(turmaIdOpcional){
