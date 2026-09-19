@@ -210,11 +210,11 @@
   }
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
   thead th{
-    text-align:left;padding:10px 16px;background:var(--areia);color:var(--texto-suave);
+    text-align:left;padding:7px 14px;background:var(--areia);color:var(--texto-suave);
     font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;border-bottom:1px solid var(--borda);
     position:sticky;top:0;
   }
-  tbody td{padding:11px 16px;border-bottom:1px solid #F0ECE0;color:var(--texto);}
+  tbody td{padding:6px 14px;border-bottom:1px solid #F0ECE0;color:var(--texto);}
   tbody tr:hover{background:#FBFAF6;cursor:pointer;}
   tbody tr:hover td.col-acoes{background:#FBFAF6;}
   tbody tr:last-child td{border-bottom:none;}
@@ -328,6 +328,7 @@ function estadoPadraoAbas(){
     subFrequencia: 'estudantes',
     relatorioTurmaId: '',
     ataTurmaId: '',
+    subAtas: 'presenca',
     relatorioMes: new Date().getMonth() + 1,
     relatorioAno: new Date().getFullYear(),
     subFrequenciaEstudantes: 'chamada',
@@ -10246,23 +10247,56 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
 // ATAS — Ata de Presença + Ata do Conselho de Classe
 // ---------------------------------------------------------------
 function renderizarAtas(el){
+  const abas = [
+    { id:'presenca', label:'Lista de Presença' },
+    { id:'conselho', label:'Lista do Conselho de Classe' },
+  ];
+  const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subAtas===a.id?'ativa':''}" data-aba-atas="${a.id}">${a.label}</button>`).join('');
+  el.innerHTML = `
+    <div class="cabecalho-pagina"><div><h2>Listas</h2><p>Lista de Presença e Lista do Conselho de Classe</p></div></div>
+    <div class="subtabs" style="margin-bottom:14px;">${barra}</div>
+    <div id="conteudo-listas"></div>`;
+  el.querySelectorAll('[data-aba-atas]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.subAtas = b.dataset.abaAtas; renderizarAtas(el);
+  }));
+  const alvo = el.querySelector('#conteudo-listas');
+  if(ESTADO.subAtas === 'conselho') renderizarListaConselhoClasseTab(alvo);
+  else renderizarListaPresencaTab(alvo);
+}
+
+function renderizarListaPresencaTab(el){
   const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.ataTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
 
   el.innerHTML = `
-    <div class="cabecalho-pagina"><div><h2>Listas</h2><p>Lista de Presença e Lista do Conselho de Classe</p></div></div>
-
     <div class="painel" style="margin-bottom:14px;">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
       <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="ata-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
     </div>
 
-    <div class="painel" style="margin-bottom:14px;">
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista de Presença</b></div>
       <div style="padding:14px 16px;">
         <button class="botao terracota pequeno" id="btn-ata-presenca" style="width:auto;" ${ESTADO.ataTurmaId?'':'disabled'}>🖨️ Gerar Lista de Presença</button>
         <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.</p>
       </div>
+    </div>`;
+
+  document.getElementById('ata-turma').addEventListener('change', (e) => {
+    ESTADO.ataTurmaId = e.target.value;
+    document.getElementById('btn-ata-presenca').disabled = !ESTADO.ataTurmaId;
+  });
+  document.getElementById('btn-ata-presenca').addEventListener('click', () => imprimirAtaPresenca(ESTADO.ataTurmaId));
+}
+
+function renderizarListaConselhoClasseTab(el){
+  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.ataTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="ata-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
     </div>
 
     <div class="painel">
@@ -10294,11 +10328,8 @@ function renderizarAtas(el){
 
   document.getElementById('ata-turma').addEventListener('change', (e) => {
     ESTADO.ataTurmaId = e.target.value;
-    const temTurma = !!ESTADO.ataTurmaId;
-    document.getElementById('btn-ata-presenca').disabled = !temTurma;
-    document.getElementById('btn-ata-conselho').disabled = !temTurma;
+    document.getElementById('btn-ata-conselho').disabled = !ESTADO.ataTurmaId;
   });
-  document.getElementById('btn-ata-presenca').addEventListener('click', () => imprimirAtaPresenca(ESTADO.ataTurmaId));
   document.getElementById('btn-ata-conselho').addEventListener('click', () => salvarEGerarAtaConselhoClasse(el));
 }
 
