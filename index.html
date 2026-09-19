@@ -11121,7 +11121,7 @@ async function renderizarAvaliacaoFluencia(el){
       </div>
       <div style="padding:10px 14px;">
         <div style="margin-bottom:12px;">${legenda}</div>
-        ${ESTADO.fluenciaModoRapido ? `<p style="font-size:12px;color:var(--texto-suave);margin:-4px 0 12px;">Digite o número do nível (1 a 6) em cada campo e use Tab para passar pro próximo — mais rápido pra lançar muitos estudantes seguidos.</p>` : ''}
+        ${ESTADO.fluenciaModoRapido ? `<p style="font-size:12px;color:var(--texto-suave);margin:-4px 0 12px;">Digite o número do nível (1 a 6) em cada campo. <b>Tab</b> passa pro campo ao lado (próximo momento); <b>Enter</b> desce pro mesmo campo do próximo estudante — útil pra preencher uma coluna inteira seguida.</p>` : ''}
         ${msgSucesso ? `<div class="msg-ok" style="margin-bottom:10px;">${esc(msgSucesso)}</div>` : ''}
         <div id="flu-conteudo"></div>
       </div>
@@ -11215,6 +11215,16 @@ async function renderizarAvaliacaoFluencia(el){
       }
       sel.style.background = corNivelFluencia(sel.value);
     });
+    if(sel.tagName === 'INPUT'){
+      sel.addEventListener('keydown', (e) => {
+        if(e.key !== 'Enter') return;
+        e.preventDefault();
+        const mesmaColuna = Array.from(conteudo.querySelectorAll(`.sel-fluencia[data-campo="${sel.dataset.campo}"]`));
+        const indiceAtual = mesmaColuna.indexOf(sel);
+        const proximo = mesmaColuna[indiceAtual + 1];
+        if(proximo){ proximo.focus(); proximo.select(); }
+      });
+    }
   });
 
   document.getElementById('btn-salvar-fluencia').addEventListener('click', async () => {
