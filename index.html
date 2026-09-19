@@ -945,44 +945,9 @@ function renderizarPainel(el){
     },
   };
 
-  // escurece uma cor hex por um fator (para simular a sombra lateral do gráfico 3D)
-  function escurecerCor(hex, fator){
-    const c = (hex || '#999999').replace('#','');
-    const r = Math.round(parseInt(c.substring(0,2),16) * fator);
-    const g = Math.round(parseInt(c.substring(2,4),16) * fator);
-    const b = Math.round(parseInt(c.substring(4,6),16) * fator);
-    return `rgb(${r},${g},${b})`;
-  }
+  const PALETA_ETAPAS = ['#F4A340', '#EF5B5B', '#4C6EF5'];
 
-  // plugin que desenha a "lateral" extrudada de cada fatia, simulando um gráfico de pizza 3D
-  const profundidadePizza3D = 11;
-  const pluginPizza3D = {
-    id: 'pizza3d',
-    beforeDatasetsDraw(chart){
-      const { ctx } = chart;
-      const meta = chart.getDatasetMeta(0);
-      const dataset = chart.data.datasets[0];
-      for(let camada = profundidadePizza3D; camada >= 1; camada--){
-        meta.data.forEach((arco, i) => {
-          const valor = dataset.data[i];
-          if(!valor) return;
-          const { x, y, startAngle, endAngle, outerRadius } = arco.getProps(
-            ['x','y','startAngle','endAngle','outerRadius'], true
-          );
-          ctx.save();
-          ctx.beginPath();
-          ctx.fillStyle = escurecerCor(dataset.backgroundColor[i], 0.62);
-          ctx.moveTo(x, y + camada);
-          ctx.arc(x, y + camada, outerRadius, startAngle, endAngle);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        });
-      }
-    },
-  };
-
-  // plugin para destacar o percentual dentro de cada fatia da pizza
+  // plugin para destacar o percentual dentro de cada fatia da rosca
   const pluginPercentualRosca = {
     id: 'percentualRosca',
     afterDatasetsDraw(chart){
@@ -994,22 +959,17 @@ function renderizarPainel(el){
         const valor = dataset.data[i];
         if(!valor) return;
         const pct = ((valor / totalGeral) * 100).toFixed(1).replace('.', ',');
-        const { x, y, startAngle, endAngle, outerRadius } = arco.getProps(
-          ['x','y','startAngle','endAngle','outerRadius'], true
+        const { x, y, startAngle, endAngle, innerRadius, outerRadius } = arco.getProps(
+          ['x','y','startAngle','endAngle','innerRadius','outerRadius'], true
         );
         const anguloMeio = (startAngle + endAngle) / 2;
-        const raioMeio = outerRadius * 0.62;
+        const raioMeio = (innerRadius + outerRadius) / 2;
         const px = x + Math.cos(anguloMeio) * raioMeio;
         const py = y + Math.sin(anguloMeio) * raioMeio;
         ctx.save();
-        ctx.font = '800 12px Arial';
+        ctx.font = '800 12.5px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.lineJoin = 'round';
-        ctx.miterLimit = 2;
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#000000';
-        ctx.strokeText(`${pct}%`, px, py);
         ctx.fillStyle = '#ffffff';
         ctx.fillText(`${pct}%`, px, py);
         ctx.restore();
@@ -1017,18 +977,41 @@ function renderizarPainel(el){
     },
   };
 
+  // mostra o total geral no centro da rosca
+  const pluginTotalCentroRosca = {
+    id: 'totalCentroRosca',
+    afterDatasetsDraw(chart){
+      const { ctx, chartArea } = chart;
+      const dataset = chart.data.datasets[0];
+      const total = dataset.data.reduce((a,b) => a+b, 0);
+      const cx = (chartArea.left + chartArea.right) / 2;
+      const cy = (chartArea.top + chartArea.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#182635';
+      ctx.font = '800 22px Arial';
+      ctx.fillText(String(total), cx, cy - 8);
+      ctx.fillStyle = '#7A8699';
+      ctx.font = '600 11px Arial';
+      ctx.fillText('estudantes', cx, cy + 12);
+      ctx.restore();
+    },
+  };
+
   const ctxEtapa = document.getElementById('grafico-etapa');
   if(ctxEtapa){
     graficoEtapaChart = new Chart(ctxEtapa, {
-      type: 'pie',
+      type: 'doughnut',
       data: {
         labels: ['Ed. Infantil','Anos Iniciais','Anos Finais'],
-        datasets: [{ data: [infantil, anosIniciais, anosFinais], backgroundColor: ['#FFC300','#E63946','#1E88E5'], borderWidth:0, radius:'82%' }],
+        datasets: [{ data: [infantil, anosIniciais, anosFinais], backgroundColor: PALETA_ETAPAS, borderWidth:3, borderColor:'#FDFCF9', hoverOffset:6 }],
       },
-      plugins:[pluginPizza3D, pluginPercentualRosca],
+      plugins:[pluginPercentualRosca, pluginTotalCentroRosca],
       options: {
         maintainAspectRatio:false,
-        layout:{ padding:{ bottom: profundidadePizza3D + 18, top: 4 } },
+        cutout:'62%',
+        layout:{ padding:{ top: 4 } },
         plugins:{
           legend:{
             position:'bottom', align:'start',
@@ -1060,11 +1043,15 @@ function renderizarPainel(el){
 
   const ctxTurmas = document.getElementById('grafico-turmas');
   if(ctxTurmas){
+    const contexto2d = ctxTurmas.getContext('2d');
+    const gradienteBarra = contexto2d.createLinearGradient(0, 0, ctxTurmas.width || 300, 0);
+    gradienteBarra.addColorStop(0, '#4C6EF5');
+    gradienteBarra.addColorStop(1, '#7C93FA');
     graficoTurmasChart = new Chart(ctxTurmas, {
       type: 'bar',
       data: {
         labels: turmasOrdenadas.map(t => t.rotulo),
-        datasets: [{ data: turmasOrdenadas.map(t => t.total), backgroundColor: '#2E6BB8', borderRadius:4 }],
+        datasets: [{ data: turmasOrdenadas.map(t => t.total), backgroundColor: gradienteBarra, borderRadius:8, borderSkipped:false, maxBarThickness:18 }],
       },
       options: {
         indexAxis: 'y',
