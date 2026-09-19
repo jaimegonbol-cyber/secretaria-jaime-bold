@@ -7271,18 +7271,18 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
     return primeiro + (tipos.length > 1 ? ` (+${tipos.length-1})` : '');
   };
 
-  const ultimas = registros.slice(0, 8);
-  const linhasUltimas = ultimas.length
-    ? ultimas.map(r => `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;margin-bottom:8px;">
+  const pendentes = registros.filter(r => !r.presenca_responsavel_confirmada);
+  const linhasUltimas = pendentes.length
+    ? pendentes.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;border:1px solid var(--borda);border-radius:7px;margin-bottom:5px;">
           <div style="flex:1;min-width:220px;">
-            <div style="font-weight:600;font-size:13px;">${esc(r.aluno?.nome || 'Estudante removido')} <span style="font-weight:400;color:var(--texto-suave);">· ${esc(nomeTurma(r.aluno_id))}</span></div>
-            <div style="font-size:12.5px;color:var(--texto-suave);">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''} — ${esc(resumoTipos(r))}</div>
-            ${badgePresencaResponsavel(r)}
+            <div style="font-weight:600;font-size:12.5px;">${esc(r.aluno?.nome || 'Estudante removido')} <span style="font-weight:400;color:var(--texto-suave);">· ${esc(nomeTurma(r.aluno_id))}</span></div>
+            <div style="font-size:12px;color:var(--texto-suave);">${fmtData(r.data)}${r.hora ? ' às ' + esc(r.hora.slice(0,5)) : ''} — ${esc(resumoTipos(r))}</div>
           </div>
-          <button class="botao secundario pequeno" style="width:auto;" data-ver-aluno-ocorrencia="${r.aluno_id}">Ver estudante</button>
+          <button class="botao secundario pequeno" style="width:auto;padding:3px 9px;font-size:12px;color:#2E7D5B;border-color:#2E7D5B;" data-confirmar-presenca-geral="${r.id}">✅ Confirmar</button>
+          <button class="botao secundario pequeno" style="width:auto;padding:3px 9px;font-size:12px;" data-ver-aluno-ocorrencia="${r.aluno_id}">Ver estudante</button>
         </div>`).join('')
-    : `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma ocorrência registrada${ESTADO.ocorrenciasTurmaId ? ' para esta turma' : ''}.</p>`;
+    : `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma presença de responsável pendente${ESTADO.ocorrenciasTurmaId ? ' para esta turma' : ''}. 🎉</p>`;
 
   const linhasLista = registros.length
     ? registros.map(r => `
@@ -7302,7 +7302,7 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
     : `<tr><td colspan="7" style="color:var(--texto-suave);font-size:13px;text-align:center;padding:16px;">Nenhuma ocorrência encontrada.</td></tr>`;
 
   conteudo.innerHTML = `
-    <h3 style="margin:0 0 10px;">Últimas ocorrências</h3>
+    <h3 style="margin:0 0 10px;">Presença de responsáveis pendente</h3>
     <div style="margin-bottom:22px;">${linhasUltimas}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
       <h3 style="margin:0;">Lista de ocorrências${ESTADO.ocorrenciasTurmaId ? ' — ' + esc(ESTADO.turmas.find(t=>t.id===ESTADO.ocorrenciasTurmaId)?.nome || '') : ''}</h3>
