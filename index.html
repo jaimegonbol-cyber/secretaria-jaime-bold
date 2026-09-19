@@ -363,6 +363,7 @@ function estadoPadraoAbas(){
     subAvaliacoes: 'fluencia',
     fluenciaTurmaId: '',
     fluenciaAno: new Date().getFullYear(),
+    fluenciaModoRapido: false,
     fluenciaMsgSucesso: null,
     saevTurmaId: '',
     saevDisciplina: 'Língua Portuguesa',
@@ -10989,6 +10990,116 @@ function imprimirPlanoAcaoSaev(plano){
   janela.focus();
 }
 
+function abrirModalFluenciaFoto(turmaId, elPai){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Ler lista de fluência (foto)</h3><button data-fechar>✕</button></div>
+      <div class="campo"><label>Qual momento essa lista preenche?</label>
+        <select id="flufoto-campo">
+          <option value="diagnostica">Diagnóstica</option>
+          <option value="formativa1">Formativa 1</option>
+          <option value="formativa2">Formativa 2</option>
+          <option value="formativa3">Formativa 3</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label>Foto da lista preenchida à mão</label>
+        <input type="file" id="flufoto-arquivo" accept="image/*" capture="environment" />
+        <p style="font-size:11.5px;color:var(--texto-suave);margin:4px 0 0;">Enquadre bem, com boa luz, mostrando o nome de cada estudante e o nível marcado (1 a 6).</p>
+      </div>
+      <div id="flufoto-preview" style="margin:10px 0;"></div>
+      <div id="msg-flufoto"></div>
+      <button class="botao terracota" id="btn-analisar-flufoto" style="width:100%;" disabled>📷 Analisar foto com IA</button>
+      <div id="flufoto-revisao" style="margin-top:14px;"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  let arquivoFoto = null;
+  document.getElementById('flufoto-arquivo').addEventListener('change', (e) => {
+    arquivoFoto = e.target.files[0] || null;
+    const preview = document.getElementById('flufoto-preview');
+    const btnAnalisar = document.getElementById('btn-analisar-flufoto');
+    if(arquivoFoto){
+      preview.innerHTML = `<img src="${URL.createObjectURL(arquivoFoto)}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--borda);" />`;
+      btnAnalisar.disabled = false;
+    } else {
+      preview.innerHTML = ''; btnAnalisar.disabled = true;
+    }
+  });
+
+  document.getElementById('btn-analisar-flufoto').addEventListener('click', async () => {
+    const msg = document.getElementById('msg-flufoto');
+    if(!arquivoFoto){ msg.innerHTML = `<div class="msg-erro">Selecione a foto.</div>`; return; }
+    const btn = document.getElementById('btn-analisar-flufoto');
+    btn.disabled = true; btn.textContent = 'Analisando com IA…';
+    msg.innerHTML = '';
+    try{
+      const { base64, mediaType } = await comprimirImagemParaBase64(arquivoFoto);
+      const { data: resposta, error } = await supabase.functions.invoke('extrair-fluencia-camera', {
+        body: { imagemBase64: base64, mediaType, nomesEstudantes: alunosTurma.map(a => a.nome) },
+      });
+      if(error || !resposta || resposta.error) throw new Error((resposta && resposta.error) || 'Falha ao analisar a foto.');
+      renderizarRevisaoFluenciaFoto(resposta.resultado, alunosTurma, document.getElementById('flufoto-campo').value, modal, turmaId, elPai);
+    } catch(err){
+      msg.innerHTML = `<div class="msg-erro">${esc(err.message)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = '📷 Analisar foto com IA';
+    }
+  });
+}
+
+function renderizarRevisaoFluenciaFoto(resultadoIA, alunosTurma, campo, modal, turmaId, elPai){
+  const cores = { alta: '#2E7D5B', media: '#D98A1F', baixa: '#B4432E' };
+  const revisao = document.getElementById('flufoto-revisao');
+  const opcoesAluno = alunosTurma.map(a => `<option value="${a.id}">${esc(a.nome)}</option>`).join('');
+
+  revisao.innerHTML = `
+    <h4 style="margin:0 0 8px;">Confira antes de aplicar</h4>
+    ${resultadoIA.map((item, i) => {
+      const alunoEncontrado = alunosTurma.find(a => a.nome === item.nome_lista_oficial);
+      const cor = cores[item.confianca] || '#999';
+      return `
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--borda);border-radius:8px;padding:6px 10px;margin-bottom:6px;flex-wrap:wrap;">
+        <select class="flufoto-rev-aluno" data-idx="${i}" style="flex:1;min-width:180px;">${opcoesAluno}</select>
+        <select class="flufoto-rev-nivel" data-idx="${i}" style="width:auto;">
+          ${NIVEIS_FLUENCIA.map(([v,l]) => `<option value="${v}" ${Number(item.nivel)===v?'selected':''}>${v} · ${esc(l)}</option>`).join('')}
+        </select>
+        <span style="font-size:11px;color:${cor};">IA: ${item.confianca || 'baixa'}</span>
+      </div>`;
+    }).join('')}
+    ${resultadoIA.length ? '' : `<p style="color:var(--texto-suave);font-size:13px;">A IA não identificou nenhum estudante nessa foto.</p>`}
+    ${resultadoIA.length ? `<button class="botao terracota" id="btn-aplicar-flufoto" style="width:100%;margin-top:6px;">✅ Aplicar na tabela</button>` : ''}`;
+
+  // pré-seleciona o aluno já casado pelo nome exato, quando encontrado
+  revisao.querySelectorAll('.flufoto-rev-aluno').forEach(sel => {
+    const idx = Number(sel.dataset.idx);
+    const alunoEncontrado = alunosTurma.find(a => a.nome === resultadoIA[idx].nome_lista_oficial);
+    if(alunoEncontrado) sel.value = alunoEncontrado.id;
+  });
+
+  const btnAplicar = document.getElementById('btn-aplicar-flufoto');
+  if(btnAplicar) btnAplicar.addEventListener('click', () => {
+    revisao.querySelectorAll('.flufoto-rev-aluno').forEach(selAluno => {
+      const idx = selAluno.dataset.idx;
+      const selNivel = revisao.querySelector(`.flufoto-rev-nivel[data-idx="${idx}"]`);
+      const campoTabela = document.querySelector(`.sel-fluencia[data-aluno="${selAluno.value}"][data-campo="${campo}"]`);
+      if(campoTabela){
+        campoTabela.value = selNivel.value;
+        campoTabela.style.background = corNivelFluencia(selNivel.value);
+      }
+    });
+    modal.remove();
+  });
+}
+
 async function renderizarAvaliacaoFluencia(el){
   const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.fluenciaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
@@ -11005,9 +11116,12 @@ async function renderizarAvaliacaoFluencia(el){
       <div class="barra" style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:10px 14px;">
         <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="flu-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
         <div class="campo" style="margin:0;min-width:120px;"><label>Ano letivo</label><select id="flu-ano">${opcoesAno}</select></div>
+        <button class="botao secundario pequeno" id="btn-flu-modo-rapido" style="width:auto;" ${ESTADO.fluenciaTurmaId?'':'disabled'}>${ESTADO.fluenciaModoRapido ? '📋 Usar lista de seleção' : '⌨️ Digitação rápida (numérica)'}</button>
+        <button class="botao secundario pequeno" id="btn-flu-foto" style="width:auto;" ${ESTADO.fluenciaTurmaId?'':'disabled'}>📷 Ler lista de uma foto</button>
       </div>
       <div style="padding:10px 14px;">
         <div style="margin-bottom:12px;">${legenda}</div>
+        ${ESTADO.fluenciaModoRapido ? `<p style="font-size:12px;color:var(--texto-suave);margin:-4px 0 12px;">Digite o número do nível (1 a 6) em cada campo e use Tab para passar pro próximo — mais rápido pra lançar muitos estudantes seguidos.</p>` : ''}
         ${msgSucesso ? `<div class="msg-ok" style="margin-bottom:10px;">${esc(msgSucesso)}</div>` : ''}
         <div id="flu-conteudo"></div>
       </div>
@@ -11015,6 +11129,10 @@ async function renderizarAvaliacaoFluencia(el){
 
   document.getElementById('flu-turma').addEventListener('change', e => { ESTADO.fluenciaTurmaId = e.target.value; renderizarAvaliacaoFluencia(el); });
   document.getElementById('flu-ano').addEventListener('change', e => { ESTADO.fluenciaAno = Number(e.target.value); renderizarAvaliacaoFluencia(el); });
+  const btnModoRapido = document.getElementById('btn-flu-modo-rapido');
+  if(btnModoRapido) btnModoRapido.addEventListener('click', () => { ESTADO.fluenciaModoRapido = !ESTADO.fluenciaModoRapido; renderizarAvaliacaoFluencia(el); });
+  const btnFoto = document.getElementById('btn-flu-foto');
+  if(btnFoto) btnFoto.addEventListener('click', () => abrirModalFluenciaFoto(ESTADO.fluenciaTurmaId, el));
 
   const conteudo = document.getElementById('flu-conteudo');
   if(!ESTADO.fluenciaTurmaId){
@@ -11038,6 +11156,11 @@ async function renderizarAvaliacaoFluencia(el){
   (registros||[]).forEach(r => { porAluno[r.aluno_id] = r; });
 
   function celulaSelect(alunoId, campo, valor){
+    if(ESTADO.fluenciaModoRapido){
+      return `<td style="padding:4px 6px;">
+        <input type="number" min="1" max="6" inputmode="numeric" class="sel-fluencia" data-aluno="${alunoId}" data-campo="${campo}" value="${valor||''}" style="width:52px;padding:5px 4px;text-align:center;background:${corNivelFluencia(valor)};" />
+      </td>`;
+    }
     return `<td style="padding:4px 6px;">
       <select class="sel-fluencia" data-aluno="${alunoId}" data-campo="${campo}" style="width:100%;padding:4px 4px;background:${corNivelFluencia(valor)};">
         ${opcoesNivelFluencia(valor)}
@@ -11084,7 +11207,14 @@ async function renderizarAvaliacaoFluencia(el){
   });
 
   conteudo.querySelectorAll('.sel-fluencia').forEach(sel => {
-    sel.addEventListener('change', () => { sel.style.background = corNivelFluencia(sel.value); });
+    const evento = sel.tagName === 'INPUT' ? 'input' : 'change';
+    sel.addEventListener(evento, () => {
+      if(sel.tagName === 'INPUT' && sel.value){
+        const n = Math.max(1, Math.min(6, parseInt(sel.value, 10) || 1));
+        if(String(n) !== sel.value) sel.value = n;
+      }
+      sel.style.background = corNivelFluencia(sel.value);
+    });
   });
 
   document.getElementById('btn-salvar-fluencia').addEventListener('click', async () => {
