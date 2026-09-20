@@ -327,6 +327,7 @@ function estadoPadraoAbas(){
     alunoSelecionado: null,
     subFrequencia: 'estudantes',
     relatorioTurmaId: '',
+    subRelatorios: 'documentos',
     ataTurmaId: '',
     subAtas: 'presenca',
     relatorioMes: new Date().getMonth() + 1,
@@ -1010,7 +1011,7 @@ function renderizarPainel(el){
       plugins:[pluginPercentualRosca, pluginTotalCentroRosca],
       options: {
         maintainAspectRatio:false,
-        cutout:'62%',
+        cutout:'46%',
         layout:{ padding:{ top: 4 } },
         plugins:{
           legend:{
@@ -11355,20 +11356,36 @@ function imprimirAvaliacaoFluencia(turmaId, ano, alunosTurma, porAluno){
 }
 
 function renderizarRelatorios(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
-  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
-
+  const abas = [
+    { id:'documentos', label:'Documentos da turma' },
+    { id:'frequencia', label:'Frequência' },
+    { id:'geral', label:'Geral' },
+  ];
+  const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subRelatorios===a.id?'ativa':''}" data-aba-rel="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
     <div class="cabecalho-pagina"><div><h2>Relatórios</h2><p>Documentos para impressão, organizados por tipo</p></div></div>
+    <div class="subtabs" style="margin-bottom:14px;">${barra}</div>
+    <div id="conteudo-relatorios"></div>`;
+  el.querySelectorAll('[data-aba-rel]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.subRelatorios = b.dataset.abaRel; renderizarRelatorios(el);
+  }));
+  const alvo = el.querySelector('#conteudo-relatorios');
+  if(ESTADO.subRelatorios === 'frequencia') renderizarRelatoriosFrequenciaTab(alvo);
+  else if(ESTADO.subRelatorios === 'geral') renderizarRelatoriosGeralTab(alvo);
+  else renderizarRelatoriosDocumentosTab(alvo);
+}
 
+function renderizarRelatoriosDocumentosTab(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b><p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 0;">Escolha a turma pra habilitar os documentos abaixo que dependem dela.</p></div>
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
       <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div></div>
     </div>
 
-    <div class="painel" style="margin-bottom:14px;">
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Documentos da turma</b></div>
       <div style="padding:14px 16px;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -11379,9 +11396,28 @@ function renderizarRelatorios(el){
           A <b>Lista de Presença</b> e a <b>Lista do Conselho de Classe</b> agora ficam na aba <b>📋 Listas</b>, no menu.
         </p>
       </div>
+    </div>`;
+
+  document.getElementById('rel-turma').addEventListener('change', (e) => {
+    ESTADO.relatorioTurmaId = e.target.value;
+    document.getElementById('btn-rel-lista-pasta').disabled = !ESTADO.relatorioTurmaId;
+  });
+  document.getElementById('btn-rel-lista-pasta').addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
+}
+
+function renderizarRelatoriosFrequenciaTab(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div></div>
     </div>
 
-    <div class="painel" style="margin-bottom:14px;">
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Frequência</b></div>
       <div style="padding:14px 16px;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -11402,6 +11438,34 @@ function renderizarRelatorios(el){
           <p style="font-size:12px;color:var(--texto-suave);margin:8px 0 0;">A lista em branco traz todos os dias úteis (segunda a sexta) do mês, com as colunas vazias — pro professor preencher a chamada no papel quando não tiver acesso ao sistema.</p>
         </div>
       </div>
+    </div>`;
+
+  const sel = document.getElementById('rel-turma');
+  const btnFrequencia = document.getElementById('btn-rel-frequencia');
+  const btnFrequenciaMensal = document.getElementById('btn-rel-frequencia-mensal');
+  const btnFrequenciaMensalBranco = document.getElementById('btn-rel-frequencia-mensal-branco');
+  sel.addEventListener('change', (e) => {
+    ESTADO.relatorioTurmaId = e.target.value;
+    const temTurma = !!ESTADO.relatorioTurmaId;
+    btnFrequencia.disabled = !temTurma;
+    btnFrequenciaMensal.disabled = !temTurma;
+    btnFrequenciaMensalBranco.disabled = !temTurma;
+  });
+  document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
+  document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
+  btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
+  btnFrequenciaMensal.addEventListener('click', () => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensal));
+  btnFrequenciaMensalBranco.addEventListener('click', () => imprimirFrequenciaMensalEmBranco(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensalBranco));
+}
+
+function renderizarRelatoriosGeralTab(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma (opcional)</b><p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 0;">Deixe em branco pra ver a escola inteira.</p></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div></div>
     </div>
 
     <div class="painel">
@@ -11412,25 +11476,7 @@ function renderizarRelatorios(el){
       </div>
     </div>`;
 
-  const sel = document.getElementById('rel-turma');
-  const btnLista = document.getElementById('btn-rel-lista-pasta');
-  const btnFrequencia = document.getElementById('btn-rel-frequencia');
-  const btnFrequenciaMensal = document.getElementById('btn-rel-frequencia-mensal');
-  const btnFrequenciaMensalBranco = document.getElementById('btn-rel-frequencia-mensal-branco');
-  sel.addEventListener('change', (e) => {
-    ESTADO.relatorioTurmaId = e.target.value;
-    const temTurma = !!ESTADO.relatorioTurmaId;
-    btnLista.disabled = !temTurma;
-    btnFrequencia.disabled = !temTurma;
-    btnFrequenciaMensal.disabled = !temTurma;
-    btnFrequenciaMensalBranco.disabled = !temTurma;
-  });
-  document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
-  document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
-  btnLista.addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
-  btnFrequencia.addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
-  btnFrequenciaMensal.addEventListener('click', () => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensal));
-  btnFrequenciaMensalBranco.addEventListener('click', () => imprimirFrequenciaMensalEmBranco(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, btnFrequenciaMensalBranco));
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; });
   document.getElementById('btn-rel-aee').addEventListener('click', () => imprimirListaAEE(ESTADO.relatorioTurmaId));
 }
 
