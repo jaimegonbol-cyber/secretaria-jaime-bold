@@ -2389,6 +2389,7 @@ function abrirModalEditarTurma(turma){
       </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhum professor vinculado ainda.</p>`;
     alvo.querySelectorAll('[data-remover-vinculo]').forEach(b => b.addEventListener('click', async () => {
       await supabase.from('turma_professor_disciplina').delete().eq('id', b.dataset.removerVinculo);
+      ESTADO.disciplinasPorFuncionarioCache = null;
       carregarVinculosTurma(turmaId);
     }));
   }
@@ -2420,6 +2421,7 @@ function abrirModalEditarTurma(turma){
         ? `<div class="msg-ok">Vinculado como Polivalente (Anos Iniciais): ${disciplinasParaSalvar.join(', ')}.</div>`
         : '';
       document.getElementById('vinculo-disciplina').value = '';
+      ESTADO.disciplinasPorFuncionarioCache = null;
       carregarVinculosTurma(turma.id);
     });
   }
@@ -2585,18 +2587,40 @@ async function proximoRegistroArquivoMorto(){
   return { numero, pasta: `PASTA ${numeroPasta}` };
 }
 
-function renderizarFuncionarios(el){
+async function renderizarFuncionarios(el){
   const lista = funcionariosFiltrados();
   const ehAdmin = ESTADO.perfil.role === 'admin';
   const selecionados = new Set(ESTADO.funcionariosSelecionadosImpressao || []);
-  const linhas = lista.map(f => `
+
+  // busca as disciplinas vinculadas por funcionário só na primeira vez (fica em cache) — assim
+  // digitar na busca ou marcar checkboxes não recarrega a consulta nem faz o campo perder o foco
+  if(!ESTADO.disciplinasPorFuncionarioCache){
+    const { data: vinculos } = await supabase.from('turma_professor_disciplina').select('funcionario_id, disciplina');
+    const mapa = {};
+    (vinculos||[]).forEach(v => {
+      if(!mapa[v.funcionario_id]) mapa[v.funcionario_id] = new Set();
+      mapa[v.funcionario_id].add(v.disciplina);
+    });
+    ESTADO.disciplinasPorFuncionarioCache = mapa;
+  }
+  const disciplinasPorFuncionario = ESTADO.disciplinasPorFuncionarioCache;
+
+  const linhas = lista.map(f => {
+    const disciplinas = disciplinasPorFuncionario[f.id];
+    const ehProfessor = (f.funcao||'').toLowerCase().includes('professor');
+    return `
     <tr data-id="${f.id}">
       ${ehAdmin ? `<td style="width:1%;"><input type="checkbox" class="chk-imprimir-func" data-id="${f.id}" ${selecionados.has(f.id)?'checked':''} style="width:15px;height:15px;" /></td>` : ''}
       <td style="display:flex;align-items:center;gap:9px;">
         ${f.foto_url ? `<img src="${esc(f.foto_url)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;" />` : `<span style="width:26px;height:26px;border-radius:50%;background:var(--areia-escura);display:inline-block;flex-shrink:0;"></span>`}
         ${esc(f.nome)}
       </td>
-      <td><span class="pill verde">${esc(f.funcao)}</span></td>
+      <td>
+        <span class="pill verde">${esc(f.funcao)}</span>
+        ${ehProfessor ? (disciplinas && disciplinas.size
+          ? `<div style="font-size:11px;color:var(--texto-suave);margin-top:3px;max-width:220px;">${esc(Array.from(disciplinas).sort((a,b)=>a.localeCompare(b,'pt-BR')).join(', '))}</div>`
+          : `<div style="font-size:11px;color:var(--erro);margin-top:3px;">Sem disciplina vinculada</div>`) : ''}
+      </td>
       <td>${f.vinculo ? `<span class="pill azul">${esc(rotuloVinculo(f.vinculo))}</span>` : '—'}</td>
       <td>${f.categoria ? esc(rotuloCategoria(f.categoria)) : '—'}</td>
       <td>${esc(f.telefone || '—')}</td>
@@ -2605,7 +2629,8 @@ function renderizarFuncionarios(el){
         <button class="btn-icone" data-editar-func="${f.id}" title="Editar">✏️</button>
         ${ehAdmin ? `<button class="btn-icone perigo" data-excluir-func="${f.id}" title="Excluir">🗑️</button>` : ''}
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   el.innerHTML = `
     <div class="cabecalho-pagina">
