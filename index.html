@@ -2263,11 +2263,33 @@ async function renderizarTurmas(el){
     disciplinasPorTurma[v.turma_id].add(v.disciplina);
   });
 
+  // Anos Finais (6º ao 9º) têm obrigatoriamente 9 disciplinas — as mesmas 8 fixas, mais EDI
+  // (só no 6º ano) ou EDHC (7º a 9º) no lugar uma da outra.
+  function disciplinasEsperadasAnosFinais(nomeTurma){
+    const nomeNormalizado = (nomeTurma||'').replace(/°/g, 'º').toUpperCase();
+    const temEDI = /^6º\s*ANO\b/.test(nomeNormalizado);
+    return ['Arte', 'Ciências', 'Educação Física', 'Geografia', 'História', 'Língua Inglesa', 'Língua Portuguesa', 'Matemática', temEDI ? 'EDI' : 'EDHC'];
+  }
+  function ehAnosFinais(nomeTurma){
+    const nomeNormalizado = (nomeTurma||'').replace(/°/g, 'º').toUpperCase();
+    return /^[6-9]º\s*ANO\b/.test(nomeNormalizado);
+  }
+
   const linhas = ESTADO.turmas.map(t => {
-    const qtdDisciplinas = disciplinasPorTurma[t.id]?.size || 0;
-    const alertaVinculo = qtdDisciplinas === 0
-      ? `<span class="pill vermelho" title="Nenhum professor vinculado ainda">⚠️ Sem professor vinculado</span>`
-      : `<span class="pill verde" title="${qtdDisciplinas} disciplina(s) com professor vinculado">✅ ${qtdDisciplinas} disciplina(s)</span>`;
+    const disciplinasVinculadas = disciplinasPorTurma[t.id] || new Set();
+    const qtdDisciplinas = disciplinasVinculadas.size;
+    let alertaVinculo;
+    if(ehAnosFinais(t.nome)){
+      const esperadas = disciplinasEsperadasAnosFinais(t.nome);
+      const faltando = esperadas.filter(d => !disciplinasVinculadas.has(d));
+      alertaVinculo = !faltando.length
+        ? `<span class="pill verde" title="Todas as 9 disciplinas obrigatórias têm professor vinculado">✅ Completo (9/9)</span>`
+        : `<span class="pill vermelho" title="Faltam: ${esc(faltando.join(', '))}">⚠️ Faltam ${faltando.length}: ${esc(faltando.join(', '))} (${esperadas.length-faltando.length}/9)</span>`;
+    } else {
+      alertaVinculo = qtdDisciplinas === 0
+        ? `<span class="pill vermelho" title="Nenhum professor vinculado ainda">⚠️ Sem professor vinculado</span>`
+        : `<span class="pill verde" title="${qtdDisciplinas} disciplina(s) com professor vinculado">✅ ${qtdDisciplinas} disciplina(s)</span>`;
+    }
     return `
     <tr data-id="${t.id}">
       <td>${esc(t.nome)}</td>
