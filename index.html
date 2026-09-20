@@ -2363,8 +2363,8 @@ function abrirModalEditarTurma(turma){
         <h4 style="margin:0 0 8px;">Professores e disciplinas desta turma</h4>
         <div id="lista-vinculos-turma"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-          <select id="vinculo-professor" style="flex:1;min-width:160px;"><option value="">Selecione o professor…</option>${ESTADO.funcionarios.filter(f=>f.ativo!==false && (f.funcao||'').toLowerCase().includes('professor')).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('')}</select>
           <select id="vinculo-disciplina" style="flex:1;min-width:160px;"><option value="">Selecione a disciplina…</option>${DISCIPLINAS_TURMA.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('')}</select>
+          <select id="vinculo-professor" style="flex:1;min-width:160px;"><option value="">Selecione o professor…</option>${ESTADO.funcionarios.filter(f=>f.ativo!==false && (f.funcao||'').toLowerCase().includes('professor')).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('')}</select>
           <button class="botao secundario pequeno" type="button" id="btn-add-vinculo" style="width:auto;">+ Vincular</button>
         </div>
         <div id="msg-vinculo-turma"></div>
