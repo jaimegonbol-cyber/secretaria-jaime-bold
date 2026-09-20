@@ -2244,28 +2244,51 @@ async function imprimirAutorizacoes(a){
   janela.document.close();
   janela.focus();
 }
-function renderizarTurmas(el){
+async function renderizarTurmas(el){
   const contagem = {};
   ESTADO.alunos.forEach(a => { contagem[a.turma_id] = (contagem[a.turma_id]||0)+1; });
   const ehAdmin = ESTADO.perfil.role === 'admin';
-  const linhas = ESTADO.turmas.map(t => `
+
+  el.innerHTML = `
+    <div class="cabecalho-pagina">
+      <div><h2>Turmas</h2><p>${ESTADO.turmas.length} turmas cadastradas em 2026</p></div>
+      <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
+    </div>
+    <div class="painel"><p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p></div>`;
+
+  const { data: vinculos } = await supabase.from('turma_professor_disciplina').select('turma_id, disciplina');
+  const disciplinasPorTurma = {};
+  (vinculos||[]).forEach(v => {
+    if(!disciplinasPorTurma[v.turma_id]) disciplinasPorTurma[v.turma_id] = new Set();
+    disciplinasPorTurma[v.turma_id].add(v.disciplina);
+  });
+
+  const linhas = ESTADO.turmas.map(t => {
+    const qtdDisciplinas = disciplinasPorTurma[t.id]?.size || 0;
+    const alertaVinculo = qtdDisciplinas === 0
+      ? `<span class="pill vermelho" title="Nenhum professor vinculado ainda">⚠️ Sem professor vinculado</span>`
+      : `<span class="pill verde" title="${qtdDisciplinas} disciplina(s) com professor vinculado">✅ ${qtdDisciplinas} disciplina(s)</span>`;
+    return `
     <tr data-id="${t.id}">
       <td>${esc(t.nome)}</td>
       <td>${esc(t.ensino||'—')}</td>
       <td>${esc(t.turno||'—')}</td>
       <td>${contagem[t.id]||0} estudante(s)</td>
+      <td>${alertaVinculo}</td>
       <td class="col-acoes">
         <button class="btn-icone" data-editar-turma="${t.id}" title="Editar">✏️</button>
         ${ehAdmin ? `<button class="btn-icone perigo" data-excluir-turma="${t.id}" title="Excluir">🗑️</button>` : ''}
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+
   el.innerHTML = `
     <div class="cabecalho-pagina">
       <div><h2>Turmas</h2><p>${ESTADO.turmas.length} turmas cadastradas em 2026</p></div>
       <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
     </div>
     <div class="painel">
-      <div style="overflow-x:auto;"><table><thead><tr><th>Turma</th><th>Ensino</th><th>Turno</th><th>Estudantes</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <div style="overflow-x:auto;"><table><thead><tr><th>Turma</th><th>Ensino</th><th>Turno</th><th>Estudantes</th><th>Professores/Disciplinas</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
     </div>`;
   el.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
     if(e.target.closest('[data-editar-turma], [data-excluir-turma]')) return;
