@@ -327,7 +327,7 @@ function estadoPadraoAbas(){
     alunoSelecionado: null,
     subFrequencia: 'estudantes',
     relatorioTurmaId: '',
-    subRelatorios: 'branco',
+    subRelatorios: 'presenca',
     ataTurmaId: '',
     relatorioMes: new Date().getMonth() + 1,
     relatorioAno: new Date().getFullYear(),
@@ -10245,28 +10245,36 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
 // ---------------------------------------------------------------
 // ATAS — Ata de Presença + Ata do Conselho de Classe
 // ---------------------------------------------------------------
-function renderizarPreenchimentoTab(el){
+function renderizarRelListaPresenca(el){
   const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
-  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
   const temTurma = !!ESTADO.relatorioTurmaId;
-
   el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
       <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
     </div>
-
-    <div class="painel" style="margin-bottom:14px;">
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista de Presença</b></div>
       <div style="padding:14px 16px;">
         <button class="botao terracota pequeno" id="btn-ata-presenca" style="width:auto;" ${temTurma?'':'disabled'}>🖨️ Gerar Lista de Presença</button>
         <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Nome e data de nascimento de cada estudante, com espaço para assinatura do(a) responsável.</p>
       </div>
-    </div>
+    </div>`;
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelListaPresenca(el); });
+  document.getElementById('btn-ata-presenca').addEventListener('click', () => imprimirAtaPresenca(ESTADO.relatorioTurmaId));
+}
 
+function renderizarRelConselhoClasse(el){
+  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const temTurma = !!ESTADO.relatorioTurmaId;
+  el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
+    </div>
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista do Conselho de Classe</b></div>
       <div style="padding:14px 16px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
@@ -10291,8 +10299,26 @@ function renderizarPreenchimentoTab(el){
         <div id="msg-ata-conselho"></div>
         <button class="botao terracota" id="btn-ata-conselho" style="margin-top:10px;width:auto;" ${temTurma?'':'disabled'}>🖨️ Salvar e gerar Lista</button>
       </div>
-    </div>
+    </div>`;
+  document.getElementById('rel-turma').addEventListener('change', (e) => {
+    ESTADO.relatorioTurmaId = e.target.value;
+    ESTADO.ataTurmaId = e.target.value;
+    renderizarRelConselhoClasse(el);
+  });
+  document.getElementById('btn-ata-conselho').addEventListener('click', () => salvarEGerarAtaConselhoClasse(el));
+}
 
+function renderizarRelFreqMensalBranco(el){
+  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
+  const temTurma = !!ESTADO.relatorioTurmaId;
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
+    </div>
     <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista de Frequência Mensal (em branco)</b></div>
       <div style="padding:14px 16px;">
@@ -10300,21 +10326,13 @@ function renderizarPreenchimentoTab(el){
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div class="campo" style="margin:0;max-width:180px;"><label>Mês</label><select id="rel-mes">${opcoesMeses}</select></div>
           <div class="campo" style="margin:0;max-width:120px;"><label>Ano</label><input type="number" id="rel-ano" value="${ESTADO.relatorioAno}" /></div>
-          <button class="botao secundario pequeno" id="btn-rel-frequencia-mensal-branco" style="width:auto;" ${temTurma?'':'disabled'}>📝 Gerar lista em branco</button>
+          <button class="botao terracota pequeno" id="btn-rel-frequencia-mensal-branco" style="width:auto;" ${temTurma?'':'disabled'}>📝 Gerar lista em branco</button>
         </div>
       </div>
     </div>`;
-
-  document.getElementById('rel-turma').addEventListener('change', (e) => {
-    ESTADO.relatorioTurmaId = e.target.value;
-    ESTADO.ataTurmaId = e.target.value;
-    renderizarPreenchimentoTab(el);
-  });
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelFreqMensalBranco(el); });
   document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
   document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
-
-  document.getElementById('btn-ata-presenca').addEventListener('click', () => imprimirAtaPresenca(ESTADO.relatorioTurmaId));
-  document.getElementById('btn-ata-conselho').addEventListener('click', () => salvarEGerarAtaConselhoClasse(el));
   document.getElementById('btn-rel-frequencia-mensal-branco').addEventListener('click', (e) => imprimirFrequenciaMensalEmBranco(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, e.target));
 }
 
@@ -11354,52 +11372,84 @@ function imprimirAvaliacaoFluencia(turmaId, ano, alunosTurma, porAluno){
 
 function renderizarRelatorios(el){
   const abas = [
-    { id:'branco', label:'Para Preenchimento' },
-    { id:'dados', label:'Relatórios' },
+    { id:'presenca', label:'Lista de Presença' },
+    { id:'conselho', label:'Conselho de Classe' },
+    { id:'freq-branco', label:'Frequência (em branco)' },
+    { id:'pasta', label:'Pasta de Estudante' },
+    { id:'freq-pct', label:'Frequência (%)' },
+    { id:'freq-mensal', label:'Frequência Mensal' },
+    { id:'aee', label:'Estudantes com AEE' },
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subRelatorios===a.id?'ativa':''}" data-aba-rel="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
-    <div class="cabecalho-pagina"><div><h2>Relatórios</h2><p>Listas para impressão — em branco pra preencher à mão, ou já com os dados registrados no sistema</p></div></div>
+    <div class="cabecalho-pagina"><div><h2>Relatórios</h2><p>Listas para impressão — as 3 primeiras são em branco pra preencher à mão; as demais já trazem os dados registrados no sistema</p></div></div>
     <div class="subtabs" style="margin-bottom:14px;">${barra}</div>
     <div id="conteudo-relatorios"></div>`;
   el.querySelectorAll('[data-aba-rel]').forEach(b => b.addEventListener('click', () => {
     ESTADO.subRelatorios = b.dataset.abaRel; renderizarRelatorios(el);
   }));
   const alvo = el.querySelector('#conteudo-relatorios');
-  if(ESTADO.subRelatorios === 'dados') renderizarRelatoriosDadosTab(alvo);
-  else renderizarPreenchimentoTab(alvo);
+  if(ESTADO.subRelatorios === 'conselho') renderizarRelConselhoClasse(alvo);
+  else if(ESTADO.subRelatorios === 'freq-branco') renderizarRelFreqMensalBranco(alvo);
+  else if(ESTADO.subRelatorios === 'pasta') renderizarRelListaPasta(alvo);
+  else if(ESTADO.subRelatorios === 'freq-pct') renderizarRelFreqPercentual(alvo);
+  else if(ESTADO.subRelatorios === 'freq-mensal') renderizarRelFreqMensalDados(alvo);
+  else if(ESTADO.subRelatorios === 'aee') renderizarRelAEE(alvo);
+  else renderizarRelListaPresenca(alvo);
 }
 
-function renderizarRelatoriosDadosTab(el){
+function renderizarRelListaPasta(el){
   const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
-  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
   const temTurma = !!ESTADO.relatorioTurmaId;
-
   el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b><p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 0;">Deixe em branco pra ver a escola inteira nos relatórios que aceitam isso (Estudantes com AEE).</p></div>
-      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div></div>
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div></div>
     </div>
-
-    <div class="painel" style="margin-bottom:14px;">
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista de Pasta de Estudante</b></div>
       <div style="padding:14px 16px;">
         <button class="botao terracota pequeno" id="btn-rel-lista-pasta" style="width:auto;" ${temTurma?'':'disabled'}>🖨️ Gerar</button>
         <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Nome, AEE, data de nascimento, idade e telefone, para arquivo da pasta da turma.</p>
       </div>
-    </div>
+    </div>`;
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelListaPasta(el); });
+  document.getElementById('btn-rel-lista-pasta').addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
+}
 
+function renderizarRelFreqPercentual(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const temTurma = !!ESTADO.relatorioTurmaId;
+  el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div></div>
+    </div>
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Frequência de Estudantes (% por mês)</b></div>
       <div style="padding:14px 16px;">
         <button class="botao terracota pequeno" id="btn-rel-frequencia" style="width:auto;" ${temTurma?'':'disabled'}>🖨️ Gerar</button>
         <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Percentual de frequência mês a mês (Fevereiro a Dezembro) e média anual, com AEE, Bolsa Família e NIS.</p>
       </div>
-    </div>
+    </div>`;
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelFreqPercentual(el); });
+  document.getElementById('btn-rel-frequencia').addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
+}
 
+function renderizarRelFreqMensalDados(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
+  const temTurma = !!ESTADO.relatorioTurmaId;
+  el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div></div>
+    </div>
+    <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista de Frequência Mensal (já preenchida)</b></div>
       <div style="padding:14px 16px;">
         <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">Grade com um estudante por linha e uma coluna pra cada dia letivo do mês escolhido — só entram os dias em que a chamada foi de fato registrada (feriados/pontos facultativos ficam de fora automaticamente).</p>
@@ -11409,22 +11459,29 @@ function renderizarRelatoriosDadosTab(el){
           <button class="botao terracota pequeno" id="btn-rel-frequencia-mensal" style="width:auto;" ${temTurma?'':'disabled'}>🖨️ Gerar</button>
         </div>
       </div>
-    </div>
+    </div>`;
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelFreqMensalDados(el); });
+  document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
+  document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
+  document.getElementById('btn-rel-frequencia-mensal').addEventListener('click', (e) => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, e.target));
+}
 
+function renderizarRelAEE(el){
+  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma (opcional)</b><p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 0;">Deixe em branco pra ver a escola inteira.</p></div>
+      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div></div>
+    </div>
     <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Estudantes com AEE</b></div>
       <div style="padding:14px 16px;">
-        <button class="botao secundario pequeno" id="btn-rel-aee" style="width:auto;">🖨️ Gerar</button>
+        <button class="botao terracota pequeno" id="btn-rel-aee" style="width:auto;">🖨️ Gerar</button>
         <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Lista de todos os estudantes com AEE marcado, de toda a escola (ou só da turma selecionada acima, se houver uma).</p>
       </div>
     </div>`;
-
-  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelatoriosDadosTab(el); });
-  document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
-  document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
-  document.getElementById('btn-rel-lista-pasta').addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
-  document.getElementById('btn-rel-frequencia').addEventListener('click', () => imprimirFrequenciaEstudantes(ESTADO.relatorioTurmaId));
-  document.getElementById('btn-rel-frequencia-mensal').addEventListener('click', (e) => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, e.target));
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; });
   document.getElementById('btn-rel-aee').addEventListener('click', () => imprimirListaAEE(ESTADO.relatorioTurmaId));
 }
 
