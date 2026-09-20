@@ -2317,11 +2317,12 @@ function abrirModalEditarTurma(turma){
         <h4 style="margin:0 0 8px;">Professores e disciplinas desta turma</h4>
         <div id="lista-vinculos-turma"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-          <select id="vinculo-professor" style="flex:1;min-width:160px;"><option value="">Selecione o professor…</option>${ESTADO.funcionarios.filter(f=>f.ativo!==false).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('')}</select>
+          <select id="vinculo-professor" style="flex:1;min-width:160px;"><option value="">Selecione o professor…</option>${ESTADO.funcionarios.filter(f=>f.ativo!==false && (f.funcao||'').toLowerCase().includes('professor')).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('')}</select>
           <select id="vinculo-disciplina" style="flex:1;min-width:160px;"><option value="">Selecione a disciplina…</option>${DISCIPLINAS_TURMA.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('')}</select>
           <button class="botao secundario pequeno" type="button" id="btn-add-vinculo" style="width:auto;">+ Vincular</button>
         </div>
         <div id="msg-vinculo-turma"></div>
+        <p style="font-size:11.5px;color:var(--texto-suave);margin:6px 0 0;">Só aparecem funcionários com função de Professor(a). Selecionando <b>Polivalente</b>, o sistema já vincula automaticamente o professor a Arte, Ciências, Geografia, História, Língua Portuguesa, Matemática e EDI/EDHC (conforme a série) — não precisa adicionar um por um.</p>
       </div>` : ''}
     </div>`;
   document.body.appendChild(modal);
@@ -2352,11 +2353,26 @@ function abrirModalEditarTurma(turma){
       const disciplina = document.getElementById('vinculo-disciplina').value.trim();
       const msgVinculo = document.getElementById('msg-vinculo-turma');
       if(!funcionarioId || !disciplina){ msgVinculo.innerHTML = `<div class="msg-erro">Selecione o professor e informe a disciplina.</div>`; return; }
-      const { error: erroVinculo } = await supabase.from('turma_professor_disciplina').insert({
-        turma_id: turma.id, funcionario_id: funcionarioId, disciplina, criado_por: ESTADO.perfil.id,
-      });
+
+      // Professor(a) Polivalente leciona todas as disciplinas dos Anos Iniciais de uma vez só
+      // (Arte, Ciências, Geografia, História, Língua Portuguesa, Matemática, e EDI ou EDHC
+      // dependendo da série — EDI ainda só está implantada no 1º ano e no 6º ano, substituindo
+      // o EDHC gradativamente nos anos seguintes) — em vez de cadastrar 1 vínculo "Polivalente",
+      // já cadastra as disciplinas reais de uma vez.
+      const nomeSerieNormalizado = turma.nome.replace(/°/g, 'º').toUpperCase();
+      const temEDI = /^1º\s*ANO\b/.test(nomeSerieNormalizado) || /^6º\s*ANO\b/.test(nomeSerieNormalizado);
+      const disciplinasParaSalvar = disciplina === 'Polivalente'
+        ? ['Arte', 'Ciências', 'Geografia', 'História', 'Língua Portuguesa', 'Matemática', temEDI ? 'EDI' : 'EDHC']
+        : [disciplina];
+
+      const { error: erroVinculo } = await supabase.from('turma_professor_disciplina').upsert(
+        disciplinasParaSalvar.map(d => ({ turma_id: turma.id, funcionario_id: funcionarioId, disciplina: d, criado_por: ESTADO.perfil.id })),
+        { onConflict: 'turma_id,funcionario_id,disciplina' }
+      );
       if(erroVinculo){ msgVinculo.innerHTML = `<div class="msg-erro">${esc(erroVinculo.message)}</div>`; return; }
-      msgVinculo.innerHTML = '';
+      msgVinculo.innerHTML = disciplina === 'Polivalente'
+        ? `<div class="msg-ok">Vinculado como Polivalente: ${disciplinasParaSalvar.join(', ')}.</div>`
+        : '';
       document.getElementById('vinculo-disciplina').value = '';
       carregarVinculosTurma(turma.id);
     });
