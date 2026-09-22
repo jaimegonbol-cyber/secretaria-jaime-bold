@@ -884,6 +884,12 @@ function renderizarPainel(el){
   el.innerHTML = `
     <div class="cabecalho-pagina" style="margin-bottom:6px;"><div><h2>Painel geral</h2><p>Ano letivo 2026 · visão consolidada da secretaria</p></div></div>
     <div class="stats-compactas">${statsHtml}</div>
+    <div class="painel" style="margin-bottom:12px;border:1.5px solid #B4432E;">
+      <div class="barra" style="padding:10px 14px;background:#FBE0DC;"><strong style="font-size:13.5px;color:#B4432E;">⚠️ Estudantes com baixa frequência (abaixo de 75%)</strong></div>
+      <div id="painel-baixa-frequencia" class="lista-pendentes-compacta" style="max-height:220px;overflow-y:auto;">
+        <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+      </div>
+    </div>
     <div class="grade-painel-geral">
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div class="painel">
@@ -918,6 +924,7 @@ function renderizarPainel(el){
 
   carregarDocsPendentesPainel();
   carregarPresencasPendentesPainel();
+  carregarBaixaFrequenciaPainel();
 
   if(graficoEtapaChart){ graficoEtapaChart.destroy(); graficoEtapaChart = null; }
   if(graficoTurmasChart){ graficoTurmasChart.destroy(); graficoTurmasChart = null; }
@@ -1108,6 +1115,33 @@ async function carregarPresencasPendentesPainel(){
     </div>`).join('');
   alvo.querySelectorAll('[data-confirmar-presenca-painel]').forEach(b => {
     b.addEventListener('click', () => confirmarPresencaResponsavelOcorrencia(b.dataset.confirmarPresencaPainel, carregarPresencasPendentesPainel));
+  });
+}
+
+async function carregarBaixaFrequenciaPainel(){
+  const alvo = document.getElementById('painel-baixa-frequencia');
+  if(!alvo) return;
+  const anoLetivo = new Date().getFullYear();
+  const { data, error } = await supabase.rpc('estudantes_baixa_frequencia', { ano: anoLetivo, limite: 75, minimo_registros: 5 });
+  if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  if(!data || !data.length){
+    alvo.innerHTML = `<p style="padding:14px;color:var(--texto-suave);font-size:13px;">Nenhum estudante com frequência abaixo de 75%. 🎉</p>`;
+    return;
+  }
+  alvo.innerHTML = data.map(r => {
+    const cor = r.percentual < 50 ? '#B4432E' : '#D98A1F';
+    return `
+    <div class="item-pendente" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <span style="display:flex;gap:10px;align-items:center;min-width:0;">
+        <span style="font-weight:700;color:${cor};min-width:38px;">${r.percentual}%</span>
+        <span class="ip-aluno" title="${esc(r.nome)}">${esc(r.nome)}</span>
+        <span style="color:var(--texto-suave);font-size:12px;white-space:nowrap;">${esc(r.turma_nome || '—')}</span>
+      </span>
+      <button class="botao secundario pequeno" style="width:auto;flex-shrink:0;padding:3px 9px;font-size:12px;" data-ver-aluno-baixa-frequencia="${r.aluno_id}">Ver estudante</button>
+    </div>`;
+  }).join('');
+  alvo.querySelectorAll('[data-ver-aluno-baixa-frequencia]').forEach(b => {
+    b.addEventListener('click', () => abrirFichaAluno(b.dataset.verAlunoBaixaFrequencia));
   });
 }
 
@@ -10162,15 +10196,25 @@ async function carregarListaConselhoClasse(el){
   if(!alunosTurma.length){ alvo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhum estudante nesta turma.</p>`; return; }
 
   const anoLetivo = new Date().getFullYear();
-  const [{ data: registros, error }, { data: vinculos, error: erroVinculos }] = await Promise.all([
+  const [{ data: registros, error }, { data: vinculos, error: erroVinculos }, { data: freqDados }] = await Promise.all([
     supabase.from('conselho_classe').select('*').eq('turma_id', ESTADO.conselhoTurmaId).eq('bimestre', ESTADO.conselhoBimestre).eq('ano_letivo', anoLetivo),
     supabase.from('turma_professor_disciplina').select('disciplina').eq('turma_id', ESTADO.conselhoTurmaId),
+    supabase.from('frequencia').select('aluno_id, status').eq('turma_id', ESTADO.conselhoTurmaId).gte('data', `${anoLetivo}-01-01`).lte('data', `${anoLetivo}-12-31`),
   ]);
   if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   if(erroVinculos){ alvo.innerHTML = `<div class="msg-erro">${esc(erroVinculos.message)}</div>`; return; }
   const disciplinasTurma = Array.from(new Set((vinculos||[]).map(v => v.disciplina))).sort((a,b) => a.localeCompare(b, 'pt-BR'));
   const porAluno = {};
   (registros||[]).forEach(r => { porAluno[r.aluno_id] = r; });
+
+  // percentual de frequência de cada estudante no ano letivo (presente / dias letivos registrados)
+  const frequenciaPorAluno = {};
+  (freqDados||[]).forEach(f => {
+    if(!['presente','falta','falta_justificada'].includes(f.status)) return;
+    if(!frequenciaPorAluno[f.aluno_id]) frequenciaPorAluno[f.aluno_id] = { presentes: 0, total: 0 };
+    frequenciaPorAluno[f.aluno_id].total++;
+    if(f.status === 'presente') frequenciaPorAluno[f.aluno_id].presentes++;
+  });
 
   if(!disciplinasTurma.length){
     alvo.innerHTML = `<div class="msg-erro">Esta turma ainda não tem disciplinas vinculadas. Vá em Cadastro → Turmas, edite a turma e vincule os professores/disciplinas antes de usar o Conselho de Classe.</div>`;
@@ -10186,21 +10230,19 @@ async function carregarListaConselhoClasse(el){
       <table style="border-collapse:collapse;white-space:nowrap;">
         <thead><tr>
           <th style="text-align:left;padding:6px 10px;position:sticky;top:0;z-index:10;background:var(--areia-escura);">Estudante</th>
+          <th style="padding:6px 4px;font-size:11px;font-weight:600;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="Frequência no ano letivo">Freq.</th>
           ${disciplinasTurma.map(d => `<th style="padding:6px 4px;font-size:11px;font-weight:600;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="${esc(d)}">${esc(abreviarDisciplina(d))}</th>`).join('')}
           <th style="text-align:left;padding:6px 8px;position:sticky;top:0;z-index:10;background:var(--areia-escura);">Observação</th>
         </tr></thead>
-        <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id], disciplinasTurma)).join('')}</tbody>
+        <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id], disciplinasTurma, frequenciaPorAluno[a.id])).join('')}</tbody>
       </table>
     </div>`;
 
   alvo.querySelectorAll('.chk-disciplina-recuperacao').forEach(chk => {
     chk.addEventListener('change', () => { chk.parentElement.style.background = chk.checked ? '#FBE0DC' : ''; });
   });
-  alvo.querySelectorAll('.obs-dropdown').forEach(det => {
-    det.querySelectorAll('.chk-observacao, .campo-outros-conselho').forEach(campo => {
-      campo.addEventListener('change', () => atualizarResumoObsConselho(det));
-      campo.addEventListener('input', () => atualizarResumoObsConselho(det));
-    });
+  alvo.querySelectorAll('.btn-obs-conselho').forEach(btn => {
+    btn.addEventListener('click', () => abrirModalObservacaoConselho(btn.closest('[data-linha-conselho]')));
   });
 
   document.getElementById('btn-salvar-conselho-tudo').addEventListener('click', async () => {
@@ -10227,45 +10269,68 @@ async function carregarListaConselhoClasse(el){
   });
 }
 
-function atualizarResumoObsConselho(details){
-  const marcados = Array.from(details.querySelectorAll('.chk-observacao:checked')).map(c => {
-    if(c.dataset.chave === 'outros'){
-      const texto = details.querySelector('.campo-outros-conselho').value.trim();
-      return texto ? `Outros: ${texto}` : 'Outros';
-    }
-    return OBSERVACOES_CONSELHO.find(o => o.chave === c.dataset.chave)?.rotulo;
-  }).filter(Boolean);
-  details.querySelector('summary').textContent = marcados.length ? marcados.join(', ') : 'Selecionar…';
-}
-
-function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma){
+function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma, frequenciaAluno){
   const disciplinasMarcadas = new Set(registro?.disciplinas_recuperacao || []);
   const observacoesMarcadas = new Set((registro?.observacoes || []).map(o => o.chave));
   const outrosSalvo = (registro?.observacoes || []).find(o => o.chave === 'outros');
   const resumoInicial = OBSERVACOES_CONSELHO.filter(o => observacoesMarcadas.has(o.chave)).map(o => o.chave === 'outros' ? (outrosSalvo?.texto ? `Outros: ${outrosSalvo.texto}` : 'Outros') : o.rotulo).join(', ') || 'Selecionar…';
+  const pctFrequencia = frequenciaAluno && frequenciaAluno.total ? Math.round((frequenciaAluno.presentes / frequenciaAluno.total) * 100) : null;
+  const corFrequencia = pctFrequencia === null ? 'var(--texto-suave)' : pctFrequencia < 75 ? '#B4432E' : pctFrequencia < 90 ? '#D98A1F' : '#2E7D5B';
   return `
     <tr data-linha-conselho="${aluno.id}" style="border-bottom:1px solid var(--borda);">
       <td style="padding:5px 10px;font-size:12.5px;white-space:nowrap;">${esc(aluno.nome)}${aluno.aee ? ' <span class="pill azul" style="font-size:10px;padding:1px 6px;">AEE</span>' : ''}</td>
+      <td style="text-align:center;padding:4px;font-size:12px;font-weight:700;color:${corFrequencia};" title="Frequência no ano letivo">${pctFrequencia === null ? '—' : pctFrequencia + '%'}</td>
       ${disciplinasTurma.map(d => `
         <td style="text-align:center;padding:4px;${disciplinasMarcadas.has(d) ? 'background:#FBE0DC;' : ''}">
           <input type="checkbox" class="chk-disciplina-recuperacao" data-disciplina="${esc(d)}" ${disciplinasMarcadas.has(d)?'checked':''} style="width:14px;height:14px;" />
         </td>`).join('')}
       <td style="padding:4px 6px;">
-        <details class="obs-dropdown">
-          <summary style="cursor:pointer;font-size:12px;padding:4px 8px;border:1px solid var(--borda);border-radius:5px;max-width:220px;white-space:normal;">${esc(resumoInicial)}</summary>
-          <div style="padding:8px;border:1px solid var(--borda);border-radius:6px;margin-top:4px;min-width:220px;white-space:normal;">
-            ${OBSERVACOES_CONSELHO.filter(o => o.chave !== 'outros').map(o => `
-              <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;padding:3px 0;cursor:pointer;">
-                <input type="checkbox" class="chk-observacao" data-chave="${o.chave}" ${observacoesMarcadas.has(o.chave)?'checked':''} style="width:14px;height:14px;" /> ${esc(o.rotulo)}
-              </label>`).join('')}
-            <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;padding:3px 0;cursor:pointer;">
-              <input type="checkbox" class="chk-observacao" data-chave="outros" ${observacoesMarcadas.has('outros')?'checked':''} style="width:14px;height:14px;" /> Outros:
-            </label>
-            <input type="text" class="campo-outros-conselho" value="${esc(outrosSalvo?.texto || '')}" placeholder="Descreva…" style="width:100%;font-size:12px;padding:4px 6px;margin-top:2px;" />
-          </div>
-        </details>
+        <button type="button" class="btn-obs-conselho" data-nome-aluno="${esc(aluno.nome)}" style="cursor:pointer;font-size:12px;padding:4px 8px;border:1px solid var(--borda);border-radius:5px;max-width:220px;white-space:normal;text-align:left;background:#fff;">${esc(resumoInicial)}</button>
+        <div class="obs-dados-conselho" style="display:none;">
+          ${OBSERVACOES_CONSELHO.filter(o => o.chave !== 'outros').map(o => `<input type="checkbox" class="chk-observacao" data-chave="${o.chave}" ${observacoesMarcadas.has(o.chave)?'checked':''} />`).join('')}
+          <input type="checkbox" class="chk-observacao" data-chave="outros" ${observacoesMarcadas.has('outros')?'checked':''} />
+          <input type="text" class="campo-outros-conselho" value="${esc(outrosSalvo?.texto || '')}" />
+        </div>
       </td>
     </tr>`;
+}
+
+function abrirModalObservacaoConselho(trLinha){
+  const nomeAluno = trLinha.querySelector('.btn-obs-conselho').dataset.nomeAluno;
+  const dadosOcultos = trLinha.querySelector('.obs-dados-conselho');
+  const marcadosAtuais = new Set(Array.from(dadosOcultos.querySelectorAll('.chk-observacao:checked')).map(c => c.dataset.chave));
+  const textoOutrosAtual = dadosOcultos.querySelector('.campo-outros-conselho').value;
+
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-topo"><h3>Observações — ${esc(nomeAluno)}</h3><button data-fechar>✕</button></div>
+      <div id="modal-obs-opcoes">
+        ${OBSERVACOES_CONSELHO.filter(o => o.chave !== 'outros').map(o => `
+          <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:6px 0;cursor:pointer;">
+            <input type="checkbox" class="modal-chk-obs" data-chave="${o.chave}" ${marcadosAtuais.has(o.chave)?'checked':''} style="width:16px;height:16px;" /> ${esc(o.rotulo)}
+          </label>`).join('')}
+        <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:6px 0;cursor:pointer;">
+          <input type="checkbox" class="modal-chk-obs" data-chave="outros" ${marcadosAtuais.has('outros')?'checked':''} style="width:16px;height:16px;" /> Outros:
+        </label>
+        <input type="text" id="modal-campo-outros" value="${esc(textoOutrosAtual)}" placeholder="Descreva…" style="width:100%;margin-top:2px;" />
+      </div>
+      <button class="botao terracota" id="btn-aplicar-obs-modal" style="width:100%;margin-top:14px;">Aplicar</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+
+  document.getElementById('btn-aplicar-obs-modal').addEventListener('click', () => {
+    const marcadosNovos = new Set(Array.from(modal.querySelectorAll('.modal-chk-obs:checked')).map(c => c.dataset.chave));
+    const textoOutrosNovo = document.getElementById('modal-campo-outros').value;
+    dadosOcultos.querySelectorAll('.chk-observacao').forEach(c => { c.checked = marcadosNovos.has(c.dataset.chave); });
+    dadosOcultos.querySelector('.campo-outros-conselho').value = textoOutrosNovo;
+    const resumo = OBSERVACOES_CONSELHO.filter(o => marcadosNovos.has(o.chave)).map(o => o.chave === 'outros' ? (textoOutrosNovo.trim() ? `Outros: ${textoOutrosNovo.trim()}` : 'Outros') : o.rotulo).join(', ') || 'Selecionar…';
+    trLinha.querySelector('.btn-obs-conselho').textContent = resumo;
+    modal.remove();
+  });
 }
 
 async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
