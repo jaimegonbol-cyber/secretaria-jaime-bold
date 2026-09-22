@@ -884,12 +884,6 @@ function renderizarPainel(el){
   el.innerHTML = `
     <div class="cabecalho-pagina" style="margin-bottom:6px;"><div><h2>Painel geral</h2><p>Ano letivo 2026 · visão consolidada da secretaria</p></div></div>
     <div class="stats-compactas">${statsHtml}</div>
-    <div class="painel" style="margin-bottom:12px;border:1.5px solid #B4432E;">
-      <div class="barra" style="padding:10px 14px;background:#FBE0DC;"><strong style="font-size:13.5px;color:#B4432E;">⚠️ Estudantes com baixa frequência (abaixo de 75%)</strong></div>
-      <div id="painel-baixa-frequencia" class="lista-pendentes-compacta" style="max-height:220px;overflow-y:auto;">
-        <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
-      </div>
-    </div>
     <div class="grade-painel-geral">
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div class="painel">
@@ -919,6 +913,12 @@ function renderizarPainel(el){
             </div>
           </div>
         </div>
+      </div>
+    </div>
+    <div class="painel" style="margin-top:12px;border:1.5px solid #B4432E;">
+      <div class="barra" style="padding:10px 14px;background:#FBE0DC;"><strong style="font-size:13.5px;color:#B4432E;">⚠️ Estudantes com baixa frequência (abaixo de 75%)</strong></div>
+      <div id="painel-baixa-frequencia" class="lista-pendentes-compacta" style="max-height:220px;overflow-y:auto;">
+        <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
       </div>
     </div>`;
 
