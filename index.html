@@ -187,7 +187,6 @@
   .stat-mini .n{font-size:21px;font-weight:800;color:var(--verde-escuro);line-height:1.15;}
   .stat-mini .l{font-size:11.5px;color:var(--texto-suave);font-weight:600;margin-top:1px;line-height:1.2;}
   .grade-painel-geral{display:grid;grid-template-columns:1fr 1.3fr;gap:12px;align-items:start;}
-  .grade-painel-3col{display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;align-items:start;margin-bottom:12px;}
   .grade-painel-geral > .painel{min-width:0;}
   .lista-pendentes-compacta{display:flex;flex-direction:column;}
   .item-pendente{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #F0ECE0;font-size:12px;}
@@ -201,7 +200,6 @@
   .caixa-grafico h4{font-size:14px;color:var(--texto-suave);font-weight:700;margin:0 0 8px;text-transform:uppercase;letter-spacing:.02em;overflow-wrap:break-word;}
   @media (max-width:900px){
     .grade-painel-geral{grid-template-columns:1fr;}
-    .grade-painel-3col{grid-template-columns:1fr;}
     .grade-graficos{grid-template-columns:1fr;}
   }
 
@@ -860,7 +858,7 @@ function renderizarPainel(el){
     const turnoFormatado = turnoTxt ? turnoTxt.charAt(0).toUpperCase() + turnoTxt.slice(1).toLowerCase() : '';
     return { nome, total: info.total, rotulo: turnoFormatado ? `${nome} · ${turnoFormatado}` : nome };
   });
-  const alturaPainelGraficos = 190;
+  const alturaPainelGraficos = 260;
   const alturaGraficoEtapa = alturaPainelGraficos;
   const alturaBarrasTurmas = Math.max(alturaPainelGraficos, turmasOrdenadas.length * 28);
 
@@ -886,39 +884,41 @@ function renderizarPainel(el){
   el.innerHTML = `
     <div class="cabecalho-pagina" style="margin-bottom:6px;"><div><h2>Painel geral</h2><p>Ano letivo 2026 · visão consolidada da secretaria</p></div></div>
     <div class="stats-compactas">${statsHtml}</div>
-    <div class="grade-painel-3col">
-      <div class="painel">
-        <div class="barra" style="padding:8px 12px;"><strong style="font-size:13px;">Documentos pendentes</strong></div>
-        <div id="painel-docs-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
-          <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+    <div class="grade-painel-geral">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="painel">
+          <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">Documentos pendentes</strong></div>
+          <div id="painel-docs-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
+            <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+          </div>
+        </div>
+        <div class="painel">
+          <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">Presença de responsáveis pendente</strong></div>
+          <div id="painel-presencas-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
+            <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+          </div>
         </div>
       </div>
       <div class="painel">
-        <div class="barra" style="padding:8px 12px;"><strong style="font-size:13px;">Presença de responsáveis pendente</strong></div>
-        <div id="painel-presencas-pendentes" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
-          <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
-        </div>
-      </div>
-      <div class="painel" style="border:1.5px solid #B4432E;">
-        <div class="barra" style="padding:8px 12px;background:#FBE0DC;"><strong style="font-size:13px;color:#B4432E;">⚠️ Baixa frequência (abaixo de 75%)</strong></div>
-        <div id="painel-baixa-frequencia" class="lista-pendentes-compacta" style="max-height:${alturaPainelGraficos}px;overflow-y:auto;">
-          <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
+        <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">Distribuição dos estudantes</strong></div>
+        <div class="grade-graficos" style="padding:10px 12px;">
+          <div class="caixa-grafico">
+            <h4>Por etapa de ensino</h4>
+            <div style="position:relative;height:${alturaGraficoEtapa}px;"><canvas id="grafico-etapa"></canvas></div>
+          </div>
+          <div class="caixa-grafico">
+            <h4>Estudantes por turma</h4>
+            <div style="height:${alturaPainelGraficos}px;overflow-y:auto;">
+              <div style="position:relative;height:${alturaBarrasTurmas}px;"><canvas id="grafico-turmas"></canvas></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-    <div class="painel">
-      <div class="barra" style="padding:8px 12px;"><strong style="font-size:13px;">Distribuição dos estudantes</strong></div>
-      <div class="grade-graficos" style="padding:8px 12px;">
-        <div class="caixa-grafico">
-          <h4>Por etapa de ensino</h4>
-          <div style="position:relative;height:${alturaGraficoEtapa}px;"><canvas id="grafico-etapa"></canvas></div>
-        </div>
-        <div class="caixa-grafico">
-          <h4>Estudantes por turma</h4>
-          <div style="height:${alturaPainelGraficos}px;overflow-y:auto;">
-            <div style="position:relative;height:${alturaBarrasTurmas}px;"><canvas id="grafico-turmas"></canvas></div>
-          </div>
-        </div>
+    <div class="painel" style="margin-top:12px;border:1.5px solid #B4432E;">
+      <div class="barra" style="padding:10px 14px;background:#FBE0DC;"><strong style="font-size:13.5px;color:#B4432E;">⚠️ Estudantes com baixa frequência (abaixo de 75%)</strong></div>
+      <div id="painel-baixa-frequencia" class="lista-pendentes-compacta" style="max-height:220px;overflow-y:auto;">
+        <p style="padding:14px;color:var(--texto-suave);font-size:13px;">Carregando…</p>
       </div>
     </div>`;
 
