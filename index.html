@@ -10245,7 +10245,7 @@ function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma){
   const resumoInicial = OBSERVACOES_CONSELHO.filter(o => observacoesMarcadas.has(o.chave)).map(o => o.chave === 'outros' ? (outrosSalvo?.texto ? `Outros: ${outrosSalvo.texto}` : 'Outros') : o.rotulo).join(', ') || 'Selecionar…';
   return `
     <tr data-linha-conselho="${aluno.id}" style="border-bottom:1px solid var(--borda);">
-      <td style="padding:5px 10px;font-size:12.5px;white-space:nowrap;">${esc(aluno.nome)}</td>
+      <td style="padding:5px 10px;font-size:12.5px;white-space:nowrap;">${esc(aluno.nome)}${aluno.aee ? ' <span class="pill azul" style="font-size:10px;padding:1px 6px;">AEE</span>' : ''}</td>
       ${disciplinasTurma.map(d => `
         <td style="text-align:center;padding:4px;${disciplinasMarcadas.has(d) ? 'background:#FBE0DC;' : ''}">
           <input type="checkbox" class="chk-disciplina-recuperacao" data-disciplina="${esc(d)}" ${disciplinasMarcadas.has(d)?'checked':''} style="width:14px;height:14px;" />
