@@ -10178,16 +10178,16 @@ async function carregarListaConselhoClasse(el){
   }
 
   alvo.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding-bottom:8px;">
+      <div id="msg-salvar-conselho-tudo"></div>
       <button class="botao terracota pequeno" id="btn-salvar-conselho-tudo" style="width:auto;">💾 Salvar todos</button>
     </div>
-    <div id="msg-salvar-conselho-tudo"></div>
-    <div style="overflow-x:auto;">
+    <div style="overflow:auto;max-height:65vh;border:1px solid var(--borda);border-radius:8px;">
       <table style="border-collapse:collapse;white-space:nowrap;">
         <thead><tr>
-          <th style="text-align:left;padding:6px 10px;">Estudante</th>
-          ${disciplinasTurma.map(d => `<th style="padding:6px 4px;font-size:11px;font-weight:600;" title="${esc(d)}">${esc(abreviarDisciplina(d))}</th>`).join('')}
-          <th style="text-align:left;padding:6px 8px;">Observação</th>
+          <th style="text-align:left;padding:6px 10px;position:sticky;top:0;z-index:10;background:var(--areia-escura);">Estudante</th>
+          ${disciplinasTurma.map(d => `<th style="padding:6px 4px;font-size:11px;font-weight:600;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="${esc(d)}">${esc(abreviarDisciplina(d))}</th>`).join('')}
+          <th style="text-align:left;padding:6px 8px;position:sticky;top:0;z-index:10;background:var(--areia-escura);">Observação</th>
         </tr></thead>
         <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id], disciplinasTurma)).join('')}</tbody>
       </table>
