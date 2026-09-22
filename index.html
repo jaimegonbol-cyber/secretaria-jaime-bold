@@ -10353,16 +10353,9 @@ function renderizarRelListaPresenca(el){
 }
 
 function renderizarRelConselhoClasse(el){
-  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
-  const temTurma = !!ESTADO.relatorioTurmaId;
   el.innerHTML = `
-    <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
-      <div style="padding:14px 16px;"><div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div></div>
-    </div>
     <div class="painel">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista do Conselho de Classe</b></div>
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista do Conselho de Classe</b><p style="font-size:12.5px;color:var(--texto-suave);margin:2px 0 0;">Uma lista por reunião (Manhã ou Tarde), com todos os professores participantes daquele turno — não é por turma.</p></div>
       <div style="padding:14px 16px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
           <div class="campo" style="margin:0;max-width:150px;"><label>Bimestre</label>
@@ -10373,8 +10366,12 @@ function renderizarRelConselhoClasse(el){
           </div>
           <div class="campo" style="margin:0;max-width:170px;"><label>Data da reunião</label><input type="date" id="ata-conselho-data" value="${hojeISO()}" /></div>
         </div>
-        <div class="campo"><label>Professores participantes</label>
-          <div id="ata-conselho-professores" style="max-height:180px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;">
+        <div class="campo">
+          <label style="display:flex;justify-content:space-between;align-items:center;">
+            <span>Professores participantes</span>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="chk-todos-professores-ata" style="width:14px;height:14px;" /> Selecionar todos</label>
+          </label>
+          <div id="ata-conselho-professores" style="max-height:260px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;">
             ${ESTADO.funcionarios.filter(f=>f.ativo!==false).slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(f => `
               <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:13px;">
                 <input type="checkbox" class="chk-professor-ata" data-id="${f.id}" data-nome="${esc(f.nome)}" style="width:14px;height:14px;" />
@@ -10384,13 +10381,11 @@ function renderizarRelConselhoClasse(el){
         </div>
         <div class="campo"><label>Pauta / Deliberações (opcional)</label><textarea id="ata-conselho-deliberacoes" rows="3" style="width:100%;padding:7px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;" placeholder="Ex: Discutidos os casos de recuperação e encaminhamentos pedagógicos do bimestre."></textarea></div>
         <div id="msg-ata-conselho"></div>
-        <button class="botao terracota" id="btn-ata-conselho" style="margin-top:10px;width:auto;" ${temTurma?'':'disabled'}>🖨️ Salvar e gerar Lista</button>
+        <button class="botao terracota" id="btn-ata-conselho" style="margin-top:10px;width:auto;">🖨️ Salvar e gerar Lista</button>
       </div>
     </div>`;
-  document.getElementById('rel-turma').addEventListener('change', (e) => {
-    ESTADO.relatorioTurmaId = e.target.value;
-    ESTADO.ataTurmaId = e.target.value;
-    renderizarRelConselhoClasse(el);
+  document.getElementById('chk-todos-professores-ata').addEventListener('change', (e) => {
+    el.querySelectorAll('.chk-professor-ata').forEach(chk => { chk.checked = e.target.checked; });
   });
   document.getElementById('btn-ata-conselho').addEventListener('click', () => salvarEGerarAtaConselhoClasse(el));
 }
@@ -10425,8 +10420,6 @@ function renderizarRelFreqMensalBranco(el){
 
 async function salvarEGerarAtaConselhoClasse(el){
   const msg = document.getElementById('msg-ata-conselho');
-  const turma = ESTADO.turmas.find(t => t.id === ESTADO.ataTurmaId);
-  if(!turma){ msg.innerHTML = `<div class="msg-erro">Selecione a turma.</div>`; return; }
   const bimestre = Number(document.getElementById('ata-conselho-bimestre').value);
   const turno = document.getElementById('ata-conselho-turno').value;
   const dataReuniao = document.getElementById('ata-conselho-data').value;
@@ -10438,16 +10431,16 @@ async function salvarEGerarAtaConselhoClasse(el){
   btn.disabled = true; btn.textContent = 'Salvando…';
   const anoLetivo = new Date(dataReuniao).getFullYear();
   const { data: registro, error } = await supabase.from('atas_conselho_classe').insert({
-    turma_id: turma.id, bimestre, ano_letivo: anoLetivo, turno, data_reuniao: dataReuniao,
+    bimestre, ano_letivo: anoLetivo, turno, data_reuniao: dataReuniao,
     professores_participantes: professores, deliberacoes: deliberacoes || null, criado_por: ESTADO.perfil.id,
   }).select().single();
   btn.disabled = false; btn.textContent = '🖨️ Salvar e gerar Lista';
   if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   msg.innerHTML = '';
-  imprimirAtaConselhoClasse(turma, registro);
+  imprimirAtaConselhoClasse(registro);
 }
 
-function imprimirAtaConselhoClasse(turma, ata){
+function imprimirAtaConselhoClasse(ata){
   const rotuloTurno = ata.turno === 'manha' ? 'Manhã' : 'Tarde';
   const numerosRomanos = ['', 'I', 'II', 'III', 'IV'];
   const dataReuniaoBR = formatarDataBR(ata.data_reuniao);
@@ -10457,23 +10450,23 @@ function imprimirAtaConselhoClasse(turma, ata){
   const janela = window.open('', '_blank');
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
-    <title>Lista do Conselho de Classe - ${esc(turma.nome)}</title>
+    <title>Lista do Conselho de Classe - ${rotuloTurno} - ${dataReuniaoBR}</title>
     <style>
       @page{ size: A4; margin: 12mm; }
       *{ box-sizing:border-box; }
-      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.5;}
-      .cabecalho-doc{text-align:center;margin-bottom:10px;}
-      .cabecalho-doc img{width:64px;height:64px;display:block;margin:0 auto 6px;}
-      .cabecalho-doc .secretaria{font-weight:800;font-size:17px;text-transform:uppercase;padding-bottom:10px;border-bottom:1px solid #000;}
-      .titulo-doc{text-align:center;font-size:15px;font-weight:800;text-transform:uppercase;margin:14px 0 18px;}
-      .linha-dados{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:14px;font-size:13px;}
-      .deliberacoes-lista{font-size:12.5px;margin:0 0 14px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;background:#FAFAFA;}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;line-height:1.5;margin:0;padding-bottom:60px;}
+      .cabecalho-doc{text-align:center;margin-bottom:4px;}
+      .cabecalho-doc img{width:64px;height:64px;display:block;margin:0 auto 3px;}
+      .cabecalho-doc .secretaria{font-weight:800;font-size:15px;text-transform:uppercase;padding-bottom:5px;border-bottom:1px solid #000;}
+      .titulo-doc{text-align:center;font-size:14px;font-weight:800;text-transform:uppercase;margin:8px 0 10px;}
+      .linha-dados{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px;font-size:12.5px;}
+      .deliberacoes-lista{font-size:12.5px;margin:0 0 10px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;background:#FAFAFA;}
       table.lista-presenca{width:100%;border-collapse:collapse;}
       table.lista-presenca thead th{background:#D9D9D9;color:#000;text-align:center;font-weight:700;padding:8px;border:1px solid #000;}
       table.lista-presenca thead th:first-child{width:60%;}
       table.lista-presenca tbody td{border:1px solid #000;height:30px;}
-      .rodape-doc{display:flex;justify-content:space-between;align-items:flex-end;margin-top:50px;font-size:11px;}
-      .assinatura-coordenacao{border-top:1.3px solid #000;width:220px;text-align:center;padding-top:4px;font-size:12px;font-weight:600;}
+      .assinatura-coordenacao{border-top:1.3px solid #000;width:220px;text-align:center;padding-top:4px;font-size:12px;font-weight:600;margin-top:24px;}
+      .rodape-doc{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #999;padding-top:6px;text-align:center;font-size:10.5px;line-height:1.5;color:#333;background:#fff;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
     </head><body>
@@ -10483,26 +10476,40 @@ function imprimirAtaConselhoClasse(turma, ata){
       </div>
       <div class="titulo-doc">${ata.bimestre}º Conselho Pedagógico do ${numerosRomanos[ata.bimestre]} Bimestre: ${dataReuniaoBR}</div>
 
-      <div class="linha-dados"><span><b>Escola:</b> Escola Municipal Jaime Gonçalves Bold</span><span><b>Turma:</b> ${esc(turma.nome)}</span><span><b>Turno da reunião:</b> ${rotuloTurno}</span></div>
+      <div class="linha-dados"><span><b>Escola:</b> Escola Municipal Jaime Gonçalves Bold</span><span><b>Turno da reunião:</b> ${rotuloTurno}</span></div>
+      <div class="linha-dados"><span><b>Bimestre:</b> ${ata.bimestre}º Bimestre de ${ata.ano_letivo}</span></div>
 
       ${ata.deliberacoes ? `<div class="deliberacoes-lista"><b>Pauta/Deliberações:</b> ${esc(ata.deliberacoes)}</div>` : ''}
 
       <table class="lista-presenca">
         <thead><tr><th>NOME</th><th>ASSINATURA</th></tr></thead>
-        <tbody>${linhasTabela}</tbody>
+        <tbody id="tbody-lista-conselho">${linhasTabela}</tbody>
       </table>
 
-      <div class="rodape-doc">
-        <div class="assinatura-coordenacao">Coordenação/Supervisão</div>
-        <div style="text-align:right;">
-          <b>ESCOLA MUNICIPAL JAIME G. BOLD</b><br/>
-          Ensino Fundamental<br/>
-          Rua Marechal Hermes, 108 · Vila Torres Galvão<br/>
-          Port. nº 5640 - 05/11/2004 · D.O. 23/11/2004 · Inscrição Municipal 109.029
-        </div>
+      <div class="assinatura-coordenacao">Coordenação/Supervisão</div>
+
+      <div class="rodape-doc" id="rodape-lista-conselho">
+        Rua Marechal Hermes, 108 · Vila Torres Galvão<br/>
+        Port. nº 5640 - 05/11/2004 · D.O. 23/11/2004 · Inscrição Municipal 109.029
       </div>
     <script>
-      window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
+      window.onload = function(){
+        try{ preencherLinhasEmBrancoAteFinal(); } catch(e){ /* segue sem linhas extras se algo der errado */ }
+        setTimeout(function(){ window.print(); }, 350);
+      };
+      // Completa a tabela com linhas em branco até um total padrão de 16 linhas — pra caso
+      // apareça algum professor que não estava na lista original (mesma ideia já usada nas
+      // outras listas do sistema: calcula sempre em cima de um número-alvo fixo, em vez de medir
+      // pixels de página, que não é confiável nesse contexto de impressão).
+      function preencherLinhasEmBrancoAteFinal(){
+        var tbody = document.getElementById('tbody-lista-conselho');
+        var linhasParaAdicionar = Math.max(0, 16 - tbody.querySelectorAll('tr').length);
+        for(var i=0;i<linhasParaAdicionar;i++){
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>&nbsp;</td><td></td>';
+          tbody.appendChild(tr);
+        }
+      }
     <\/script>
     </body></html>
   `);
