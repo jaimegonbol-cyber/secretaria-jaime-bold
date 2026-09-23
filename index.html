@@ -1157,12 +1157,14 @@ async function carregarBaixaFrequenciaPainel(){
 function renderizarCadastro(el){
   const podeDiasLetivos = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria';
   if(ESTADO.subCadastro === 'dias_letivos' && !podeDiasLetivos) ESTADO.subCadastro = 'alunos';
+  if(ESTADO.subCadastro === 'renovacao' && !podeDiasLetivos) ESTADO.subCadastro = 'alunos';
   const abas = [
     { id:'alunos', label:'Estudantes' },
     { id:'turmas', label:'Turmas' },
     { id:'funcionarios', label:'Funcionário' },
     ...(podeDiasLetivos ? [{ id:'dias_letivos', label:'Dias Letivos' }] : []),
     { id:'arquivo_morto', label:'Arquivo Inativo' },
+    ...(podeDiasLetivos ? [{ id:'renovacao', label:'Renovação de Matrícula' }] : []),
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subCadastro===a.id?'ativa':''}" data-aba="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `<div class="subtabs">${barra}</div><div id="conteudo-cadastro"></div>`;
@@ -1174,6 +1176,7 @@ function renderizarCadastro(el){
   else if(ESTADO.subCadastro === 'funcionarios') renderizarFuncionarios(alvo);
   else if(ESTADO.subCadastro === 'dias_letivos' && podeDiasLetivos) renderizarDiasLetivos(alvo);
   else if(ESTADO.subCadastro === 'arquivo_morto') renderizarArquivoMorto(alvo);
+  else if(ESTADO.subCadastro === 'renovacao' && podeDiasLetivos) renderizarRenovacaoMatricula(alvo);
   else renderizarAlunos(alvo);
 }
 
@@ -2288,11 +2291,17 @@ async function renderizarTurmas(el){
   const contagem = {};
   ESTADO.alunos.forEach(a => { contagem[a.turma_id] = (contagem[a.turma_id]||0)+1; });
   const ehAdmin = ESTADO.perfil.role === 'admin';
+  const anosDisponiveis = Array.from(new Set(ESTADO.turmas.map(t => t.ano_letivo))).sort((a,b) => b-a);
+  if(!ESTADO.filtroAnoTurma || !anosDisponiveis.includes(ESTADO.filtroAnoTurma)) ESTADO.filtroAnoTurma = anosDisponiveis[0] || new Date().getFullYear();
+  const turmasDoAno = ESTADO.turmas.filter(t => t.ano_letivo === ESTADO.filtroAnoTurma);
 
   el.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>Turmas</h2><p>${ESTADO.turmas.length} turmas cadastradas em 2026</p></div>
-      <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
+      <div><h2>Turmas</h2><p>${turmasDoAno.length} turmas cadastradas em ${ESTADO.filtroAnoTurma}</p></div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <select id="filtro-ano-turmas" style="width:auto;">${anosDisponiveis.map(a => `<option value="${a}" ${a===ESTADO.filtroAnoTurma?'selected':''}>${a}</option>`).join('')}</select>
+        <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
+      </div>
     </div>
     <div class="painel"><p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p></div>`;
 
@@ -2315,7 +2324,7 @@ async function renderizarTurmas(el){
     return /^[6-9]º\s*ANO\b/.test(nomeNormalizado);
   }
 
-  const linhas = ESTADO.turmas.map(t => {
+  const linhas = turmasDoAno.map(t => {
     const disciplinasVinculadas = disciplinasPorTurma[t.id] || new Set();
     const qtdDisciplinas = disciplinasVinculadas.size;
     let alertaVinculo;
@@ -2356,12 +2365,18 @@ async function renderizarTurmas(el){
 
   el.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>Turmas</h2><p>${ESTADO.turmas.length} turmas cadastradas em 2026</p></div>
-      <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
+      <div><h2>Turmas</h2><p>${turmasDoAno.length} turmas cadastradas em ${ESTADO.filtroAnoTurma}</p></div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <select id="filtro-ano-turmas" style="width:auto;">${anosDisponiveis.map(a => `<option value="${a}" ${a===ESTADO.filtroAnoTurma?'selected':''}>${a}</option>`).join('')}</select>
+        <button class="botao terracota pequeno" id="btn-nova-turma">+ Nova turma</button>
+      </div>
     </div>
     <div class="painel">
       <div style="overflow-x:auto;"><table><thead><tr><th>Turma</th><th>Ensino</th><th>Turno</th><th>Estudantes</th><th>Professores/Disciplinas</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
     </div>`;
+  document.getElementById('filtro-ano-turmas').addEventListener('change', (e) => {
+    ESTADO.filtroAnoTurma = Number(e.target.value); renderizarTurmas(el);
+  });
   el.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', (e) => {
     if(e.target.closest('[data-editar-turma], [data-excluir-turma]')) return;
     ESTADO.filtroTurma = tr.dataset.id; ESTADO.buscaAlunos=''; ESTADO.pagina = 'cadastro'; ESTADO.subCadastro = 'alunos'; renderizarApp();
@@ -2405,7 +2420,7 @@ function abrirModalEditarTurma(turma){
             <option value="NOITE" ${editando && turma.turno==='NOITE'?'selected':''}>Noite</option>
           </select>
         </div>
-        <div class="campo"><label>Ano letivo</label><input type="number" id="turma-ano" value="${editando ? turma.ano_letivo : 2026}" /></div>
+        <div class="campo"><label>Ano letivo</label><input type="number" id="turma-ano" value="${editando ? turma.ano_letivo : (ESTADO.filtroAnoTurma || new Date().getFullYear())}" /></div>
         <button class="botao terracota" type="submit" id="btn-salvar-turma">${editando ? 'Salvar alterações' : 'Criar turma'}</button>
       </form>
       ${editando ? `
@@ -2635,6 +2650,175 @@ async function proximoRegistroArquivoMorto(){
     if((count || 0) >= CAPACIDADE_PASTA_ARQUIVO_MORTO) numeroPasta += 1;
   }
   return { numero, pasta: `PASTA ${numeroPasta}` };
+}
+
+// ---------------------------------------------------------------
+// RENOVAÇÃO DE MATRÍCULA — criação das turmas do ano seguinte e enturmação dos estudantes
+// ---------------------------------------------------------------
+async function renderizarRenovacaoMatricula(el){
+  el.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+
+  const anosDisponiveis = Array.from(new Set(ESTADO.turmas.map(t => t.ano_letivo))).sort((a,b) => b-a);
+  const anoOrigem = anosDisponiveis[0] || new Date().getFullYear();
+  const anoDestino = anoOrigem + 1;
+  const turmasOrigem = ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem).slice()
+    .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  const turmasDestinoExistentes = ESTADO.turmas.filter(t => t.ano_letivo === anoDestino);
+
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b></div>
+      <div style="padding:14px 16px;font-size:13px;color:var(--texto-suave);">
+        Nada do ano ${anoOrigem} é apagado ou alterado — as turmas e todo o histórico (frequência, avaliações, ocorrências etc.) continuam intactos. Esse processo só <b>cria turmas novas</b> para ${anoDestino} e depois <b>move os estudantes matriculados</b> pra elas.
+      </div>
+    </div>
+
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>1. Criar turmas de ${anoDestino}</b></div>
+      <div style="padding:14px 16px;">
+        <div style="overflow-x:auto;"><table style="border-collapse:collapse;">
+          <thead><tr><th style="text-align:left;padding:6px 10px;">Incluir</th><th style="text-align:left;padding:6px 10px;">Turma ${anoOrigem}</th><th style="text-align:left;padding:6px 10px;">Nome em ${anoDestino}</th><th style="text-align:left;padding:6px 10px;">Turno</th></tr></thead>
+          <tbody>
+            ${turmasOrigem.map(t => {
+              const prog = progressaoSerieTurma(t.nome);
+              const jaExiste = turmasDestinoExistentes.some(td => td.nome === prog.nomeSugerido && td.turno === t.turno);
+              if(prog.concluinte){
+                return `<tr data-turma-origem="${t.id}"><td style="padding:6px 10px;">—</td><td style="padding:6px 10px;">${esc(t.nome)} · ${esc(t.turno||'')}</td><td colspan="2" style="padding:6px 10px;color:var(--texto-suave);">Concluinte — não gera turma nova (vai pro Arquivo Inativo na etapa 2)</td></tr>`;
+              }
+              return `<tr data-turma-origem="${t.id}">
+                <td style="padding:6px 10px;"><input type="checkbox" class="chk-criar-turma-destino" ${jaExiste?'disabled':'checked'} /></td>
+                <td style="padding:6px 10px;white-space:nowrap;">${esc(t.nome)} · ${esc(t.turno||'')}</td>
+                <td style="padding:6px 10px;"><input type="text" class="campo-nome-turma-destino" value="${esc(prog.nomeSugerido || t.nome)}" style="min-width:160px;" /></td>
+                <td style="padding:6px 10px;">
+                  <select class="campo-turno-turma-destino">
+                    <option value="MANHÃ" ${t.turno==='MANHÃ'?'selected':''}>Manhã</option>
+                    <option value="TARDE" ${t.turno==='TARDE'?'selected':''}>Tarde</option>
+                  </select>
+                  ${jaExiste ? '<span style="color:#2E7D5B;font-size:12px;margin-left:8px;">✅ já existe</span>' : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>
+        <div id="msg-criar-turmas-destino"></div>
+        <button class="botao terracota" id="btn-criar-turmas-destino" style="margin-top:12px;width:auto;">+ Criar turmas marcadas para ${anoDestino}</button>
+      </div>
+    </div>
+
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>2. Enturmar estudantes</b></div>
+      <div style="padding:14px 16px;">
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">Move os estudantes com situação <b>Matriculado</b> de cada turma de ${anoOrigem} pra turma de ${anoDestino} selecionada. Crie as turmas de ${anoDestino} na etapa 1 antes de enturmar.</p>
+        <div id="lista-enturmacao"></div>
+      </div>
+    </div>`;
+
+  document.getElementById('btn-criar-turmas-destino').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-criar-turmas-destino');
+    const msg = document.getElementById('msg-criar-turmas-destino');
+    const linhas = Array.from(el.querySelectorAll('.chk-criar-turma-destino:checked'));
+    if(!linhas.length){ msg.innerHTML = `<div class="msg-erro">Nenhuma turma marcada.</div>`; return; }
+    btn.disabled = true; btn.textContent = 'Criando…';
+    const novasTurmas = linhas.map(chk => {
+      const linha = chk.closest('tr');
+      const nome = linha.querySelector('.campo-nome-turma-destino').value.trim();
+      const turno = linha.querySelector('.campo-turno-turma-destino').value;
+      return { nome, turno, ensino: ensinoParaNomeTurma(nome), ano_letivo: anoDestino };
+    }).filter(t => t.nome);
+    const { error } = await supabase.from('turmas').insert(novasTurmas);
+    btn.disabled = false; btn.textContent = `+ Criar turmas marcadas para ${anoDestino}`;
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    msg.innerHTML = `<div class="msg-ok">${novasTurmas.length} turma(s) criada(s)!</div>`;
+    await carregarDadosBase();
+    renderizarRenovacaoMatricula(el);
+  });
+
+  carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem);
+}
+
+function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
+  const alvo = document.getElementById('lista-enturmacao');
+  const turmasDestino = ESTADO.turmas.filter(t => t.ano_letivo === anoDestino).slice()
+    .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  alvo.innerHTML = `
+    <div style="overflow-x:auto;"><table style="border-collapse:collapse;">
+      <thead><tr><th style="text-align:left;padding:6px 10px;">Turma ${anoOrigem}</th><th style="text-align:left;padding:6px 10px;">Pendentes</th><th style="text-align:left;padding:6px 10px;">Turma destino</th><th style="padding:6px 10px;"></th></tr></thead>
+      <tbody>
+        ${turmasOrigem.map(t => {
+          const pendentes = ESTADO.alunos.filter(a => a.turma_id === t.id && a.situacao === 'matriculado').length;
+          const prog = progressaoSerieTurma(t.nome);
+          if(prog.concluinte){
+            return `<tr>
+              <td style="padding:6px 10px;white-space:nowrap;">${esc(t.nome)} · ${esc(t.turno||'')}</td>
+              <td style="padding:6px 10px;">${pendentes}</td>
+              <td style="padding:6px 10px;color:var(--texto-suave);">→ Concluinte (Arquivo Inativo)</td>
+              <td style="padding:6px 10px;">${pendentes ? `<button class="botao terracota pequeno" style="width:auto;" data-processar-concluintes="${t.id}">🎓 Marcar como concluintes</button>` : '<span style="color:#2E7D5B;">✅ Concluído</span>'}</td>
+            </tr>`;
+          }
+          const opcoes = turmasDestino.map(td => `<option value="${td.id}" ${td.nome===prog.nomeSugerido && td.turno===t.turno?'selected':''}>${esc(td.nome)} · ${esc(td.turno||'')}</option>`).join('');
+          return `<tr data-turma-origem-enturmacao="${t.id}">
+            <td style="padding:6px 10px;white-space:nowrap;">${esc(t.nome)} · ${esc(t.turno||'')}</td>
+            <td style="padding:6px 10px;">${pendentes}</td>
+            <td style="padding:6px 10px;"><select class="campo-turma-destino-enturmacao" ${!turmasDestino.length?'disabled':''}><option value="">Selecione…</option>${opcoes}</select></td>
+            <td style="padding:6px 10px;">${pendentes ? `<button class="botao terracota pequeno" style="width:auto;" data-enturmar="${t.id}" ${!turmasDestino.length?'disabled':''}>➡️ Enturmar</button>` : '<span style="color:#2E7D5B;">✅ Concluído</span>'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
+    <div id="msg-enturmacao"></div>`;
+
+  alvo.querySelectorAll('[data-enturmar]').forEach(btn => btn.addEventListener('click', async () => {
+    const msg = document.getElementById('msg-enturmacao');
+    const linha = btn.closest('tr');
+    const turmaDestinoId = linha.querySelector('.campo-turma-destino-enturmacao').value;
+    if(!turmaDestinoId){ msg.innerHTML = `<div class="msg-erro">Selecione a turma destino.</div>`; return; }
+    if(!confirm('Enturmar todos os estudantes matriculados dessa turma? Essa ação atualiza a turma atual deles.')) return;
+    btn.disabled = true; btn.textContent = 'Enturmando…';
+    const { error } = await supabase.from('alunos').update({ turma_id: turmaDestinoId })
+      .eq('turma_id', btn.dataset.enturmar).eq('situacao', 'matriculado');
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '➡️ Enturmar'; return; }
+    await carregarDadosBase();
+    carregarListaEnturmacao(el, anoOrigem, anoDestino, ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem));
+  }));
+
+  alvo.querySelectorAll('[data-processar-concluintes]').forEach(btn => btn.addEventListener('click', async () => {
+    const msg = document.getElementById('msg-enturmacao');
+    const turmaId = btn.dataset.processarConcluintes;
+    const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao === 'matriculado');
+    if(!alunosTurma.length) return;
+    if(!confirm(`Marcar ${alunosTurma.length} estudante(s) como concluintes e mover pro Arquivo Inativo? Você ainda vai poder completar número/pasta física depois.`)) return;
+    btn.disabled = true; btn.textContent = 'Processando…';
+    try{
+      const turma = ESTADO.turmas.find(t => t.id === turmaId);
+      let { numero, pasta } = await proximoRegistroArquivoMorto();
+      const { count: usadosNaPastaInicial } = await supabase.from('arquivo_morto').select('id', { count:'exact', head:true }).eq('pasta', pasta);
+      let usadosNaPasta = usadosNaPastaInicial || 0;
+      for(const aluno of alunosTurma){
+        if(usadosNaPasta >= CAPACIDADE_PASTA_ARQUIVO_MORTO){
+          const m = pasta.match(/(\d+)/);
+          pasta = `PASTA ${m ? parseInt(m[1],10)+1 : 1}`;
+          usadosNaPasta = 0;
+        }
+        const { error: erroInsert } = await supabase.from('arquivo_morto').insert({
+          nome: aluno.nome, numero, pasta, data_nascimento: aluno.data_nascimento,
+          naturalidade: aluno.naturalidade, uf_naturalidade: aluno.uf_naturalidade, rg: aluno.rg,
+          ultima_turma: turma?.nome || null,
+          observacoes: 'Concluinte do Ensino Fundamental — migrado automaticamente pela Renovação de Matrícula.',
+        });
+        if(erroInsert) throw erroInsert;
+        const { error: erroUpdate } = await supabase.from('alunos').update({ situacao: 'concluido', data_situacao: hojeISO() }).eq('id', aluno.id);
+        if(erroUpdate) throw erroUpdate;
+        numero++; usadosNaPasta++;
+      }
+      msg.innerHTML = `<div class="msg-ok">${alunosTurma.length} estudante(s) marcados como concluintes.</div>`;
+      await carregarDadosBase();
+      carregarListaEnturmacao(el, anoOrigem, anoDestino, ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem));
+    } catch(erro){
+      msg.innerHTML = `<div class="msg-erro">${esc(erro.message)}</div>`;
+      btn.disabled = false; btn.textContent = '🎓 Marcar como concluintes';
+    }
+  }));
 }
 
 async function renderizarFuncionarios(el){
@@ -5525,6 +5709,29 @@ function capacidadeMaximaTurma(nomeTurma){
   if(serie === 4 || serie === 5) return 30;
   if(serie >= 6 && serie <= 9) return 35;
   return null;
+}
+
+// Pra qual série o estudante vai no ano seguinte (Renovação de Matrícula). Mantém a mesma letra
+// de turma (ex: "5º ANO A" -> "6º ANO A"). 9º ano não tem próxima turma aqui — é concluinte do
+// Ensino Fundamental, vai pro Arquivo Inativo em vez de ganhar uma turma nova.
+function progressaoSerieTurma(nomeTurma){
+  const serieBase = extrairSerie(nomeTurma);
+  const letra = (nomeTurma || '').slice(serieBase.length).trim();
+  const serieNormalizada = serieBase.replace(/°/g, 'º').toUpperCase();
+  const MAPA_PROGRESSAO = {
+    'GRUPO IV': 'GRUPO V', 'GRUPO V': '1º ANO',
+    '1º ANO': '2º ANO', '2º ANO': '3º ANO', '3º ANO': '4º ANO', '4º ANO': '5º ANO',
+    '5º ANO': '6º ANO', '6º ANO': '7º ANO', '7º ANO': '8º ANO', '8º ANO': '9º ANO',
+    '9º ANO': null,
+  };
+  if(!(serieNormalizada in MAPA_PROGRESSAO)) return { reconhecida:false, concluinte:false, nomeSugerido:null };
+  const serieDestino = MAPA_PROGRESSAO[serieNormalizada];
+  if(serieDestino === null) return { reconhecida:true, concluinte:true, nomeSugerido:null };
+  return { reconhecida:true, concluinte:false, nomeSugerido: letra ? `${serieDestino} ${letra}` : serieDestino };
+}
+function ensinoParaNomeTurma(nomeTurma){
+  const normalizado = (nomeTurma || '').replace(/°/g, 'º').toUpperCase();
+  return /^GRUPO\s+(IV|V)\b/.test(normalizado) ? 'Educação Infantil' : 'Ensino Fundamental';
 }
 
 function calcularSerieSeguinte(serieAtual){
