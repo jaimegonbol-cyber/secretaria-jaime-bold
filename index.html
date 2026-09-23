@@ -862,6 +862,11 @@ function renderizarPainel(el){
   const alturaGraficoEtapa = alturaPainelGraficos;
   const alturaBarrasTurmas = Math.max(alturaPainelGraficos, turmasOrdenadas.length * 28);
 
+  const vagasPorTurma = turmasOrdenadas.map(t => {
+    const capacidade = capacidadeMaximaTurma(t.nome);
+    return { ...t, capacidade, vagas: capacidade !== null ? capacidade - t.total : null };
+  }).filter(t => t.vagas !== null && t.vagas > 0).sort((a,b) => b.vagas - a.vagas);
+
   const statsPainel = [
     { n: total, l: 'Cadastrados', cor: '#15325C' },
     { n: matriculados, l: 'Matriculados', cor: '#2E7D5B' },
@@ -914,6 +919,17 @@ function renderizarPainel(el){
           </div>
         </div>
       </div>
+    </div>
+    <div class="painel" style="margin-top:12px;">
+      <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">📋 Vagas disponíveis por turma</strong></div>
+      <div class="lista-pendentes-compacta" style="max-height:180px;overflow-y:auto;">
+        ${vagasPorTurma.length ? vagasPorTurma.map(t => `
+          <div class="item-pendente" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span>${esc(t.rotulo)}</span>
+            <span style="font-weight:700;color:#2E7D5B;white-space:nowrap;">${t.vagas} vaga${t.vagas===1?'':'s'} (${t.total}/${t.capacidade})</span>
+          </div>`).join('') : `<p style="padding:14px;color:var(--texto-suave);font-size:13px;">Nenhuma turma com vaga disponível — todas na capacidade máxima ou acima.</p>`}
+      </div>
+      <p style="padding:8px 14px 4px;font-size:11px;color:var(--texto-suave);">Capacidade conforme normativa do município: Grupo IV/V = 20; 1º-3º ano = 25; 4º-5º ano = 30; 6º-9º ano = 35 estudantes.</p>
     </div>
     <div class="painel" style="margin-top:12px;border:1.5px solid #B4432E;">
       <div class="barra" style="padding:10px 14px;background:#FBE0DC;"><strong style="font-size:13.5px;color:#B4432E;">⚠️ Estudantes com baixa frequência (abaixo de 75%)</strong></div>
@@ -2324,12 +2340,22 @@ async function renderizarTurmas(el){
         ? `<span class="pill vermelho" title="Nenhum professor vinculado ainda">⚠️ Sem professor vinculado</span>`
         : `<span class="pill verde" title="${qtdDisciplinas} disciplina(s) com professor vinculado">✅ ${qtdDisciplinas} disciplina(s)</span>`;
     }
+    const qtdAtual = contagem[t.id]||0;
+    const capacidade = capacidadeMaximaTurma(t.nome);
+    let celulaEstudantes;
+    if(capacidade === null){
+      celulaEstudantes = `${qtdAtual} estudante(s)`;
+    } else {
+      const vagas = capacidade - qtdAtual;
+      const corOcupacao = vagas < 0 ? '#B4432E' : vagas === 0 ? '#D98A1F' : 'var(--texto)';
+      celulaEstudantes = `<span style="color:${corOcupacao};font-weight:600;" title="Capacidade máxima: ${capacidade} (norma do município)">${qtdAtual}/${capacidade}</span>`;
+    }
     return `
     <tr data-id="${t.id}">
       <td>${esc(t.nome)}</td>
       <td>${esc(t.ensino||'—')}</td>
       <td>${esc(t.turno||'—')}</td>
-      <td>${contagem[t.id]||0} estudante(s)</td>
+      <td>${celulaEstudantes}</td>
       <td>${alertaVinculo}</td>
       <td class="col-acoes">
         <button class="btn-icone" data-editar-turma="${t.id}" title="Editar">✏️</button>
@@ -5495,6 +5521,20 @@ function renderizarDeclaracoes(el){
 
 function extrairSerie(nomeTurma){
   return (nomeTurma || '').replace(/\s+[A-Z]$/,'').trim();
+}
+
+// Capacidade máxima de estudantes por turma, conforme normativa do município do Paulista:
+// Grupo IV e Grupo V = 20; 1º ao 3º ano = 25; 4º e 5º ano = 30; 6º ao 9º ano = 35.
+function capacidadeMaximaTurma(nomeTurma){
+  const nomeNormalizado = (nomeTurma || '').replace(/°/g, 'º').toUpperCase();
+  if(/^GRUPO\s+(IV|V)\b/.test(nomeNormalizado)) return 20;
+  const m = nomeNormalizado.match(/^(\d+)º\s*ANO\b/);
+  if(!m) return null;
+  const serie = parseInt(m[1], 10);
+  if(serie >= 1 && serie <= 3) return 25;
+  if(serie === 4 || serie === 5) return 30;
+  if(serie >= 6 && serie <= 9) return 35;
+  return null;
 }
 
 function calcularSerieSeguinte(serieAtual){
