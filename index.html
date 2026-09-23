@@ -2659,7 +2659,21 @@ async function renderizarRenovacaoMatricula(el){
   el.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
 
   const anosDisponiveis = Array.from(new Set(ESTADO.turmas.map(t => t.ano_letivo))).sort((a,b) => b-a);
-  const anoOrigem = anosDisponiveis[0] || new Date().getFullYear();
+
+  // O "ano de origem" padrão é o ano com mais estudantes matriculados — não simplesmente o ano
+  // mais recente que tiver alguma turma cadastrada (senão, assim que a primeira turma de um ano
+  // novo é criada, o sistema já "pula" pra tratar esse ano como origem, mesmo que os estudantes
+  // ainda estejam quase todos no ano anterior).
+  const contagemMatriculadosPorAno = {};
+  ESTADO.alunos.filter(a => a.situacao === 'matriculado').forEach(a => {
+    const turmaDoAluno = ESTADO.turmas.find(t => t.id === a.turma_id);
+    if(turmaDoAluno) contagemMatriculadosPorAno[turmaDoAluno.ano_letivo] = (contagemMatriculadosPorAno[turmaDoAluno.ano_letivo]||0) + 1;
+  });
+  const anoComMaisMatriculados = Object.entries(contagemMatriculadosPorAno).sort((a,b) => b[1]-a[1])[0]?.[0];
+  if(!ESTADO.renovacaoAnoOrigem || !anosDisponiveis.includes(ESTADO.renovacaoAnoOrigem)){
+    ESTADO.renovacaoAnoOrigem = anoComMaisMatriculados ? Number(anoComMaisMatriculados) : (anosDisponiveis[0] || new Date().getFullYear());
+  }
+  const anoOrigem = ESTADO.renovacaoAnoOrigem;
   const anoDestino = anoOrigem + 1;
   const turmasOrigem = ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem).slice()
     .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -2667,7 +2681,12 @@ async function renderizarRenovacaoMatricula(el){
 
   el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b></div>
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b>
+        <div class="campo" style="margin:0;max-width:160px;"><label style="font-size:11.5px;">Ano de origem</label>
+          <select id="renovacao-ano-origem">${anosDisponiveis.map(a => `<option value="${a}" ${a===anoOrigem?'selected':''}>${a}</option>`).join('')}</select>
+        </div>
+      </div>
       <div style="padding:14px 16px;font-size:13px;color:var(--texto-suave);">
         Nada do ano ${anoOrigem} é apagado ou alterado — as turmas e todo o histórico (frequência, avaliações, ocorrências etc.) continuam intactos. Esse processo só <b>cria turmas novas</b> para ${anoDestino} e depois <b>move os estudantes matriculados</b> pra elas.
       </div>
@@ -2713,6 +2732,9 @@ async function renderizarRenovacaoMatricula(el){
       </div>
     </div>`;
 
+  document.getElementById('renovacao-ano-origem').addEventListener('change', (e) => {
+    ESTADO.renovacaoAnoOrigem = Number(e.target.value); renderizarRenovacaoMatricula(el);
+  });
   document.getElementById('btn-criar-turmas-destino').addEventListener('click', async () => {
     const btn = document.getElementById('btn-criar-turmas-destino');
     const msg = document.getElementById('msg-criar-turmas-destino');
