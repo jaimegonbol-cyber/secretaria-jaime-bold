@@ -940,7 +940,10 @@ function renderizarPainel(el){
         meta.data.forEach((barra, i) => {
           const valor = dataset.data[i];
           const capacidade = turmasOrdenadas[i]?.capacidade;
-          const texto = capacidade ? `${valor}/${capacidade}` : String(valor);
+          const vagasRestantes = capacidade ? capacidade - valor : null;
+          const texto = capacidade
+            ? `${valor}/${capacidade}` + (vagasRestantes > 0 ? ` · ${vagasRestantes} vaga${vagasRestantes===1?'':'s'}` : ' · Sem vagas')
+            : String(valor);
           ctx.save();
           ctx.fillStyle = capacidade && valor >= capacidade ? '#B4432E' : '#182635';
           ctx.font = '700 13px Arial';
@@ -1047,7 +1050,7 @@ function renderizarPainel(el){
     });
   }
   const maiorValorTurma = Math.max(1, ...turmasOrdenadas.map(t => t.total));
-  const folgaEixoTurmas = Math.ceil((maiorValorTurma * 1.25) / 5) * 5;
+  const folgaEixoTurmas = Math.ceil((maiorValorTurma * 1.6) / 5) * 5;
 
   const ctxTurmas = document.getElementById('grafico-turmas');
   if(ctxTurmas){
