@@ -856,16 +856,12 @@ function renderizarPainel(el){
   }).map(([nome, info]) => {
     const turnoTxt = (info.turno || '').trim();
     const turnoFormatado = turnoTxt ? turnoTxt.charAt(0).toUpperCase() + turnoTxt.slice(1).toLowerCase() : '';
-    return { nome, total: info.total, rotulo: turnoFormatado ? `${nome} · ${turnoFormatado}` : nome };
+    return { nome, total: info.total, rotulo: turnoFormatado ? `${nome} · ${turnoFormatado}` : nome, capacidade: capacidadeMaximaTurma(nome) };
   });
   const alturaPainelGraficos = 260;
   const alturaGraficoEtapa = alturaPainelGraficos;
   const alturaBarrasTurmas = Math.max(alturaPainelGraficos, turmasOrdenadas.length * 28);
 
-  const vagasPorTurma = turmasOrdenadas.map(t => {
-    const capacidade = capacidadeMaximaTurma(t.nome);
-    return { ...t, capacidade, vagas: capacidade !== null ? capacidade - t.total : null };
-  }).filter(t => t.vagas !== null && t.vagas > 0).sort((a,b) => b.vagas - a.vagas);
 
   const statsPainel = [
     { n: total, l: 'Cadastrados', cor: '#15325C' },
@@ -920,17 +916,6 @@ function renderizarPainel(el){
         </div>
       </div>
     </div>
-    <div class="painel" style="margin-top:12px;">
-      <div class="barra" style="padding:10px 14px;"><strong style="font-size:13.5px;">📋 Vagas disponíveis por turma</strong></div>
-      <div class="lista-pendentes-compacta" style="max-height:180px;overflow-y:auto;">
-        ${vagasPorTurma.length ? vagasPorTurma.map(t => `
-          <div class="item-pendente" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span>${esc(t.rotulo)}</span>
-            <span style="font-weight:700;color:#2E7D5B;white-space:nowrap;">${t.vagas} vaga${t.vagas===1?'':'s'} (${t.total}/${t.capacidade})</span>
-          </div>`).join('') : `<p style="padding:14px;color:var(--texto-suave);font-size:13px;">Nenhuma turma com vaga disponível — todas na capacidade máxima ou acima.</p>`}
-      </div>
-      <p style="padding:8px 14px 4px;font-size:11px;color:var(--texto-suave);">Capacidade conforme normativa do município: Grupo IV/V = 20; 1º-3º ano = 25; 4º-5º ano = 30; 6º-9º ano = 35 estudantes.</p>
-    </div>
     <div class="painel" style="margin-top:12px;border:1.5px solid #B4432E;">
       <div class="barra" style="padding:10px 14px;background:#FBE0DC;"><strong style="font-size:13.5px;color:#B4432E;">⚠️ Estudantes com baixa frequência (abaixo de 75%)</strong></div>
       <div id="painel-baixa-frequencia" class="lista-pendentes-compacta" style="max-height:220px;overflow-y:auto;">
@@ -954,12 +939,14 @@ function renderizarPainel(el){
         const meta = chart.getDatasetMeta(dsIndex);
         meta.data.forEach((barra, i) => {
           const valor = dataset.data[i];
+          const capacidade = turmasOrdenadas[i]?.capacidade;
+          const texto = capacidade ? `${valor}/${capacidade}` : String(valor);
           ctx.save();
-          ctx.fillStyle = '#182635';
+          ctx.fillStyle = capacidade && valor >= capacidade ? '#B4432E' : '#182635';
           ctx.font = '700 13px Arial';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText(valor, barra.x + 8, barra.y);
+          ctx.fillText(texto, barra.x + 8, barra.y);
           ctx.restore();
         });
       });
