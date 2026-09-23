@@ -817,6 +817,25 @@ function categoriaEnsinoTurma(turma){
   return 'outro';
 }
 
+// Ano letivo "atual" pro sistema todo, usado pra filtrar os seletores de turma (fora da tela de
+// Renovação de Matrícula e da listagem de Turmas, que precisam enxergar todos os anos): o ano com
+// mais estudantes matriculados — assim, assim que a primeira turma de um ano novo é criada, o
+// resto do sistema não passa a misturar as turmas dos dois anos nos seletores.
+function anoLetivoAtual(){
+  const contagem = {};
+  ESTADO.alunos.filter(a => a.situacao === 'matriculado').forEach(a => {
+    const turma = ESTADO.turmas.find(t => t.id === a.turma_id);
+    if(turma) contagem[turma.ano_letivo] = (contagem[turma.ano_letivo]||0) + 1;
+  });
+  const anoComMais = Object.entries(contagem).sort((a,b) => b[1]-a[1])[0]?.[0];
+  if(anoComMais) return Number(anoComMais);
+  const anos = Array.from(new Set(ESTADO.turmas.map(t => t.ano_letivo))).sort((a,b) => b-a);
+  return anos[0] || new Date().getFullYear();
+}
+function turmasAnoAtual(){
+  return ESTADO.turmas.filter(t => t.ano_letivo === anoLetivoAtual());
+}
+
 function ordemCronologicaTurma(nomeTurma){
   const base = extrairSerie(nomeTurma || '').toUpperCase();
   if(/GRUPO\s*(IV|4)\b/.test(base)) return 4;
@@ -1249,7 +1268,7 @@ function alunosFiltrados(){
 
 function renderizarAlunos(el){
   const lista = alunosFiltrados();
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.filtroTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${ESTADO.filtroTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const podeExcluir = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria';
   const ehAdmin = ESTADO.perfil.role === 'admin';
   const selecionados = new Set(ESTADO.alunosSelecionadosExport);
@@ -1492,7 +1511,7 @@ async function abrirModalAluno(a){
     if(vincResp){ nomeRespAtual = vincResp.responsaveis?.nome || ''; telRespAtual = vincResp.responsaveis?.telefone || ''; cpfRespAtual = vincResp.responsaveis?.cpf || ''; rgRespAtual = vincResp.responsaveis?.rg || ''; vinculoRespId = vincResp.responsavel_id; }
   }
 
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${a && a.turma_id===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${a && a.turma_id===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const v = (campo) => editando ? esc(a[campo]||'') : '';
   const vd = (campo) => editando ? (a[campo]||'') : '';
   const gruposCid = [
@@ -5187,7 +5206,7 @@ function alunoTemFrequenciaNaData(aluno, dataIso){
 
 async function renderizarChamada(el){
   const podeRegistrar = ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'coordenacao';
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.chamadaTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${ESTADO.chamadaTurma===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
 
   // Sincroniza o "Tipo do dia" com o que já está salvo no banco (refaz sempre que a turma OU a
   // data mudar — nunca deixa uma seleção "Outros"/descrição de uma turma ou data anterior grudada).
@@ -5425,7 +5444,7 @@ async function renderizarChamada(el){
 }
 
 async function renderizarHistoricoFrequencia(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${ESTADO.histTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const alunosFiltrados = (ESTADO.histTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.histTurmaId) : ESTADO.alunos)
     .slice().sort((a,b) => a.nome.localeCompare(b.nome));
@@ -5590,7 +5609,7 @@ function renderizarDocumentos(el){
 }
 
 function renderizarDeclaracoes(el){
-  const opcoesTurmasFiltro = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmasFiltro = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${ESTADO.docTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const alunosFiltrados = (ESTADO.docTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.docTurmaId) : ESTADO.alunos)
     .slice().sort((a,b) => a.nome.localeCompare(b.nome));
@@ -5818,7 +5837,7 @@ function renderizarHistoricoIndividual(el){
 }
 
 function renderizarHistoricoEstudanteCadastrado(el, elPai){
-  const opcoesTurmasFiltro = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmasFiltro = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${ESTADO.histEscTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const alunosFiltrados = (ESTADO.histEscTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.histEscTurmaId) : ESTADO.alunos)
     .slice().sort((a,b) => a.nome.localeCompare(b.nome));
@@ -5927,7 +5946,7 @@ const COMPONENTES_FICHA_NOTAS = [
 ];
 
 function renderizarFichaNotas(el){
-  const opcoesTurmasFiltro = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmasFiltro = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${ESTADO.fichaNotasTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const alunosFiltrados = (ESTADO.fichaNotasTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.fichaNotasTurmaId) : ESTADO.alunos)
     .slice().sort((a,b) => a.nome.localeCompare(b.nome));
@@ -7194,7 +7213,7 @@ async function atualizarContadoresSolicitacoes(){
 }
 
 function abrirModalNovaSolicitacao(elLista){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const opcoesAlunos = ESTADO.alunos.slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(a => `<option value="${a.id}" data-turma="${a.turma_id||''}">${esc(a.nome)}</option>`).join('');
@@ -7325,7 +7344,7 @@ async function carregarListaSolicitacoes(el){
 }
 
 function abrirModalSolicitacao(s, elLista){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${s.turma_id===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const opcoesAlunos = ESTADO.alunos.slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(a => `<option value="${a.id}" data-turma="${a.turma_id||''}" ${s.aluno_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('');
@@ -7597,7 +7616,7 @@ function extrairDetalheQualificacaoSalva(item, valorSalvo){
 }
 
 function renderizarOcorrencias(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
     .map(t => `<option value="${t.id}" ${ESTADO.ocorrenciasTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const alunosFiltrados = (ESTADO.ocorrenciasTurmaId ? ESTADO.alunos.filter(a => a.turma_id === ESTADO.ocorrenciasTurmaId) : ESTADO.alunos)
     .slice().sort((a,b) => a.nome.localeCompare(b.nome));
@@ -9543,7 +9562,7 @@ const GENEROS_TEXTUAIS = [
 
 async function renderizarAvaliacaoPersonalizada(el){
   el.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.avalPersonalizadaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${ESTADO.avalPersonalizadaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
 
   let query = supabase.from('avaliacoes_personalizadas').select('*, turmas(nome)').eq('ativo', true).order('criado_em', { ascending: false });
   if(ESTADO.avalPersonalizadaTurmaId) query = query.eq('turma_id', ESTADO.avalPersonalizadaTurmaId);
@@ -9606,7 +9625,7 @@ async function renderizarAvaliacaoPersonalizada(el){
 function abrirModalCriarAvaliacaoPersonalizada(elPai){
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   modal.innerHTML = `
     <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
       <div class="modal-topo"><h3>Criar avaliação personalizada</h3><button data-fechar>✕</button></div>
@@ -10001,7 +10020,7 @@ async function buscarDescritoresSaevExistentes(){
 
 async function renderizarGabaritoProvas(el){
   el.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.gabaritoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${ESTADO.gabaritoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
 
   let query = supabase.from('gabaritos_provas').select('*, turmas(nome)').eq('ativo', true).order('criado_em', { ascending: false });
   if(ESTADO.gabaritoTurmaId) query = query.eq('turma_id', ESTADO.gabaritoTurmaId);
@@ -10053,7 +10072,7 @@ async function abrirModalCriarGabarito(elPai){
   const descritoresExistentes = await buscarDescritoresSaevExistentes();
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   modal.innerHTML = `
     <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
       <div class="modal-topo"><h3>Criar gabarito</h3><button data-fechar>✕</button></div>
@@ -10424,7 +10443,7 @@ function abreviarDisciplina(d){
 }
 
 async function renderizarConselhoClasse(el){
-  const opcoesTurma = ESTADO.turmas.map(t => `<option value="${t.id}" ${ESTADO.conselhoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${ESTADO.conselhoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   el.innerHTML = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
       <div class="campo" style="margin:0;max-width:260px;"><label>Turma</label><select id="conselho-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
@@ -10657,7 +10676,7 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
 // ATAS — Ata de Presença + Ata do Conselho de Classe
 // ---------------------------------------------------------------
 function renderizarRelListaPresenca(el){
-  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurma = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const temTurma = !!ESTADO.relatorioTurmaId;
   el.innerHTML = `
@@ -10715,7 +10734,7 @@ function renderizarRelConselhoClasse(el){
 }
 
 function renderizarRelFreqMensalBranco(el){
-  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurma = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
@@ -11045,7 +11064,7 @@ function classificarDescritorSaev(descritor){
 }
 
 async function renderizarSaev(el){
-  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurma = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.saevTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const opcoesDisciplina = ['Língua Portuguesa','Matemática'].map(d => `<option value="${d}" ${ESTADO.saevDisciplina===d?'selected':''}>${d}</option>`).join('');
 
@@ -11553,7 +11572,7 @@ function renderizarRevisaoFluenciaFoto(resultadoIA, alunosTurma, campo, modal, t
 }
 
 async function renderizarAvaliacaoFluencia(el){
-  const opcoesTurma = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurma = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.fluenciaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const anoAtual = new Date().getFullYear();
   const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a => `<option value="${a}" ${ESTADO.fluenciaAno===a?'selected':''}>${a}</option>`).join('');
@@ -11817,7 +11836,7 @@ function renderizarRelatorios(el){
 }
 
 function renderizarRelListaPasta(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const temTurma = !!ESTADO.relatorioTurmaId;
   el.innerHTML = `
@@ -11837,7 +11856,7 @@ function renderizarRelListaPasta(el){
 }
 
 function renderizarRelFreqPercentual(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const temTurma = !!ESTADO.relatorioTurmaId;
   el.innerHTML = `
@@ -11857,7 +11876,7 @@ function renderizarRelFreqPercentual(el){
 }
 
 function renderizarRelFreqMensalDados(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const opcoesMeses = nomesMeses.map((n, i) => `<option value="${i+1}" ${ESTADO.relatorioMes===i+1?'selected':''}>${n}</option>`).join('');
@@ -11885,7 +11904,7 @@ function renderizarRelFreqMensalDados(el){
 }
 
 function renderizarRelAEE(el){
-  const opcoesTurmas = ESTADO.turmas.slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
