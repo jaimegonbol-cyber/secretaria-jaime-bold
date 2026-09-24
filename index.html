@@ -11572,10 +11572,10 @@ function renderizarRevisaoFluenciaFoto(resultadoIA, alunosTurma, campo, modal, t
 }
 
 async function renderizarAvaliacaoFluencia(el){
-  const opcoesTurma = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    .map(t => `<option value="${t.id}" ${ESTADO.fluenciaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const anoAtual = new Date().getFullYear();
   const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a => `<option value="${a}" ${ESTADO.fluenciaAno===a?'selected':''}>${a}</option>`).join('');
+  const opcoesTurma = ESTADO.turmas.filter(t => t.ano_letivo === ESTADO.fluenciaAno).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.fluenciaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
 
   const legenda = NIVEIS_FLUENCIA.map(([v,l,cor]) => `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;margin-right:14px;"><span style="width:12px;height:12px;border-radius:3px;background:${cor};display:inline-block;border:1px solid rgba(0,0,0,.15);"></span>${v} · ${esc(l)}</span>`).join('');
 
@@ -11585,8 +11585,8 @@ async function renderizarAvaliacaoFluencia(el){
   el.innerHTML = `
     <div class="painel">
       <div class="barra" style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:10px 14px;">
-        <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="flu-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
         <div class="campo" style="margin:0;min-width:120px;"><label>Ano letivo</label><select id="flu-ano">${opcoesAno}</select></div>
+        <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="flu-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
         <button class="botao secundario pequeno" id="btn-flu-modo-rapido" style="width:auto;" ${ESTADO.fluenciaTurmaId?'':'disabled'}>${ESTADO.fluenciaModoRapido ? '📋 Usar lista de seleção' : '⌨️ Digitação rápida (numérica)'}</button>
         <button class="botao secundario pequeno" id="btn-flu-foto" style="width:auto;" ${ESTADO.fluenciaTurmaId?'':'disabled'}>📷 Ler lista de uma foto</button>
       </div>
@@ -11599,7 +11599,11 @@ async function renderizarAvaliacaoFluencia(el){
     </div>`;
 
   document.getElementById('flu-turma').addEventListener('change', e => { ESTADO.fluenciaTurmaId = e.target.value; renderizarAvaliacaoFluencia(el); });
-  document.getElementById('flu-ano').addEventListener('change', e => { ESTADO.fluenciaAno = Number(e.target.value); renderizarAvaliacaoFluencia(el); });
+  document.getElementById('flu-ano').addEventListener('change', e => {
+    ESTADO.fluenciaAno = Number(e.target.value);
+    ESTADO.fluenciaTurmaId = ''; // a turma escolhida pode não existir no ano novo selecionado
+    renderizarAvaliacaoFluencia(el);
+  });
   const btnModoRapido = document.getElementById('btn-flu-modo-rapido');
   if(btnModoRapido) btnModoRapido.addEventListener('click', () => { ESTADO.fluenciaModoRapido = !ESTADO.fluenciaModoRapido; renderizarAvaliacaoFluencia(el); });
   const btnFoto = document.getElementById('btn-flu-foto');
