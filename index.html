@@ -2782,53 +2782,93 @@ function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
   const turmasDestino = ESTADO.turmas.filter(t => t.ano_letivo === anoDestino).slice()
     .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  alvo.innerHTML = `
-    <div style="overflow-x:auto;"><table style="border-collapse:collapse;">
-      <thead><tr><th style="text-align:left;padding:6px 10px;">Turma ${anoOrigem}</th><th style="text-align:left;padding:6px 10px;">Pendentes</th><th style="text-align:left;padding:6px 10px;">Turma destino</th><th style="padding:6px 10px;"></th></tr></thead>
-      <tbody>
-        ${turmasOrigem.map(t => {
-          const pendentes = ESTADO.alunos.filter(a => a.turma_id === t.id && a.situacao === 'matriculado').length;
-          const prog = progressaoSerieTurma(t.nome);
-          if(prog.concluinte){
-            return `<tr>
-              <td style="padding:6px 10px;white-space:nowrap;">${esc(t.nome)} · ${esc(t.turno||'')}</td>
-              <td style="padding:6px 10px;">${pendentes}</td>
-              <td style="padding:6px 10px;color:var(--texto-suave);">→ Concluinte (Arquivo Inativo)</td>
-              <td style="padding:6px 10px;">${pendentes ? `<button class="botao terracota pequeno" style="width:auto;" data-processar-concluintes="${t.id}">🎓 Marcar como concluintes</button>` : '<span style="color:#2E7D5B;">✅ Concluído</span>'}</td>
-            </tr>`;
-          }
-          const opcoes = turmasDestino.map(td => `<option value="${td.id}" ${td.nome===prog.nomeSugerido && td.turno===t.turno?'selected':''}>${esc(td.nome)} · ${esc(td.turno||'')}</option>`).join('');
-          return `<tr data-turma-origem-enturmacao="${t.id}">
-            <td style="padding:6px 10px;white-space:nowrap;">${esc(t.nome)} · ${esc(t.turno||'')}</td>
-            <td style="padding:6px 10px;">${pendentes}</td>
-            <td style="padding:6px 10px;"><select class="campo-turma-destino-enturmacao" ${!turmasDestino.length?'disabled':''}><option value="">Selecione…</option>${opcoes}</select></td>
-            <td style="padding:6px 10px;">${pendentes ? `<button class="botao terracota pequeno" style="width:auto;" data-enturmar="${t.id}" ${!turmasDestino.length?'disabled':''}>➡️ Enturmar</button>` : '<span style="color:#2E7D5B;">✅ Concluído</span>'}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table></div>
-    <div id="msg-enturmacao"></div>`;
+  alvo.innerHTML = turmasOrigem.map(t => {
+    const alunosPendentes = ESTADO.alunos.filter(a => a.turma_id === t.id && a.situacao === 'matriculado').slice()
+      .sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    const prog = progressaoSerieTurma(t.nome);
+
+    if(!alunosPendentes.length){
+      return `<div class="painel" style="margin-bottom:10px;">
+        <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+          <span><b>${esc(t.nome)}</b> · ${esc(t.turno||'')}</span>
+          <span style="color:#2E7D5B;font-size:13px;">✅ Concluído</span>
+        </div>
+      </div>`;
+    }
+
+    if(prog.concluinte){
+      return `<div class="painel" style="margin-bottom:10px;" data-turma-origem-enturmacao="${t.id}">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span><b>${esc(t.nome)}</b> · ${esc(t.turno||'')} <span style="color:var(--texto-suave);font-size:12.5px;">→ Concluinte (Arquivo Inativo)</span></span>
+          <button class="botao terracota pequeno" style="width:auto;" data-processar-concluintes="${t.id}">🎓 Marcar selecionados como concluintes</button>
+        </div>
+        <div style="padding:10px 14px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin-bottom:6px;cursor:pointer;"><input type="checkbox" class="chk-todos-enturmacao" checked style="width:14px;height:14px;" /> Selecionar todos (${alunosPendentes.length})</label>
+          <div style="max-height:180px;overflow-y:auto;border-top:1px solid var(--borda);padding-top:6px;">
+            ${alunosPendentes.map(a => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" class="chk-aluno-enturmacao" data-aluno="${a.id}" checked style="width:14px;height:14px;" /> ${esc(a.nome)}</label>`).join('')}
+          </div>
+        </div>
+        <div id="msg-enturmacao-${t.id}"></div>
+      </div>`;
+    }
+
+    const opcoes = turmasDestino.map(td => `<option value="${td.id}" ${td.nome===prog.nomeSugerido && td.turno===t.turno?'selected':''}>${esc(td.nome)} · ${esc(td.turno||'')}</option>`).join('');
+    return `<div class="painel" style="margin-bottom:10px;" data-turma-origem-enturmacao="${t.id}">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span><b>${esc(t.nome)}</b> · ${esc(t.turno||'')}</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select class="campo-turma-destino-enturmacao" ${!turmasDestino.length?'disabled':''}><option value="">Turma destino…</option>${opcoes}</select>
+          <button class="botao terracota pequeno" style="width:auto;" data-enturmar="${t.id}" ${!turmasDestino.length?'disabled':''}>➡️ Enturmar selecionados</button>
+        </div>
+      </div>
+      <div style="padding:10px 14px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin-bottom:6px;cursor:pointer;"><input type="checkbox" class="chk-todos-enturmacao" checked style="width:14px;height:14px;" /> Selecionar todos (${alunosPendentes.length})</label>
+        <div style="max-height:180px;overflow-y:auto;border-top:1px solid var(--borda);padding-top:6px;">
+          ${alunosPendentes.map(a => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" class="chk-aluno-enturmacao" data-aluno="${a.id}" checked style="width:14px;height:14px;" /> ${esc(a.nome)}</label>`).join('')}
+        </div>
+      </div>
+      <div id="msg-enturmacao-${t.id}"></div>
+    </div>`;
+  }).join('') + `<div id="msg-enturmacao"></div>`;
+
+  alvo.querySelectorAll('[data-turma-origem-enturmacao]').forEach(painel => {
+    const chkTodos = painel.querySelector('.chk-todos-enturmacao');
+    if(!chkTodos) return;
+    chkTodos.addEventListener('change', () => {
+      painel.querySelectorAll('.chk-aluno-enturmacao').forEach(chk => { chk.checked = chkTodos.checked; });
+    });
+    painel.querySelectorAll('.chk-aluno-enturmacao').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const chksAluno = Array.from(painel.querySelectorAll('.chk-aluno-enturmacao'));
+        chkTodos.checked = chksAluno.every(c => c.checked);
+      });
+    });
+  });
 
   alvo.querySelectorAll('[data-enturmar]').forEach(btn => btn.addEventListener('click', async () => {
-    const msg = document.getElementById('msg-enturmacao');
-    const linha = btn.closest('tr');
-    const turmaDestinoId = linha.querySelector('.campo-turma-destino-enturmacao').value;
+    const painel = btn.closest('[data-turma-origem-enturmacao]');
+    const turmaId = btn.dataset.enturmar;
+    const msg = document.getElementById(`msg-enturmacao-${turmaId}`);
+    const turmaDestinoId = painel.querySelector('.campo-turma-destino-enturmacao').value;
+    const idsSelecionados = Array.from(painel.querySelectorAll('.chk-aluno-enturmacao:checked')).map(c => c.dataset.aluno);
     if(!turmaDestinoId){ msg.innerHTML = `<div class="msg-erro">Selecione a turma destino.</div>`; return; }
-    if(!confirm('Enturmar todos os estudantes matriculados dessa turma? Essa ação atualiza a turma atual deles.')) return;
+    if(!idsSelecionados.length){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos um estudante.</div>`; return; }
+    if(!confirm(`Enturmar ${idsSelecionados.length} estudante(s) selecionado(s)? Essa ação atualiza a turma atual deles.`)) return;
     btn.disabled = true; btn.textContent = 'Enturmando…';
-    const { error } = await supabase.from('alunos').update({ turma_id: turmaDestinoId })
-      .eq('turma_id', btn.dataset.enturmar).eq('situacao', 'matriculado');
-    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '➡️ Enturmar'; return; }
+    const { error } = await supabase.from('alunos').update({ turma_id: turmaDestinoId }).in('id', idsSelecionados);
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '➡️ Enturmar selecionados'; return; }
     await carregarDadosBase();
     carregarListaEnturmacao(el, anoOrigem, anoDestino, ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem));
   }));
 
   alvo.querySelectorAll('[data-processar-concluintes]').forEach(btn => btn.addEventListener('click', async () => {
-    const msg = document.getElementById('msg-enturmacao');
+    const painel = btn.closest('[data-turma-origem-enturmacao]');
     const turmaId = btn.dataset.processarConcluintes;
-    const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao === 'matriculado');
-    if(!alunosTurma.length) return;
-    if(!confirm(`Marcar ${alunosTurma.length} estudante(s) como concluintes e mover pro Arquivo Inativo? Você ainda vai poder completar número/pasta física depois.`)) return;
+    const msg = document.getElementById(`msg-enturmacao-${turmaId}`);
+    const idsSelecionados = new Set(Array.from(painel.querySelectorAll('.chk-aluno-enturmacao:checked')).map(c => c.dataset.aluno));
+    const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao === 'matriculado' && idsSelecionados.has(a.id));
+    if(!alunosTurma.length){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos um estudante.</div>`; return; }
+    if(!confirm(`Marcar ${alunosTurma.length} estudante(s) selecionado(s) como concluintes e mover pro Arquivo Inativo? Você ainda vai poder completar número/pasta física depois.`)) return;
     btn.disabled = true; btn.textContent = 'Processando…';
     try{
       const turma = ESTADO.turmas.find(t => t.id === turmaId);
@@ -2857,7 +2897,7 @@ function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
       carregarListaEnturmacao(el, anoOrigem, anoDestino, ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem));
     } catch(erro){
       msg.innerHTML = `<div class="msg-erro">${esc(erro.message)}</div>`;
-      btn.disabled = false; btn.textContent = '🎓 Marcar como concluintes';
+      btn.disabled = false; btn.textContent = '🎓 Marcar selecionados como concluintes';
     }
   }));
 }
