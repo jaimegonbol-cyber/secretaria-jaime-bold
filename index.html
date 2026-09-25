@@ -2698,6 +2698,8 @@ async function renderizarRenovacaoMatricula(el){
     .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
   const turmasDestinoExistentes = ESTADO.turmas.filter(t => t.ano_letivo === anoDestino);
 
+  if(!ESTADO.renovacaoSubaba) ESTADO.renovacaoSubaba = 'estudante';
+
   el.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
@@ -2707,10 +2709,29 @@ async function renderizarRenovacaoMatricula(el){
         </div>
       </div>
       <div style="padding:14px 16px;font-size:13px;color:var(--texto-suave);">
-        Nada do ano ${anoOrigem} é apagado ou alterado — as turmas e todo o histórico (frequência, avaliações, ocorrências etc.) continuam intactos. Esse processo só <b>cria turmas novas</b> para ${anoDestino} e depois <b>move os estudantes matriculados</b> pra elas.
+        Nada do ano ${anoOrigem} é apagado ou alterado — as turmas e todo o histórico (frequência, avaliações, ocorrências etc.) continuam intactos. Primeiro a família <b>renova a matrícula</b> do(a) estudante (aba Estudante); depois, com o resultado de aprovação conhecido, o(a) estudante é <b>enturmado(a)</b> na turma de ${anoDestino} (aba Turma).
       </div>
     </div>
+    <div class="subtabs" style="margin-bottom:14px;">
+      <button class="aba-cadastro ${ESTADO.renovacaoSubaba==='estudante'?'ativa':''}" data-renovacao-aba="estudante">Estudante</button>
+      <button class="aba-cadastro ${ESTADO.renovacaoSubaba==='turma'?'ativa':''}" data-renovacao-aba="turma">Turma</button>
+    </div>
+    <div id="conteudo-renovacao"></div>`;
 
+  document.getElementById('renovacao-ano-origem').addEventListener('change', (e) => {
+    ESTADO.renovacaoAnoOrigem = Number(e.target.value); renderizarRenovacaoMatricula(el);
+  });
+  el.querySelectorAll('[data-renovacao-aba]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.renovacaoSubaba = b.dataset.renovacaoAba; renderizarRenovacaoMatricula(el);
+  }));
+
+  const alvo = document.getElementById('conteudo-renovacao');
+  if(ESTADO.renovacaoSubaba === 'turma') renderizarRenovacaoTurma(alvo, el, anoOrigem, anoDestino, turmasOrigem, turmasDestinoExistentes);
+  else renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
+}
+
+function renderizarRenovacaoTurma(alvo, el, anoOrigem, anoDestino, turmasOrigem, turmasDestinoExistentes){
+  alvo.innerHTML = `
     <div class="painel" style="margin-bottom:14px;">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>1. Criar turmas de ${anoDestino}</b></div>
       <div style="padding:14px 16px;">
@@ -2751,13 +2772,10 @@ async function renderizarRenovacaoMatricula(el){
       </div>
     </div>`;
 
-  document.getElementById('renovacao-ano-origem').addEventListener('change', (e) => {
-    ESTADO.renovacaoAnoOrigem = Number(e.target.value); renderizarRenovacaoMatricula(el);
-  });
   document.getElementById('btn-criar-turmas-destino').addEventListener('click', async () => {
     const btn = document.getElementById('btn-criar-turmas-destino');
     const msg = document.getElementById('msg-criar-turmas-destino');
-    const linhas = Array.from(el.querySelectorAll('.chk-criar-turma-destino:checked'));
+    const linhas = Array.from(alvo.querySelectorAll('.chk-criar-turma-destino:checked'));
     if(!linhas.length){ msg.innerHTML = `<div class="msg-erro">Nenhuma turma marcada.</div>`; return; }
     btn.disabled = true; btn.textContent = 'Criando…';
     const novasTurmas = linhas.map(chk => {
@@ -2774,7 +2792,106 @@ async function renderizarRenovacaoMatricula(el){
     renderizarRenovacaoMatricula(el);
   });
 
-  carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem);
+  carregarListaEnturmacao(alvo, anoOrigem, anoDestino, turmasOrigem);
+}
+
+async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem){
+  alvo.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+
+  const alunosTodos = turmasOrigem.flatMap(t =>
+    ESTADO.alunos.filter(a => a.turma_id === t.id && a.situacao === 'matriculado')
+      .map(a => ({ ...a, turmaNome: t.nome, turmaTurno: t.turno }))
+  ).sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const { data: renovacoes, error: erroRenovacoes } = await supabase.from('renovacoes_matricula')
+    .select('aluno_id, data_renovacao, perfis(nome)').eq('ano_letivo_destino', anoDestino);
+  if(erroRenovacoes){ alvo.innerHTML = `<div class="msg-erro">${esc(erroRenovacoes.message)}</div>`; return; }
+  const renovacaoPorAluno = {};
+  (renovacoes||[]).forEach(r => { renovacaoPorAluno[r.aluno_id] = r; });
+
+  const totalMatriculados = alunosTodos.length;
+  const totalRenovados = alunosTodos.filter(a => renovacaoPorAluno[a.id]).length;
+
+  const montarLinha = (a) => {
+    const renovacao = renovacaoPorAluno[a.id];
+    return `<tr data-aluno-renovacao="${a.id}" data-nome-busca="${esc(a.nome.toLowerCase())}">
+      <td style="padding:5px 10px;">${esc(a.nome)}</td>
+      <td style="padding:5px 10px;white-space:nowrap;">${esc(a.turmaNome)} · ${esc(a.turmaTurno||'')}</td>
+      <td style="padding:5px 10px;">${renovacao ? '<span class="pill verde">✅ Renovou</span>' : '<span class="pill vermelho">Pendente</span>'}</td>
+      <td style="padding:5px 10px;">${esc(renovacao?.perfis?.nome || '—')}</td>
+      <td style="padding:5px 10px;white-space:nowrap;">${renovacao ? formatarDataBR(renovacao.data_renovacao) : '—'}</td>
+      <td style="padding:5px 10px;">
+        ${renovacao
+          ? `<button class="botao secundario pequeno" style="width:auto;" data-desfazer-renovacao="${a.id}">Desfazer</button>`
+          : `<button class="botao terracota pequeno" style="width:auto;" data-marcar-renovacao="${a.id}">✅ Renovou</button>`}
+      </td>
+    </tr>`;
+  };
+
+  alvo.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Renovação de Matrícula dos Estudantes</b></div>
+      <div style="padding:14px 16px;display:flex;gap:24px;flex-wrap:wrap;">
+        <div><span style="font-size:24px;font-weight:800;color:#2E7D5B;">${totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">de ${totalMatriculados} já renovaram</span></div>
+        <div><span style="font-size:24px;font-weight:800;color:#B4432E;">${totalMatriculados - totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">pendentes</span></div>
+      </div>
+    </div>
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <b>Lista de estudantes</b>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" id="busca-renovacao-estudante" placeholder="Buscar por nome…" style="max-width:200px;" />
+          <button class="botao secundario pequeno" id="btn-marcar-todos-renovacao" style="width:auto;">✅ Marcar todos os pendentes</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto;"><table style="border-collapse:collapse;width:100%;">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Estudante</th>
+          <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Turma</th>
+          <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Status</th>
+          <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Renovado por</th>
+          <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Data</th>
+          <th style="padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);"></th>
+        </tr></thead>
+        <tbody id="tbody-renovacao-estudante">${alunosTodos.map(montarLinha).join('')}</tbody>
+      </table></div>
+      <div id="msg-renovacao-estudante"></div>
+    </div>`;
+
+  document.getElementById('busca-renovacao-estudante').addEventListener('input', (e) => {
+    const termo = e.target.value.trim().toLowerCase();
+    alvo.querySelectorAll('#tbody-renovacao-estudante tr').forEach(tr => {
+      tr.style.display = tr.dataset.nomeBusca.includes(termo) ? '' : 'none';
+    });
+  });
+
+  document.getElementById('btn-marcar-todos-renovacao').addEventListener('click', async () => {
+    const pendentes = alunosTodos.filter(a => !renovacaoPorAluno[a.id]);
+    if(!pendentes.length) return;
+    if(!confirm(`Marcar ${pendentes.length} estudante(s) pendente(s) como renovados?`)) return;
+    const btn = document.getElementById('btn-marcar-todos-renovacao');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error } = await supabase.from('renovacoes_matricula').insert(
+      pendentes.map(a => ({ aluno_id: a.id, ano_letivo_destino: anoDestino, criado_por: ESTADO.perfil.id }))
+    );
+    if(error){ document.getElementById('msg-renovacao-estudante').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '✅ Marcar todos os pendentes'; return; }
+    renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
+  });
+
+  alvo.querySelectorAll('[data-marcar-renovacao]').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error } = await supabase.from('renovacoes_matricula').insert({
+      aluno_id: btn.dataset.marcarRenovacao, ano_letivo_destino: anoDestino, criado_por: ESTADO.perfil.id,
+    });
+    if(error){ document.getElementById('msg-renovacao-estudante').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '✅ Renovou'; return; }
+    renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
+  }));
+
+  alvo.querySelectorAll('[data-desfazer-renovacao]').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('Desfazer a renovação de matrícula desse estudante?')) return;
+    await supabase.from('renovacoes_matricula').delete().eq('aluno_id', btn.dataset.desfazerRenovacao).eq('ano_letivo_destino', anoDestino);
+    renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
+  }));
 }
 
 function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
