@@ -2812,9 +2812,15 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
   const totalMatriculados = alunosTodos.length;
   const totalRenovados = alunosTodos.filter(a => renovacaoPorAluno[a.id]).length;
 
+  const resumoPorTurma = turmasOrigem.map(t => {
+    const alunosDaTurma = alunosTodos.filter(a => a.turma_id === t.id);
+    const renovadosDaTurma = alunosDaTurma.filter(a => renovacaoPorAluno[a.id]).length;
+    return { id: t.id, nome: t.nome, turno: t.turno, total: alunosDaTurma.length, renovados: renovadosDaTurma, faltam: alunosDaTurma.length - renovadosDaTurma };
+  }).filter(r => r.total > 0);
+
   const montarLinha = (a) => {
     const renovacao = renovacaoPorAluno[a.id];
-    return `<tr data-aluno-renovacao="${a.id}" data-nome-busca="${esc(a.nome.toLowerCase())}">
+    return `<tr data-aluno-renovacao="${a.id}" data-nome-busca="${esc(a.nome.toLowerCase())}" data-turma-id-linha="${a.turma_id}">
       <td style="padding:5px 10px;">${esc(a.nome)}</td>
       <td style="padding:5px 10px;white-space:nowrap;">${esc(a.turmaNome)} · ${esc(a.turmaTurno||'')}</td>
       <td style="padding:5px 10px;">${renovacao ? '<span class="pill verde">✅ Renovou</span>' : '<span class="pill vermelho">Pendente</span>'}</td>
@@ -2836,10 +2842,31 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
         <div><span style="font-size:24px;font-weight:800;color:#B4432E;">${totalMatriculados - totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">pendentes</span></div>
       </div>
     </div>
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Renovação por turma</b></div>
+      <div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 10px;">Turma</th>
+          <th style="text-align:left;padding:6px 10px;">Renovaram</th>
+          <th style="text-align:left;padding:6px 10px;">Faltam renovar</th>
+        </tr></thead>
+        <tbody>
+          ${resumoPorTurma.map(r => `<tr>
+            <td style="padding:5px 10px;white-space:nowrap;">${esc(r.nome)} · ${esc(r.turno||'')}</td>
+            <td style="padding:5px 10px;color:#2E7D5B;font-weight:700;">${r.renovados}/${r.total}</td>
+            <td style="padding:5px 10px;color:${r.faltam>0?'#B4432E':'var(--texto-suave)'};font-weight:${r.faltam>0?'700':'400'};">${r.faltam>0 ? r.faltam : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>
     <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
         <b>Lista de estudantes</b>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="filtro-turma-renovacao-estudante" style="width:auto;">
+            <option value="">Todas as turmas</option>
+            ${turmasOrigem.map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno||'')}</option>`).join('')}
+          </select>
           <input type="text" id="busca-renovacao-estudante" placeholder="Buscar por nome…" style="max-width:200px;" />
           <button class="botao secundario pequeno" id="btn-marcar-todos-renovacao" style="width:auto;">✅ Marcar todos os pendentes</button>
         </div>
@@ -2858,12 +2885,17 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
       <div id="msg-renovacao-estudante"></div>
     </div>`;
 
-  document.getElementById('busca-renovacao-estudante').addEventListener('input', (e) => {
-    const termo = e.target.value.trim().toLowerCase();
+  function aplicarFiltrosRenovacaoEstudante(){
+    const termo = document.getElementById('busca-renovacao-estudante').value.trim().toLowerCase();
+    const turmaFiltro = document.getElementById('filtro-turma-renovacao-estudante').value;
     alvo.querySelectorAll('#tbody-renovacao-estudante tr').forEach(tr => {
-      tr.style.display = tr.dataset.nomeBusca.includes(termo) ? '' : 'none';
+      const bateNome = tr.dataset.nomeBusca.includes(termo);
+      const bateTurma = !turmaFiltro || tr.dataset.turmaIdLinha === turmaFiltro;
+      tr.style.display = (bateNome && bateTurma) ? '' : 'none';
     });
-  });
+  }
+  document.getElementById('busca-renovacao-estudante').addEventListener('input', aplicarFiltrosRenovacaoEstudante);
+  document.getElementById('filtro-turma-renovacao-estudante').addEventListener('change', aplicarFiltrosRenovacaoEstudante);
 
   document.getElementById('btn-marcar-todos-renovacao').addEventListener('click', async () => {
     const pendentes = alunosTodos.filter(a => !renovacaoPorAluno[a.id]);
