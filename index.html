@@ -2701,18 +2701,13 @@ async function renderizarRenovacaoMatricula(el){
   if(!ESTADO.renovacaoSubaba) ESTADO.renovacaoSubaba = 'estudante';
 
   el.innerHTML = `
-    <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-        <b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b>
-        <div class="campo" style="margin:0;max-width:160px;"><label style="font-size:11.5px;">Ano de origem</label>
-          <select id="renovacao-ano-origem">${anosDisponiveis.map(a => `<option value="${a}" ${a===anoOrigem?'selected':''}>${a}</option>`).join('')}</select>
-        </div>
-      </div>
-      <div style="padding:14px 16px;font-size:13px;color:var(--texto-suave);">
-        Nada do ano ${anoOrigem} é apagado ou alterado — as turmas e todo o histórico (frequência, avaliações, ocorrências etc.) continuam intactos. Primeiro a família <b>renova a matrícula</b> do(a) estudante (aba Estudante); depois, com o resultado de aprovação conhecido, o(a) estudante é <b>enturmado(a)</b> na turma de ${anoDestino} (aba Turma).
+    <div class="painel" style="margin-bottom:10px;">
+      <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <span style="font-size:13px;"><b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b> <span style="color:var(--texto-suave);font-weight:400;">— renove a matrícula do(a) estudante, depois enturme-o(a) quando souber o resultado de aprovação.</span></span>
+        <select id="renovacao-ano-origem" style="width:auto;">${anosDisponiveis.map(a => `<option value="${a}" ${a===anoOrigem?'selected':''}>${a}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="subtabs" style="margin-bottom:14px;">
+    <div class="subtabs" style="margin-bottom:10px;">
       <button class="aba-cadastro ${ESTADO.renovacaoSubaba==='estudante'?'ativa':''}" data-renovacao-aba="estudante">Estudante</button>
       <button class="aba-cadastro ${ESTADO.renovacaoSubaba==='turma'?'ativa':''}" data-renovacao-aba="turma">Turma</button>
     </div>
@@ -2835,29 +2830,31 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
   };
 
   alvo.innerHTML = `
-    <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Renovação de Matrícula dos Estudantes</b></div>
-      <div style="padding:14px 16px;display:flex;gap:24px;flex-wrap:wrap;">
-        <div><span style="font-size:24px;font-weight:800;color:#2E7D5B;">${totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">de ${totalMatriculados} já renovaram</span></div>
-        <div><span style="font-size:24px;font-weight:800;color:#B4432E;">${totalMatriculados - totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">pendentes</span></div>
+    <div class="grade-painel-geral" style="margin-bottom:10px;">
+      <div class="painel">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--borda);"><b>Resumo</b></div>
+        <div style="padding:14px;display:flex;gap:24px;flex-wrap:wrap;">
+          <div><span style="font-size:24px;font-weight:800;color:#2E7D5B;">${totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">de ${totalMatriculados} já renovaram</span></div>
+          <div><span style="font-size:24px;font-weight:800;color:#B4432E;">${totalMatriculados - totalRenovados}</span><br/><span style="font-size:12px;color:var(--texto-suave);">pendentes</span></div>
+        </div>
       </div>
-    </div>
-    <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Renovação por turma</b></div>
-      <div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;">
-        <thead><tr>
-          <th style="text-align:left;padding:6px 10px;">Turma</th>
-          <th style="text-align:left;padding:6px 10px;">Renovaram</th>
-          <th style="text-align:left;padding:6px 10px;">Faltam renovar</th>
-        </tr></thead>
-        <tbody>
-          ${resumoPorTurma.map(r => `<tr>
-            <td style="padding:5px 10px;white-space:nowrap;">${esc(r.nome)} · ${esc(r.turno||'')}</td>
-            <td style="padding:5px 10px;color:#2E7D5B;font-weight:700;">${r.renovados}/${r.total}</td>
-            <td style="padding:5px 10px;color:${r.faltam>0?'#B4432E':'var(--texto-suave)'};font-weight:${r.faltam>0?'700':'400'};">${r.faltam>0 ? r.faltam : '—'}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
+      <div class="painel">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--borda);"><b>Renovação por turma</b></div>
+        <div style="overflow:auto;max-height:200px;"><table style="border-collapse:collapse;width:100%;">
+          <thead><tr>
+            <th style="text-align:left;padding:4px 10px;position:sticky;top:0;background:var(--areia-escura);">Turma</th>
+            <th style="text-align:left;padding:4px 10px;position:sticky;top:0;background:var(--areia-escura);">Renovaram</th>
+            <th style="text-align:left;padding:4px 10px;position:sticky;top:0;background:var(--areia-escura);">Faltam</th>
+          </tr></thead>
+          <tbody>
+            ${resumoPorTurma.map(r => `<tr>
+              <td style="padding:3px 10px;white-space:nowrap;font-size:12.5px;">${esc(r.nome)} · ${esc(r.turno||'')}</td>
+              <td style="padding:3px 10px;color:#2E7D5B;font-weight:700;font-size:12.5px;">${r.renovados}/${r.total}</td>
+              <td style="padding:3px 10px;color:${r.faltam>0?'#B4432E':'var(--texto-suave)'};font-weight:${r.faltam>0?'700':'400'};font-size:12.5px;">${r.faltam>0 ? r.faltam : '—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
     </div>
     <div class="painel">
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
@@ -2871,7 +2868,7 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
           <button class="botao secundario pequeno" id="btn-marcar-todos-renovacao" style="width:auto;">✅ Marcar todos os pendentes</button>
         </div>
       </div>
-      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto;"><table style="border-collapse:collapse;width:100%;">
+      <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;"><table style="border-collapse:collapse;width:100%;">
         <thead><tr>
           <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Estudante</th>
           <th style="text-align:left;padding:6px 10px;position:sticky;top:0;background:var(--areia-escura);">Turma</th>
