@@ -2930,10 +2930,14 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
   }));
 }
 
-function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
+async function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
   const alvo = document.getElementById('lista-enturmacao');
+  alvo.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const turmasDestino = ESTADO.turmas.filter(t => t.ano_letivo === anoDestino).slice()
     .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const { data: renovacoes } = await supabase.from('renovacoes_matricula').select('aluno_id').eq('ano_letivo_destino', anoDestino);
+  const idsRenovados = new Set((renovacoes||[]).map(r => r.aluno_id));
 
   alvo.innerHTML = turmasOrigem.map(t => {
     const alunosPendentes = ESTADO.alunos.filter(a => a.turma_id === t.id && a.situacao === 'matriculado').slice()
@@ -2965,19 +2969,25 @@ function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
       </div>`;
     }
 
+    const qtdRenovados = alunosPendentes.filter(a => idsRenovados.has(a.id)).length;
     const opcoes = turmasDestino.map(td => `<option value="${td.id}" ${td.nome===prog.nomeSugerido && td.turno===t.turno?'selected':''}>${esc(td.nome)} · ${esc(td.turno||'')}</option>`).join('');
     return `<div class="painel" style="margin-bottom:10px;" data-turma-origem-enturmacao="${t.id}">
       <div style="padding:10px 14px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <span><b>${esc(t.nome)}</b> · ${esc(t.turno||'')}</span>
+        <span><b>${esc(t.nome)}</b> · ${esc(t.turno||'')} <span style="color:var(--texto-suave);font-size:12px;">(${qtdRenovados} de ${alunosPendentes.length} renovaram)</span></span>
         <div style="display:flex;gap:8px;align-items:center;">
           <select class="campo-turma-destino-enturmacao" ${!turmasDestino.length?'disabled':''}><option value="">Turma destino…</option>${opcoes}</select>
           <button class="botao terracota pequeno" style="width:auto;" data-enturmar="${t.id}" ${!turmasDestino.length?'disabled':''}>➡️ Enturmar selecionados</button>
         </div>
       </div>
       <div style="padding:10px 14px;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin-bottom:6px;cursor:pointer;"><input type="checkbox" class="chk-todos-enturmacao" checked style="width:14px;height:14px;" /> Selecionar todos (${alunosPendentes.length})</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin-bottom:6px;cursor:pointer;"><input type="checkbox" class="chk-todos-enturmacao" checked style="width:14px;height:14px;" /> Selecionar todos os que já renovaram (${qtdRenovados})</label>
         <div style="max-height:180px;overflow-y:auto;border-top:1px solid var(--borda);padding-top:6px;">
-          ${alunosPendentes.map(a => `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" class="chk-aluno-enturmacao" data-aluno="${a.id}" checked style="width:14px;height:14px;" /> ${esc(a.nome)}</label>`).join('')}
+          ${alunosPendentes.map(a => {
+            const renovou = idsRenovados.has(a.id);
+            return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:${renovou?'pointer':'not-allowed'};${renovou?'':'color:var(--texto-suave);'}" title="${renovou?'':'Aguardando renovação de matrícula — vá na aba Estudante pra marcar.'}">
+              <input type="checkbox" class="chk-aluno-enturmacao" data-aluno="${a.id}" ${renovou?'checked':'disabled'} style="width:14px;height:14px;" /> ${esc(a.nome)}${renovou?'':' <span style="font-size:11px;">— aguardando renovação</span>'}
+            </label>`;
+          }).join('')}
         </div>
       </div>
       <div id="msg-enturmacao-${t.id}"></div>
@@ -2988,12 +2998,12 @@ function carregarListaEnturmacao(el, anoOrigem, anoDestino, turmasOrigem){
     const chkTodos = painel.querySelector('.chk-todos-enturmacao');
     if(!chkTodos) return;
     chkTodos.addEventListener('change', () => {
-      painel.querySelectorAll('.chk-aluno-enturmacao').forEach(chk => { chk.checked = chkTodos.checked; });
+      painel.querySelectorAll('.chk-aluno-enturmacao:not(:disabled)').forEach(chk => { chk.checked = chkTodos.checked; });
     });
-    painel.querySelectorAll('.chk-aluno-enturmacao').forEach(chk => {
+    painel.querySelectorAll('.chk-aluno-enturmacao:not(:disabled)').forEach(chk => {
       chk.addEventListener('change', () => {
-        const chksAluno = Array.from(painel.querySelectorAll('.chk-aluno-enturmacao'));
-        chkTodos.checked = chksAluno.every(c => c.checked);
+        const chksAluno = Array.from(painel.querySelectorAll('.chk-aluno-enturmacao:not(:disabled)'));
+        chkTodos.checked = chksAluno.length > 0 && chksAluno.every(c => c.checked);
       });
     });
   });
