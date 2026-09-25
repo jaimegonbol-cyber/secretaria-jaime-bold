@@ -260,6 +260,7 @@
     box-shadow:0 2px 6px rgba(0,0,0,.08);margin-bottom:12px;
   }
   .btn-voltar-painel:hover{background:var(--areia);}
+  .linha-turma-renovacao:hover{background:var(--areia);}
 
   @media (max-width:760px){
     .shell{flex-direction:column;}
@@ -2847,7 +2848,7 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
             <th style="text-align:left;padding:4px 10px;position:sticky;top:0;background:var(--areia-escura);">Faltam</th>
           </tr></thead>
           <tbody>
-            ${resumoPorTurma.map(r => `<tr>
+            ${resumoPorTurma.map(r => `<tr class="linha-turma-renovacao" data-clicar-turma-renovacao="${r.id}" style="cursor:pointer;" title="Ver lista de estudantes dessa turma">
               <td style="padding:3px 10px;white-space:nowrap;font-size:12.5px;">${esc(r.nome)} · ${esc(r.turno||'')}</td>
               <td style="padding:3px 10px;color:#2E7D5B;font-weight:700;font-size:12.5px;">${r.renovados}/${r.total}</td>
               <td style="padding:3px 10px;color:${r.faltam>0?'#B4432E':'var(--texto-suave)'};font-weight:${r.faltam>0?'700':'400'};font-size:12.5px;">${r.faltam>0 ? r.faltam : '—'}</td>
@@ -2893,6 +2894,12 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
   }
   document.getElementById('busca-renovacao-estudante').addEventListener('input', aplicarFiltrosRenovacaoEstudante);
   document.getElementById('filtro-turma-renovacao-estudante').addEventListener('change', aplicarFiltrosRenovacaoEstudante);
+
+  alvo.querySelectorAll('[data-clicar-turma-renovacao]').forEach(tr => tr.addEventListener('click', () => {
+    document.getElementById('filtro-turma-renovacao-estudante').value = tr.dataset.clicarTurmaRenovacao;
+    aplicarFiltrosRenovacaoEstudante();
+    document.getElementById('tbody-renovacao-estudante').closest('.painel').scrollIntoView({ behavior:'smooth', block:'start' });
+  }));
 
   document.getElementById('btn-marcar-todos-renovacao').addEventListener('click', async () => {
     const pendentes = alunosTodos.filter(a => !renovacaoPorAluno[a.id]);
