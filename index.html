@@ -2834,10 +2834,13 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
   ).sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const { data: renovacoes, error: erroRenovacoes } = await supabase.from('renovacoes_matricula')
-    .select('aluno_id, data_renovacao, perfis(nome)').eq('ano_letivo_destino', anoDestino);
+    .select('aluno_id, data_renovacao, criado_por').eq('ano_letivo_destino', anoDestino);
   if(erroRenovacoes){ alvo.innerHTML = `<div class="msg-erro">${esc(erroRenovacoes.message)}</div>`; return; }
+  const { data: nomesPerfis } = await supabase.rpc('nomes_perfis');
+  const nomePorPerfilId = {};
+  (nomesPerfis||[]).forEach(p => { nomePorPerfilId[p.id] = p.nome; });
   const renovacaoPorAluno = {};
-  (renovacoes||[]).forEach(r => { renovacaoPorAluno[r.aluno_id] = r; });
+  (renovacoes||[]).forEach(r => { renovacaoPorAluno[r.aluno_id] = { ...r, nomeQuemRenovou: nomePorPerfilId[r.criado_por] || null }; });
 
   const totalMatriculados = alunosTodos.length;
   const totalRenovados = alunosTodos.filter(a => renovacaoPorAluno[a.id]).length;
@@ -2854,7 +2857,7 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
       <td style="padding:5px 10px;">${esc(a.nome)}</td>
       <td style="padding:5px 10px;white-space:nowrap;">${esc(a.turmaNome)} · ${esc(a.turmaTurno||'')}</td>
       <td style="padding:5px 10px;">${renovacao ? '<span class="pill verde">✅ Renovou</span>' : '<span class="pill vermelho">Pendente</span>'}</td>
-      <td style="padding:5px 10px;">${esc(renovacao?.perfis?.nome || '—')}</td>
+      <td style="padding:5px 10px;">${esc(renovacao?.nomeQuemRenovou || '—')}</td>
       <td style="padding:5px 10px;white-space:nowrap;">${renovacao ? formatarDataBR(renovacao.data_renovacao) : '—'}</td>
       <td style="padding:5px 10px;">
         ${renovacao
@@ -8810,9 +8813,13 @@ async function renderizarAgenda(el){
 
   const listaDias = document.getElementById('agenda-lista-dias');
   listaDias.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
-  const { data: eventos, error } = await supabase.from('agenda_eventos').select('*, perfis(nome)')
+  const { data: eventos, error } = await supabase.from('agenda_eventos').select('*')
     .gte('data', inicioISO).lte('data', fimISO).order('data').order('criado_em');
   if(error){ listaDias.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const { data: nomesPerfisAgenda } = await supabase.rpc('nomes_perfis');
+  const nomePorPerfilIdAgenda = {};
+  (nomesPerfisAgenda||[]).forEach(p => { nomePorPerfilIdAgenda[p.id] = p.nome; });
+  (eventos||[]).forEach(ev => { ev.nomeCriador = nomePorPerfilIdAgenda[ev.criado_por] || null; });
 
   const porDia = {};
   (eventos||[]).forEach(ev => { (porDia[ev.data] = porDia[ev.data] || []).push(ev); });
@@ -8904,7 +8911,7 @@ function cartaoEventoAgenda(ev){
           <b style="font-size:14.5px;display:block;margin-top:6px;${ev.realizada?'text-decoration:line-through;':''}">${esc(ev.titulo)}</b>
           ${ev.descricao ? `<div style="font-size:12.5px;margin-top:4px;color:var(--texto-suave);white-space:pre-wrap;line-height:1.45;">${esc(ev.descricao)}</div>` : ''}
           ${ev.anexo_url ? `<div style="margin-top:6px;"><a href="${ev.anexo_url}" target="_blank" rel="noopener" style="font-size:12px;color:var(--terracota);text-decoration:none;font-weight:600;">${iconeAnexo} ${esc(ev.anexo_nome||'Anexo')}</a></div>` : ''}
-          <div style="font-size:11px;color:var(--texto-suave);margin-top:6px;opacity:.8;">Registrado por ${esc(ev.perfis?.nome || '—')}</div>
+          <div style="font-size:11px;color:var(--texto-suave);margin-top:6px;opacity:.8;">Registrado por ${esc(ev.nomeCriador || '—')}</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="botao secundario pequeno" data-realizada-evento="${ev.id}" data-valor="${!ev.realizada}" style="width:auto;padding:4px 10px;font-size:11px;border-radius:8px;">${ev.realizada ? '↺ Reabrir' : '✓ Realizada'}</button>
