@@ -2842,6 +2842,12 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
   const renovacaoPorAluno = {};
   (renovacoes||[]).forEach(r => { renovacaoPorAluno[r.aluno_id] = { ...r, nomeQuemRenovou: nomePorPerfilId[r.criado_por] || null }; });
 
+  const idsTurmasOrigem = turmasOrigem.map(t => t.id);
+  const { data: resultadosConselho } = await supabase.from('conselho_classe').select('aluno_id, resultado')
+    .in('turma_id', idsTurmasOrigem).eq('bimestre', 4).eq('ano_letivo', anoOrigem);
+  const resultadoPorAluno = {};
+  (resultadosConselho||[]).forEach(r => { if(r.resultado) resultadoPorAluno[r.aluno_id] = r.resultado; });
+
   const totalMatriculados = alunosTodos.length;
   const totalRenovados = alunosTodos.filter(a => renovacaoPorAluno[a.id]).length;
 
@@ -2853,8 +2859,14 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
 
   const montarLinha = (a) => {
     const renovacao = renovacaoPorAluno[a.id];
+    const resultado = resultadoPorAluno[a.id];
+    const etiquetaResultado = resultado === 'retido'
+      ? ' <span style="font-size:10.5px;color:#B4432E;font-weight:700;">🔴 Reprovado(a)</span>'
+      : resultado === 'aprovado'
+        ? ' <span style="font-size:10.5px;color:#2E7D5B;font-weight:700;">🟢 Aprovado(a)</span>'
+        : '';
     return `<tr data-aluno-renovacao="${a.id}" data-nome-busca="${esc(a.nome.toLowerCase())}" data-turma-id-linha="${a.turma_id}">
-      <td style="padding:5px 10px;">${esc(a.nome)}</td>
+      <td style="padding:5px 10px;">${esc(a.nome)}${etiquetaResultado}</td>
       <td style="padding:5px 10px;white-space:nowrap;">${esc(a.turmaNome)} · ${esc(a.turmaTurno||'')}</td>
       <td style="padding:5px 10px;">${renovacao ? '<span class="pill verde">✅ Renovou</span>' : '<span class="pill vermelho">Pendente</span>'}</td>
       <td style="padding:5px 10px;">${esc(renovacao?.nomeQuemRenovou || '—')}</td>
@@ -3015,13 +3027,18 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
     </div>`;
   } else {
     const qtdRenovados = alunosPendentes.filter(a => idsRenovados.has(a.id)).length;
-    const opcoes = turmasDestino.map(td => `<option value="${td.id}" ${td.nome===prog.nomeSugerido && td.turno===t.turno?'selected':''}>${esc(td.nome)} · ${esc(td.turno||'')}</option>`).join('');
+    const serieSeguinte = prog.nomeSugerido ? extrairSerie(prog.nomeSugerido) : null;
+    const turmasDestinoPermitidas = turmasDestino.filter(td => {
+      const serieTd = extrairSerie(td.nome);
+      return serieTd === serieOrigem || serieTd === serieSeguinte;
+    });
+    const opcoes = turmasDestinoPermitidas.map(td => `<option value="${td.id}" ${td.nome===prog.nomeSugerido && td.turno===t.turno?'selected':''}>${esc(td.nome)} · ${esc(td.turno||'')}${extrairSerie(td.nome)===serieOrigem?' (mesma série — reprovados)':' (série seguinte — aprovados)'}</option>`).join('');
     alvoLista.innerHTML = `<div class="painel" data-turma-origem-enturmacao="${t.id}">
       <div style="padding:10px 14px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <span><b>${esc(t.nome)}</b> · ${esc(t.turno||'')} <span style="color:var(--texto-suave);font-size:12px;">(${qtdRenovados} de ${alunosPendentes.length} renovaram)</span></span>
         <div style="display:flex;gap:8px;align-items:center;">
-          <select class="campo-turma-destino-enturmacao" ${!turmasDestino.length?'disabled':''}><option value="">Turma destino…</option>${opcoes}</select>
-          <button class="botao terracota pequeno" style="width:auto;" data-enturmar="${t.id}" ${!turmasDestino.length?'disabled':''}>➡️ Enturmar selecionados</button>
+          <select class="campo-turma-destino-enturmacao" ${!turmasDestinoPermitidas.length?'disabled':''}><option value="">Turma destino…</option>${opcoes}</select>
+          <button class="botao terracota pequeno" style="width:auto;" data-enturmar="${t.id}" ${!turmasDestinoPermitidas.length?'disabled':''}>➡️ Enturmar selecionados</button>
         </div>
       </div>
       <div style="padding:10px 14px;">
