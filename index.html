@@ -3031,7 +3031,7 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
             const renovou = idsRenovados.has(a.id);
             const resultado = resultadoPorAluno[a.id] || null;
             const etiquetaResultado = resultado === 'retido'
-              ? '<span style="font-size:11px;color:#B4432E;font-weight:600;">🔴 Retido(a) — só pode ir pra mesma série</span>'
+              ? '<span style="font-size:11px;color:#B4432E;font-weight:600;">🔴 Reprovado(a) — só pode ir pra mesma série</span>'
               : resultado === 'aprovado'
                 ? '<span style="font-size:11px;color:#2E7D5B;font-weight:600;">🟢 Aprovado(a)</span>'
                 : '<span style="font-size:11px;color:var(--texto-suave);">— sem resultado do 4º bimestre</span>';
@@ -3080,12 +3080,12 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
       const nomeAluno = ESTADO.alunos.find(a => a.id === chk.dataset.aluno)?.nome || 'Estudante';
       if(resultado === 'retido'){
         if(serieDestinoEscolhida === serieOrigem) idsCompativeis.push(chk.dataset.aluno);
-        else nomesIncompativeis.push(`${nomeAluno} (retido — só pode ir pra ${serieOrigem})`);
+        else nomesIncompativeis.push(`${nomeAluno} (reprovado — só pode ir pra ${serieOrigem})`);
       } else {
         // aprovado ou sem registro: só bloqueia se a turma escolhida for a MESMA série de origem
         // (não faz sentido reter sem resultado de retenção registrado)
         if(serieDestinoEscolhida !== serieOrigem) idsCompativeis.push(chk.dataset.aluno);
-        else nomesIncompativeis.push(`${nomeAluno} (não está retido — não pode continuar na mesma série)`);
+        else nomesIncompativeis.push(`${nomeAluno} (não foi reprovado — não pode continuar na mesma série)`);
       }
     });
 
@@ -10880,11 +10880,11 @@ function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma, frequenciaA
       </td>
       ${ESTADO.conselhoBimestre === 4 ? `
       <td style="padding:4px 8px;">
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;">
-          <input type="radio" name="resultado-conselho-${aluno.id}" class="radio-resultado-conselho" value="aprovado" ${registro?.resultado==='aprovado'?'checked':''} style="width:14px;height:14px;" /> Aprovado(a)
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;color:#2E7D5B;font-weight:600;">
+          <input type="radio" name="resultado-conselho-${aluno.id}" class="radio-resultado-conselho" value="aprovado" ${registro?.resultado==='aprovado'?'checked':''} style="width:15px;height:15px;accent-color:#2E7D5B;" /> Aprovado(a)
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;">
-          <input type="radio" name="resultado-conselho-${aluno.id}" class="radio-resultado-conselho" value="retido" ${registro?.resultado==='retido'?'checked':''} style="width:14px;height:14px;" /> Retido(a)
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;color:#B4432E;font-weight:600;">
+          <input type="radio" name="resultado-conselho-${aluno.id}" class="radio-resultado-conselho" value="retido" ${registro?.resultado==='retido'?'checked':''} style="width:15px;height:15px;accent-color:#B4432E;" /> Reprovado(a)
         </label>
       </td>` : ''}
     </tr>`;
