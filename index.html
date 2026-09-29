@@ -2979,9 +2979,15 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
   const { data: renovacoes } = await supabase.from('renovacoes_matricula').select('aluno_id').eq('ano_letivo_destino', anoDestino);
   const idsRenovados = new Set((renovacoes||[]).map(r => r.aluno_id));
 
+  const { data: resultadosConselho } = await supabase.from('conselho_classe').select('aluno_id, resultado')
+    .eq('turma_id', t.id).eq('bimestre', 4).eq('ano_letivo', anoOrigem);
+  const resultadoPorAluno = {};
+  (resultadosConselho||[]).forEach(r => { if(r.resultado) resultadoPorAluno[r.aluno_id] = r.resultado; });
+
   const alunosPendentes = ESTADO.alunos.filter(a => a.turma_id === t.id && a.situacao === 'matriculado').slice()
     .sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const prog = progressaoSerieTurma(t.nome);
+  const serieOrigem = extrairSerie(t.nome);
 
   if(!alunosPendentes.length){
     alvoLista.innerHTML = `<div class="painel">
@@ -3023,8 +3029,14 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
         <div style="max-height:280px;overflow-y:auto;border-top:1px solid var(--borda);padding-top:6px;">
           ${alunosPendentes.map(a => {
             const renovou = idsRenovados.has(a.id);
+            const resultado = resultadoPorAluno[a.id] || null;
+            const etiquetaResultado = resultado === 'retido'
+              ? '<span style="font-size:11px;color:#B4432E;font-weight:600;">🔴 Retido(a) — só pode ir pra mesma série</span>'
+              : resultado === 'aprovado'
+                ? '<span style="font-size:11px;color:#2E7D5B;font-weight:600;">🟢 Aprovado(a)</span>'
+                : '<span style="font-size:11px;color:var(--texto-suave);">— sem resultado do 4º bimestre</span>';
             return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:${renovou?'pointer':'not-allowed'};${renovou?'':'color:var(--texto-suave);'}" title="${renovou?'':'Aguardando renovação de matrícula — vá na aba Estudante pra marcar.'}">
-              <input type="checkbox" class="chk-aluno-enturmacao" data-aluno="${a.id}" ${renovou?'checked':'disabled'} style="width:14px;height:14px;" /> ${esc(a.nome)}${renovou?'':' <span style="font-size:11px;">— aguardando renovação</span>'}
+              <input type="checkbox" class="chk-aluno-enturmacao" data-aluno="${a.id}" data-resultado="${resultado||''}" ${renovou?'checked':'disabled'} style="width:14px;height:14px;" /> ${esc(a.nome)}${renovou?'':' <span style="font-size:11px;">— aguardando renovação</span>'} ${etiquetaResultado}
             </label>`;
           }).join('')}
         </div>
@@ -3053,12 +3065,38 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
     const turmaId = btn.dataset.enturmar;
     const msg = document.getElementById(`msg-enturmacao-${turmaId}`);
     const turmaDestinoId = painel.querySelector('.campo-turma-destino-enturmacao').value;
-    const idsSelecionados = Array.from(painel.querySelectorAll('.chk-aluno-enturmacao:checked')).map(c => c.dataset.aluno);
     if(!turmaDestinoId){ msg.innerHTML = `<div class="msg-erro">Selecione a turma destino.</div>`; return; }
-    if(!idsSelecionados.length){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos um estudante.</div>`; return; }
-    if(!confirm(`Enturmar ${idsSelecionados.length} estudante(s) selecionado(s)? Essa ação atualiza a turma atual deles.`)) return;
+    const turmaDestinoObj = turmasDestino.find(td => td.id === turmaDestinoId);
+    const serieDestinoEscolhida = extrairSerie(turmaDestinoObj?.nome || '');
+    const serieSeguinte = prog.nomeSugerido ? extrairSerie(prog.nomeSugerido) : null;
+
+    const checkboxesSelecionados = Array.from(painel.querySelectorAll('.chk-aluno-enturmacao:checked'));
+    if(!checkboxesSelecionados.length){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos um estudante.</div>`; return; }
+
+    const idsCompativeis = [];
+    const nomesIncompativeis = [];
+    checkboxesSelecionados.forEach(chk => {
+      const resultado = chk.dataset.resultado;
+      const nomeAluno = ESTADO.alunos.find(a => a.id === chk.dataset.aluno)?.nome || 'Estudante';
+      if(resultado === 'retido'){
+        if(serieDestinoEscolhida === serieOrigem) idsCompativeis.push(chk.dataset.aluno);
+        else nomesIncompativeis.push(`${nomeAluno} (retido — só pode ir pra ${serieOrigem})`);
+      } else {
+        // aprovado ou sem registro: só bloqueia se a turma escolhida for a MESMA série de origem
+        // (não faz sentido reter sem resultado de retenção registrado)
+        if(serieDestinoEscolhida !== serieOrigem) idsCompativeis.push(chk.dataset.aluno);
+        else nomesIncompativeis.push(`${nomeAluno} (não está retido — não pode continuar na mesma série)`);
+      }
+    });
+
+    if(!idsCompativeis.length){
+      msg.innerHTML = `<div class="msg-erro">Nenhum estudante selecionado pode ir pra essa turma. ${nomesIncompativeis.length ? esc(nomesIncompativeis.join('; ')) : ''}</div>`;
+      return;
+    }
+    const avisoIncompativeis = nomesIncompativeis.length ? `\n\nNão serão movidos (resultado incompatível): ${nomesIncompativeis.join('; ')}` : '';
+    if(!confirm(`Enturmar ${idsCompativeis.length} estudante(s)? Essa ação atualiza a turma atual deles.${avisoIncompativeis}`)) return;
     btn.disabled = true; btn.textContent = 'Enturmando…';
-    const { error } = await supabase.from('alunos').update({ turma_id: turmaDestinoId }).in('id', idsSelecionados);
+    const { error } = await supabase.from('alunos').update({ turma_id: turmaDestinoId }).in('id', idsCompativeis);
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '➡️ Enturmar selecionados'; return; }
     await carregarDadosBase();
     renderizarRenovacaoTurma(alvo, el, anoOrigem, anoDestino, ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem), ESTADO.turmas.filter(t => t.ano_letivo === anoDestino));
@@ -10778,6 +10816,7 @@ async function carregarListaConselhoClasse(el){
           <th style="padding:6px 4px;font-size:11px;font-weight:600;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="Frequência no ano letivo">Freq.</th>
           ${disciplinasTurma.map(d => `<th style="padding:6px 4px;font-size:11px;font-weight:600;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="${esc(d)}">${esc(abreviarDisciplina(d))}</th>`).join('')}
           <th style="text-align:left;padding:6px 8px;position:sticky;top:0;z-index:10;background:var(--areia-escura);">Observação</th>
+          ${ESTADO.conselhoBimestre === 4 ? `<th style="text-align:left;padding:6px 8px;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="Usado pra decidir a turma na Renovação de Matrícula">Resultado</th>` : ''}
         </tr></thead>
         <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id], disciplinasTurma, frequenciaPorAluno[a.id])).join('')}</tbody>
       </table>
@@ -10801,9 +10840,11 @@ async function carregarListaConselhoClasse(el){
       const textoOutros = linha.querySelector('.campo-outros-conselho').value.trim();
       const observacoes = Array.from(linha.querySelectorAll('.chk-observacao:checked')).map(c => ({ chave: c.dataset.chave }));
       if(textoOutros) observacoes.push({ chave: 'outros', texto: textoOutros });
+      const radioResultado = linha.querySelector('.radio-resultado-conselho:checked');
       return {
         turma_id: ESTADO.conselhoTurmaId, aluno_id: alunoId, bimestre: ESTADO.conselhoBimestre, ano_letivo: anoLetivo,
         disciplinas_recuperacao: disciplinasRecuperacao, observacoes, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString(),
+        resultado: radioResultado ? radioResultado.value : null,
       };
     });
     const { error: erroSalvar } = await supabase.from('conselho_classe').upsert(registrosParaSalvar, { onConflict: 'turma_id,aluno_id,bimestre,ano_letivo' });
@@ -10837,6 +10878,15 @@ function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma, frequenciaA
           <input type="text" class="campo-outros-conselho" value="${esc(outrosSalvo?.texto || '')}" />
         </div>
       </td>
+      ${ESTADO.conselhoBimestre === 4 ? `
+      <td style="padding:4px 8px;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;">
+          <input type="radio" name="resultado-conselho-${aluno.id}" class="radio-resultado-conselho" value="aprovado" ${registro?.resultado==='aprovado'?'checked':''} style="width:14px;height:14px;" /> Aprovado(a)
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;">
+          <input type="radio" name="resultado-conselho-${aluno.id}" class="radio-resultado-conselho" value="retido" ${registro?.resultado==='retido'?'checked':''} style="width:14px;height:14px;" /> Retido(a)
+        </label>
+      </td>` : ''}
     </tr>`;
 }
 
