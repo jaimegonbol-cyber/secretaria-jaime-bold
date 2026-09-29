@@ -1103,7 +1103,7 @@ async function carregarDocsPendentesPainel(){
   const alvo = document.getElementById('painel-docs-pendentes');
   if(!alvo) return;
   const { data, error } = await supabase.from('solicitacoes_documentos')
-    .select('*, alunos(nome), registrado:registrado_por(nome)')
+    .select('*, alunos(nome)')
     .eq('status', 'pendente')
     .order('data_solicitacao', { ascending:true });
   if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
@@ -7536,11 +7536,18 @@ async function carregarListaSolicitacoes(el){
   const lista = document.getElementById('lista-solicitacoes');
   lista.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   let query = supabase.from('solicitacoes_documentos')
-    .select('*, alunos(nome), turmas(nome), registrado:registrado_por(nome), concluido:concluido_por(nome)')
+    .select('*, alunos(nome), turmas(nome)')
     .order('data_solicitacao', { ascending:false });
   if(ESTADO.solicFiltroStatus) query = query.eq('status', ESTADO.solicFiltroStatus);
   const { data, error } = await query;
   if(error){ lista.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const { data: nomesPerfisSolic } = await supabase.rpc('nomes_perfis');
+  const nomePorPerfilIdSolic = {};
+  (nomesPerfisSolic||[]).forEach(p => { nomePorPerfilIdSolic[p.id] = p.nome; });
+  (data||[]).forEach(s => {
+    s.registrado = { nome: nomePorPerfilIdSolic[s.registrado_por] || null };
+    s.concluido = { nome: nomePorPerfilIdSolic[s.concluido_por] || null };
+  });
   if(!data || !data.length){
     lista.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhuma solicitação encontrada.</p>`;
     return;
@@ -7895,13 +7902,17 @@ function renderizarOcorrencias(el){
 async function carregarVisaoGeralOcorrencias(conteudo, elPai){
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const { data, error } = await supabase.from('ocorrencias_estudantes')
-    .select('*, aluno:aluno_id(nome, turma_id), registrado:registrado_por(nome)')
+    .select('*, aluno:aluno_id(nome, turma_id)')
     .order('data', { ascending: false }).order('criado_em', { ascending: false })
     .limit(500);
   if(error){
     conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
     return;
   }
+  const { data: nomesPerfisOcorrenciasGeral } = await supabase.rpc('nomes_perfis');
+  const nomePorPerfilIdOcorrenciasGeral = {};
+  (nomesPerfisOcorrenciasGeral||[]).forEach(p => { nomePorPerfilIdOcorrenciasGeral[p.id] = p.nome; });
+  (data||[]).forEach(r => { r.registrado = { nome: nomePorPerfilIdOcorrenciasGeral[r.registrado_por] || null }; });
   let registros = data || [];
   if(ESTADO.ocorrenciasTurmaId) registros = registros.filter(r => r.aluno?.turma_id === ESTADO.ocorrenciasTurmaId);
 
@@ -7984,12 +7995,16 @@ async function carregarOcorrencias(conteudo, elPai){
   conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const aluno = ESTADO.alunos.find(a => a.id === ESTADO.ocorrenciasAlunoId);
   const turmaAluno = ESTADO.turmas.find(t => t.id === aluno?.turma_id);
-  const { data, error } = await supabase.from('ocorrencias_estudantes').select('*, registrado:registrado_por(nome)')
+  const { data, error } = await supabase.from('ocorrencias_estudantes').select('*')
     .eq('aluno_id', ESTADO.ocorrenciasAlunoId).order('data', { ascending: false }).order('criado_em', { ascending: false });
   if(error){
     conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`;
     return;
   }
+  const { data: nomesPerfisOcorrenciasAluno } = await supabase.rpc('nomes_perfis');
+  const nomePorPerfilIdOcorrenciasAluno = {};
+  (nomesPerfisOcorrenciasAluno||[]).forEach(p => { nomePorPerfilIdOcorrenciasAluno[p.id] = p.nome; });
+  (data||[]).forEach(r => { r.registrado = { nome: nomePorPerfilIdOcorrenciasAluno[r.registrado_por] || null }; });
   const registros = data || [];
   const total = registros.length;
   const corContador = total === 0 ? '#2E7D5B' : (total <= 2 ? '#D98A1F' : 'var(--erro)');
@@ -8038,8 +8053,12 @@ async function carregarOcorrencias(conteudo, elPai){
   conteudo.querySelectorAll('[data-imprimir-conjunta]').forEach(b => {
     b.addEventListener('click', async () => {
       const { data: registrosGrupo, error: erroGrupo } = await supabase.from('ocorrencias_estudantes')
-        .select('*, registrado:registrado_por(nome)').eq('grupo_ocorrencia_id', b.dataset.imprimirConjunta);
+        .select('*').eq('grupo_ocorrencia_id', b.dataset.imprimirConjunta);
       if(erroGrupo || !registrosGrupo?.length){ alert('Erro ao carregar os estudantes do grupo: ' + (erroGrupo?.message || 'nenhum registro encontrado')); return; }
+      const { data: nomesPerfisConjunta } = await supabase.rpc('nomes_perfis');
+      const nomePorPerfilIdConjunta = {};
+      (nomesPerfisConjunta||[]).forEach(p => { nomePorPerfilIdConjunta[p.id] = p.nome; });
+      registrosGrupo.forEach(r => { r.registrado = { nome: nomePorPerfilIdConjunta[r.registrado_por] || null }; });
       const idsAlunos = registrosGrupo.map(r => r.aluno_id);
       const alunosPorId = {};
       idsAlunos.forEach(id => { const a = ESTADO.alunos.find(x => x.id === id); if(a) alunosPorId[id] = a; });
