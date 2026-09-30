@@ -10979,9 +10979,9 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
     <title>Conselho de Classe - ${esc(turma.nome)}</title>
     <style>${CSS_LISTA_ESTUDANTES_PADRAO}
       @page{ size: A4 landscape; margin: 8mm; }
-      body{ font-size: 12px; }
-      table.lista thead th{ font-size: 12px; padding: 5px 6px; }
-      table.lista tbody td{ padding: 3px 6px; }
+      body{ font-size: 11px; }
+      table.lista thead th{ font-size: 11px; padding: 5px 6px; }
+      table.lista tbody td{ padding: 3px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     </style>
     </head><body>
       <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
@@ -10995,12 +10995,12 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
         </tr>
       </table>
       <div style="text-align:center;font-size:15px;font-weight:800;color:#B4432E;margin:4px 0 12px;">${esc(turma.nome)} · ${esc(turma.turno)}</div>
-      <table class="lista">
+      <table class="lista" style="table-layout:fixed;">
         <thead><tr>
-          <th style="width:5%;">NUM</th>
-          <th style="width:22%;">NOME</th>
-          <th style="width:30%;">DISCIPLINAS EM RECUPERAÇÃO</th>
-          <th>OBSERVAÇÕES</th>
+          <th style="width:4%;">NUM</th>
+          <th style="width:23%;">NOME</th>
+          <th style="width:18%;">DISCIPLINAS EM RECUPERAÇÃO</th>
+          <th style="width:55%;">OBSERVAÇÕES</th>
         </tr></thead>
         <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
       </table>
