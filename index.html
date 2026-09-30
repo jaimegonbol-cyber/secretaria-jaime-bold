@@ -10979,6 +10979,9 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
     <title>Conselho de Classe - ${esc(turma.nome)}</title>
     <style>${CSS_LISTA_ESTUDANTES_PADRAO}
       @page{ size: A4 landscape; margin: 8mm; }
+      body{ font-size: 12px; }
+      table.lista thead th{ font-size: 12px; padding: 5px 6px; }
+      table.lista tbody td{ padding: 3px 6px; }
     </style>
     </head><body>
       <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
@@ -11001,7 +11004,9 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
         </tr></thead>
         <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
       </table>
-    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES_PAISAGEM}<\/script>
+    <script>
+      window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };
+    <\/script>
     </body></html>
   `);
   janela.document.close();
@@ -12528,7 +12533,8 @@ const CSS_LISTA_ESTUDANTES_PADRAO = `
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }`;
 
-function scriptAutoajusteLista(alturaUtilMm){
+function scriptAutoajusteLista(alturaUtilMm, minimoLinhasCalculo){
+  const minimoLinhas = minimoLinhasCalculo === undefined ? 35 : minimoLinhasCalculo;
   return `
       window.onload = function(){
         try{ ajustarListaParaFolhaUnica(); } catch(e){ /* segue com o tamanho padrão se algo der errado */ }
@@ -12551,7 +12557,7 @@ function scriptAutoajusteLista(alturaUtilMm){
         function alturaNecessaria(){
           var topoTabela = tabela.getBoundingClientRect().top;
           var alturaLinha = linhas[0].getBoundingClientRect().height;
-          var linhasParaCalculo = Math.max(linhas.length, 35);
+          var linhasParaCalculo = Math.max(linhas.length, ${minimoLinhas});
           return topoTabela + (alturaLinha * linhasParaCalculo) + 14;
         }
         function aplicarAjuste(fator){
@@ -12574,7 +12580,6 @@ function scriptAutoajusteLista(alturaUtilMm){
       }`;
 }
 const JS_AUTOAJUSTE_LISTA_ESTUDANTES = scriptAutoajusteLista(281); // A4 retrato, margem 8mm
-const JS_AUTOAJUSTE_LISTA_ESTUDANTES_PAISAGEM = scriptAutoajusteLista(194); // A4 paisagem, margem 8mm
 
 function imprimirListaPastaEstudantes(turmaId){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
