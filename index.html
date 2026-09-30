@@ -10977,7 +10977,9 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Conselho de Classe - ${esc(turma.nome)}</title>
-    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}
+      @page{ size: A4 landscape; margin: 8mm; }
+    </style>
     </head><body>
       <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
         <tr>
@@ -10999,7 +11001,7 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
         </tr></thead>
         <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
       </table>
-    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
+    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES_PAISAGEM}<\/script>
     </body></html>
   `);
   janela.document.close();
@@ -12572,6 +12574,7 @@ function scriptAutoajusteLista(alturaUtilMm){
       }`;
 }
 const JS_AUTOAJUSTE_LISTA_ESTUDANTES = scriptAutoajusteLista(281); // A4 retrato, margem 8mm
+const JS_AUTOAJUSTE_LISTA_ESTUDANTES_PAISAGEM = scriptAutoajusteLista(194); // A4 paisagem, margem 8mm
 
 function imprimirListaPastaEstudantes(turmaId){
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
