@@ -1768,7 +1768,7 @@ async function abrirModalAluno(a){
     const msgAM = document.getElementById('msg-arquivo-inativo-modal');
     btnAM.disabled = true; btnAM.textContent = 'Cadastrando…';
     const turmaSelecionada = ESTADO.turmas.find(t => t.id === document.getElementById('ed-turma').value);
-    const { numero, pasta } = await proximoRegistroArquivoMorto();
+    const { numero, pasta } = await proximoRegistroArquivoMorto(document.getElementById('ed-nome').value);
     const dadosAM = {
       nome: document.getElementById('ed-nome').value.trim(),
       numero, pasta,
@@ -2557,37 +2557,19 @@ const MOTIVOS_ARQUIVO_MORTO = [
 const TAMANHO_PAGINA_ARQUIVO_MORTO = 30;
 
 async function renderizarArquivoMorto(el){
+  if(ESTADO.arquivoMortoTela === 'novo'){ renderizarNovoArquivoInativo(el); return; }
   el.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
-
-  // Estatísticas por pasta: busca só a coluna pasta de todos os registros pra agregar aqui mesmo
-  // (evita trazer os 2000+ registros inteiros só pra contar).
-  const { data: todasPastas } = await supabase.from('arquivo_morto').select('pasta');
-  const contagemPorPasta = {};
-  (todasPastas||[]).forEach(r => { const p = r.pasta || 'Sem pasta'; contagemPorPasta[p] = (contagemPorPasta[p]||0)+1; });
-  const pastasOrdenadas = Object.keys(contagemPorPasta).sort((a,b) => {
-    const na = parseInt((a.match(/\d+/)||['0'])[0], 10), nb = parseInt((b.match(/\d+/)||['0'])[0], 10);
-    return na - nb;
-  });
-  const totalRegistros = (todasPastas||[]).length;
+  const { count: totalRegistros } = await supabase.from('arquivo_morto').select('id', { count:'exact', head:true });
 
   if(!ESTADO.arquivoMortoPagina) ESTADO.arquivoMortoPagina = 0;
   if(ESTADO.arquivoMortoFiltroMotivo === undefined) ESTADO.arquivoMortoFiltroMotivo = '';
   if(ESTADO.arquivoMortoFiltroPasta === undefined) ESTADO.arquivoMortoFiltroPasta = '';
+  const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
   el.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>Arquivo Inativo</h2><p>${totalRegistros} registro(s) — índice de ex-estudantes e a pasta física onde está o histórico</p></div>
+      <div><h2>Arquivo Inativo</h2><p>${totalRegistros ?? 0} registro(s) — índice de ex-estudantes e a pasta física onde está o histórico</p></div>
       <button class="botao terracota pequeno" id="btn-novo-arquivo-morto">+ Adicionar ao arquivo</button>
-    </div>
-    <div class="painel" style="margin-bottom:14px;">
-      <div style="padding:10px 14px;border-bottom:1px solid var(--borda);"><b>Registros por pasta</b></div>
-      <div style="padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;max-height:110px;overflow-y:auto;">
-        ${pastasOrdenadas.length ? pastasOrdenadas.map(p => {
-          const qtd = contagemPorPasta[p];
-          const cheia = qtd >= CAPACIDADE_PASTA_ARQUIVO_MORTO;
-          return `<span class="pill ${cheia?'vermelho':'verde'}" style="font-size:12px;" title="${cheia?'Pasta cheia':'Vagas restantes: '+(CAPACIDADE_PASTA_ARQUIVO_MORTO-qtd)}">${esc(p)}: ${qtd}/${CAPACIDADE_PASTA_ARQUIVO_MORTO}${cheia?' (cheia)':''}</span>`;
-        }).join('') : '<span style="color:var(--texto-suave);font-size:13px;">Nenhum registro ainda.</span>'}
-      </div>
     </div>
     <div class="painel">
       <div class="barra" style="flex-wrap:wrap;gap:10px;">
@@ -2597,8 +2579,8 @@ async function renderizarArquivoMorto(el){
           ${MOTIVOS_ARQUIVO_MORTO.map(([v,l]) => `<option value="${v}" ${ESTADO.arquivoMortoFiltroMotivo===v?'selected':''}>${l}</option>`).join('')}
         </select>
         <select id="filtro-pasta-arquivo-morto" style="width:auto;">
-          <option value="">Todas as pastas</option>
-          ${pastasOrdenadas.map(p => `<option value="${esc(p)}" ${ESTADO.arquivoMortoFiltroPasta===p?'selected':''}>${esc(p)}</option>`).join('')}
+          <option value="">Todas as letras</option>
+          ${letras.map(l => `<option value="${l}" ${ESTADO.arquivoMortoFiltroPasta===l?'selected':''}>Letra ${l}</option>`).join('')}
         </select>
       </div>
       <div id="conteudo-arquivo-morto" style="padding:14px;"><p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p></div>
@@ -2619,7 +2601,9 @@ async function renderizarArquivoMorto(el){
     ESTADO.arquivoMortoFiltroPasta = e.target.value; ESTADO.arquivoMortoPagina = 0; carregarListaArquivoMorto(el);
   });
   document.getElementById('btn-novo-arquivo-morto').addEventListener('click', () => {
-    exibirFormularioArquivoMorto(document.getElementById('form-arquivo-morto'), null, el);
+    ESTADO.novoAM = null;
+    ESTADO.arquivoMortoTela = 'novo';
+    renderizarArquivoMorto(el);
   });
 
   carregarListaArquivoMorto(el);
@@ -2635,7 +2619,7 @@ async function carregarListaArquivoMorto(el){
   let query = supabase.from('arquivo_morto').select('*', { count: 'exact' }).order('nome').range(inicio, fim);
   if(termo) query = query.ilike('nome', `%${termo}%`);
   if(ESTADO.arquivoMortoFiltroMotivo) query = query.eq('motivo', ESTADO.arquivoMortoFiltroMotivo);
-  if(ESTADO.arquivoMortoFiltroPasta) query = query.eq('pasta', ESTADO.arquivoMortoFiltroPasta);
+  if(ESTADO.arquivoMortoFiltroPasta) query = query.like('pasta', `${ESTADO.arquivoMortoFiltroPasta} - %`);
 
   const { data, error, count } = await query;
   if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
@@ -2699,7 +2683,7 @@ async function carregarListaArquivoMorto(el){
 async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
   const r = registro || {};
   const editando = !!registro;
-  const sugestao = editando ? { numero: r.numero, pasta: r.pasta } : await proximoRegistroArquivoMorto();
+  const sugestao = editando ? { numero: r.numero, pasta: r.pasta } : await proximoRegistroArquivoMorto('');
   formEl.innerHTML = `
     <div class="painel" style="margin-top:16px;border-color:var(--terracota);">
       <div class="barra"><strong style="font-size:14px;">${editando ? 'Editar registro do Arquivo Inativo' : 'Adicionar ao Arquivo Inativo'}</strong></div>
@@ -2738,6 +2722,11 @@ async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
       </div>
     </div>`;
   document.getElementById('btn-cancelar-arquivo-morto').addEventListener('click', () => { formEl.innerHTML = ''; });
+  if(!editando) document.getElementById('am-nome').addEventListener('blur', async (e) => {
+    const sug = await proximoRegistroArquivoMorto(e.target.value);
+    document.getElementById('am-numero').value = sug.numero;
+    document.getElementById('am-pasta').value = sug.pasta;
+  });
   document.getElementById('btn-salvar-arquivo-morto').addEventListener('click', async () => {
     const nome = document.getElementById('am-nome').value.trim();
     const numero = parseInt(document.getElementById('am-numero').value, 10);
@@ -2780,20 +2769,171 @@ async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
 
 const CAPACIDADE_PASTA_ARQUIVO_MORTO = 150;
 
-async function proximoRegistroArquivoMorto(){
-  const { data: ultimoPorNumero } = await supabase.from('arquivo_morto').select('numero').order('numero', { ascending:false }).limit(1);
-  const numero = (ultimoPorNumero && ultimoPorNumero[0] && ultimoPorNumero[0].numero) ? ultimoPorNumero[0].numero + 1 : 1;
+async function renderizarNovoArquivoInativo(el){
+  if(!ESTADO.novoAM) ESTADO.novoAM = { motivo: 'transferido', busca: '', alunoId: null };
+  const est = ESTADO.novoAM;
+  const norm = (t) => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const voltar = () => { ESTADO.arquivoMortoTela = null; ESTADO.novoAM = null; renderizarArquivoMorto(el); };
 
-  const { data: ultimoRegistro } = await supabase.from('arquivo_morto').select('pasta').order('created_at', { ascending:false }).limit(1);
-  let pastaAtual = ultimoRegistro && ultimoRegistro[0] ? ultimoRegistro[0].pasta : null;
-  let numeroPasta = 1;
-  if(pastaAtual){
-    const m = pastaAtual.match(/(\d+)/);
-    if(m) numeroPasta = parseInt(m[1], 10);
-    const { count } = await supabase.from('arquivo_morto').select('id', { count:'exact', head:true }).eq('pasta', pastaAtual);
-    if((count || 0) >= CAPACIDADE_PASTA_ARQUIVO_MORTO) numeroPasta += 1;
+  el.innerHTML = `
+    <div class="cabecalho-pagina">
+      <div><h2>Adicionar ao Arquivo Inativo</h2><p>Use quando o estudante pedir transferência da escola ou concluir o 9º ano.</p></div>
+      <button class="botao secundario pequeno" id="am-voltar">← Voltar à lista</button>
+    </div>
+    <div class="painel"><div style="padding:16px;">
+      <div class="secao-titulo">1. O que aconteceu?</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;font-size:14px;">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="am-motivo" value="transferido" ${est.motivo==='transferido'?'checked':''} style="width:auto;" /> Pediu transferência da escola</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="am-motivo" value="concluido" ${est.motivo==='concluido'?'checked':''} style="width:auto;" /> Concluiu o 9º ano</label>
+      </div>
+      <div class="secao-titulo">2. Quem é o estudante?</div>
+      <input type="text" id="am-busca" placeholder="Buscar estudante matriculado pelo nome…" value="${esc(est.busca)}" />
+      <div id="am-resultados" style="margin:10px 0;"></div>
+      <div id="am-detalhe"></div>
+      <div style="margin-top:18px;border-top:1px solid var(--borda);padding-top:10px;font-size:12.5px;color:var(--texto-suave);">
+        Estudante antigo que não está no sistema? <button type="button" class="botao secundario pequeno" id="am-manual" style="width:auto;">Cadastrar manualmente</button>
+        <div id="am-form-manual"></div>
+      </div>
+    </div></div>
+  `;
+
+  document.getElementById('am-voltar').addEventListener('click', voltar);
+  document.getElementById('am-manual').addEventListener('click', () => {
+    exibirFormularioArquivoMorto(document.getElementById('am-form-manual'), null, null, () => voltar());
+  });
+  document.querySelectorAll('input[name="am-motivo"]').forEach(r => r.addEventListener('change', (e) => {
+    est.motivo = e.target.value; est.alunoId = null; listar();
+  }));
+  document.getElementById('am-busca').addEventListener('input', (e) => {
+    est.busca = e.target.value; est.alunoId = null; preservarFoco('am-busca'); listar();
+  });
+
+  function listar(){
+    const alvo = document.getElementById('am-resultados');
+    document.getElementById('am-detalhe').innerHTML = '';
+    const termo = norm(est.busca.trim());
+    let lista = ESTADO.alunos.filter(a => a.situacao === 'matriculado');
+    if(est.motivo === 'concluido'){
+      lista = lista.filter(a => {
+        const t = ESTADO.turmas.find(t => t.id === a.turma_id);
+        return t && /^9/.test(extrairSerie(t.nome) || '');
+      });
+    }
+    if(termo) lista = lista.filter(a => norm(a.nome).includes(termo));
+    lista = lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    if(!termo && est.motivo === 'transferido'){
+      alvo.innerHTML = `<p style="font-size:13px;color:var(--texto-suave);">Digite o nome do estudante para buscar.</p>`;
+      return;
+    }
+    if(!lista.length){
+      alvo.innerHTML = `<p style="font-size:13px;color:var(--texto-suave);">Nenhum estudante matriculado encontrado${est.motivo==='concluido'?' nas turmas de 9º ano':''}.</p>`;
+      return;
+    }
+    const mostrar = lista.slice(0, 40);
+    alvo.innerHTML = `
+      <p style="font-size:12.5px;color:var(--texto-suave);margin-bottom:6px;">${lista.length} estudante(s)${lista.length>40?' — mostrando 40, refine a busca':''}</p>
+      <div style="border:1px solid var(--borda);border-radius:8px;max-height:260px;overflow-y:auto;">
+        ${mostrar.map(a => {
+          const t = ESTADO.turmas.find(t => t.id === a.turma_id);
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-bottom:1px solid var(--borda);font-size:13.5px;">
+            <span>${esc(a.nome)} <span style="color:var(--texto-suave);font-size:12px;">— ${esc(t ? t.nome : 'sem turma')}</span></span>
+            <button class="botao secundario pequeno" data-escolher-aluno="${a.id}" style="width:auto;">Selecionar</button>
+          </div>`;
+        }).join('')}
+      </div>`;
+    alvo.querySelectorAll('[data-escolher-aluno]').forEach(b => b.addEventListener('click', () => {
+      est.alunoId = b.dataset.escolherAluno; detalhe();
+    }));
   }
-  return { numero, pasta: `PASTA ${numeroPasta}` };
+
+  async function detalhe(){
+    const aluno = ESTADO.alunos.find(a => a.id === est.alunoId);
+    const alvo = document.getElementById('am-detalhe');
+    if(!aluno){ alvo.innerHTML = ''; return; }
+    alvo.innerHTML = `<p style="font-size:13px;color:var(--texto-suave);margin-top:10px;">Carregando dados…</p>`;
+    const [{ data: vinculos }, sug] = await Promise.all([
+      supabase.from('aluno_responsavel').select('tipo, responsaveis(nome)').eq('aluno_id', aluno.id),
+      proximoRegistroArquivoMorto(aluno.nome),
+    ]);
+    const mae = (vinculos || []).find(v => v.tipo === 'mae')?.responsaveis?.nome || '';
+    const pai = (vinculos || []).find(v => v.tipo === 'pai')?.responsaveis?.nome || '';
+    const turma = ESTADO.turmas.find(t => t.id === aluno.turma_id);
+    const natural = aluno.naturalidade ? `${aluno.naturalidade}${aluno.uf_naturalidade ? '/' + aluno.uf_naturalidade : ''}` : '—';
+    const rotuloData = est.motivo === 'concluido' ? 'Data da conclusão' : 'Data da transferência';
+    alvo.innerHTML = `
+      <div class="secao-titulo" style="margin-top:14px;">3. Confira os dados e confirme</div>
+      <div style="background:var(--areia);border-radius:8px;padding:12px 14px;font-size:13.5px;line-height:1.8;">
+        <b>${esc(aluno.nome)}</b><br/>
+        Nascimento: ${fmtData(aluno.data_nascimento)} &nbsp;|&nbsp; CPF: ${esc(aluno.cpf || '—')} &nbsp;|&nbsp; RG: ${esc(aluno.rg || '—')}<br/>
+        Mãe: ${esc(mae || '—')} &nbsp;|&nbsp; Pai: ${esc(pai || '—')}<br/>
+        Naturalidade: ${esc(natural)} &nbsp;|&nbsp; Última turma: ${esc(turma ? turma.nome : '—')}
+      </div>
+      <div class="grade-2" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;">
+        <div class="campo"><label>${rotuloData}</label><input type="date" id="am-data" value="${hojeISO()}" /></div>
+        <div class="campo"><label>Número de registro</label><input type="number" id="am-num" value="${sug.numero ?? ''}" /></div>
+        <div class="campo"><label>Pasta</label><input type="text" id="am-pasta-nova" value="${esc(sug.pasta || '')}" /></div>
+      </div>
+      <div class="campo"><label>Observações (opcional)</label><input type="text" id="am-obs-nova" /></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);">Ao confirmar, o estudante passa para a situação <b>${est.motivo==='concluido'?'Concluído':'Transferido'}</b> e sai das listas de matriculados. Número e pasta já vêm sugeridos pela letra do nome.</p>
+      <div id="am-msg" style="margin:8px 0;"></div>
+      <button class="botao terracota pequeno" id="am-confirmar" style="width:auto;">Confirmar e arquivar</button>
+    `;
+    document.getElementById('am-confirmar').addEventListener('click', async () => {
+      const btn = document.getElementById('am-confirmar');
+      const msg = document.getElementById('am-msg');
+      const numero = parseInt(document.getElementById('am-num').value, 10);
+      const pasta = document.getElementById('am-pasta-nova').value.trim();
+      const dataSit = document.getElementById('am-data').value || hojeISO();
+      if(!numero || !pasta){ msg.innerHTML = `<div class="msg-erro">Informe número e pasta.</div>`; return; }
+      const { data: jaExiste } = await supabase.from('arquivo_morto').select('id').ilike('nome', aluno.nome).limit(1);
+      if(jaExiste && jaExiste.length && !confirm('Já existe um registro com esse nome no Arquivo Inativo. Cadastrar mesmo assim?')) return;
+      btn.disabled = true; btn.textContent = 'Arquivando…';
+      const { error } = await supabase.from('arquivo_morto').insert({
+        nome: aluno.nome, numero, pasta, motivo: est.motivo,
+        data_nascimento: aluno.data_nascimento || null,
+        nome_mae: mae || null, nome_pai: pai || null,
+        naturalidade: aluno.naturalidade || null, uf_naturalidade: aluno.uf_naturalidade || null,
+        ultima_turma: turma ? turma.nome : null, rg: aluno.rg || null, cpf: aluno.cpf || null,
+        observacoes: document.getElementById('am-obs-nova').value.trim() || null,
+      });
+      if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Confirmar e arquivar'; return; }
+      const { error: erroSit } = await supabase.from('alunos').update({ situacao: est.motivo, data_situacao: dataSit }).eq('id', aluno.id);
+      if(erroSit){ msg.innerHTML = `<div class="msg-erro">Arquivado, mas não foi possível atualizar a situação do estudante: ${esc(erroSit.message)}</div>`; return; }
+      await carregarDadosBase();
+      alvo.innerHTML = `
+        <div class="msg-ok" style="margin-top:14px;">${esc(aluno.nome)} foi para o Arquivo Inativo — Nº ${numero}, ${esc(pasta)}.</div>
+        <div style="display:flex;gap:10px;margin-top:10px;">
+          <button class="botao terracota pequeno" id="am-outro" style="width:auto;">Adicionar outro</button>
+          <button class="botao secundario pequeno" id="am-ok-voltar" style="width:auto;">Voltar à lista</button>
+        </div>`;
+      document.getElementById('am-outro').addEventListener('click', () => { est.alunoId = null; est.busca = ''; renderizarNovoArquivoInativo(el); });
+      document.getElementById('am-ok-voltar').addEventListener('click', voltar);
+    });
+  }
+
+  listar();
+  if(est.alunoId) detalhe();
+}
+
+
+function letraArquivoMorto(nome){
+  const n = (nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/^[^A-Z]+/, '');
+  return n ? n[0] : null;
+}
+
+// Cada letra do alfabeto tem as suas próprias pastas ("J - PASTA 2") e a sua própria numeração.
+async function proximoRegistroArquivoMorto(nome){
+  const letra = letraArquivoMorto(nome);
+  if(!letra) return { numero: '', pasta: '' };
+  const { data } = await supabase.from('arquivo_morto').select('numero, pasta')
+    .like('pasta', `${letra} - PASTA %`).not('numero', 'is', null)
+    .order('numero', { ascending: false }).limit(1);
+  if(!data || !data[0]) return { numero: 1, pasta: `${letra} - PASTA 1` };
+  const numero = data[0].numero + 1;
+  const m = (data[0].pasta || '').match(/PASTA (\d+)/);
+  let n = m ? parseInt(m[1], 10) : 1;
+  if(numero > n * CAPACIDADE_PASTA_ARQUIVO_MORTO) n = Math.ceil(numero / CAPACIDADE_PASTA_ARQUIVO_MORTO);
+  return { numero, pasta: `${letra} - PASTA ${n}` };
 }
 
 // ---------------------------------------------------------------
@@ -3255,15 +3395,8 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
     btn.disabled = true; btn.textContent = 'Processando…';
     try{
       const turma = ESTADO.turmas.find(t => t.id === turmaId);
-      let { numero, pasta } = await proximoRegistroArquivoMorto();
-      const { count: usadosNaPastaInicial } = await supabase.from('arquivo_morto').select('id', { count:'exact', head:true }).eq('pasta', pasta);
-      let usadosNaPasta = usadosNaPastaInicial || 0;
       for(const aluno of alunosTurma){
-        if(usadosNaPasta >= CAPACIDADE_PASTA_ARQUIVO_MORTO){
-          const m = pasta.match(/(\d+)/);
-          pasta = `PASTA ${m ? parseInt(m[1],10)+1 : 1}`;
-          usadosNaPasta = 0;
-        }
+        const { numero, pasta } = await proximoRegistroArquivoMorto(aluno.nome);
         const { error: erroInsert } = await supabase.from('arquivo_morto').insert({
           nome: aluno.nome, numero, pasta, data_nascimento: aluno.data_nascimento,
           naturalidade: aluno.naturalidade, uf_naturalidade: aluno.uf_naturalidade, rg: aluno.rg,
@@ -3273,7 +3406,6 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
         if(erroInsert) throw erroInsert;
         const { error: erroUpdate } = await supabase.from('alunos').update({ situacao: 'concluido', data_situacao: hojeISO() }).eq('id', aluno.id);
         if(erroUpdate) throw erroUpdate;
-        numero++; usadosNaPasta++;
       }
       msg.innerHTML = `<div class="msg-ok">${alunosTurma.length} estudante(s) marcados como concluintes.</div>`;
       await carregarDadosBase();
