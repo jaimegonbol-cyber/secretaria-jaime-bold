@@ -2578,6 +2578,10 @@ async function renderizarArquivoMorto(el){
           <option value="">Todos os motivos</option>
           ${MOTIVOS_ARQUIVO_MORTO.map(([v,l]) => `<option value="${v}" ${ESTADO.arquivoMortoFiltroMotivo===v?'selected':''}>${l}</option>`).join('')}
         </select>
+        <select id="ordem-arquivo-morto" style="width:auto;" title="Ordenação da lista">
+          <option value="alfabetica" ${ESTADO.arquivoMortoOrdem!=='numero'?'selected':''}>Ordem alfabética</option>
+          <option value="numero" ${ESTADO.arquivoMortoOrdem==='numero'?'selected':''}>Número de ordem (por letra e pasta)</option>
+        </select>
         <select id="filtro-pasta-arquivo-morto" style="width:auto;">
           <option value="">Todas as letras</option>
           ${letras.map(l => `<option value="${l}" ${ESTADO.arquivoMortoFiltroPasta===l?'selected':''}>Letra ${l}</option>`).join('')}
@@ -2596,6 +2600,9 @@ async function renderizarArquivoMorto(el){
   });
   document.getElementById('filtro-motivo-arquivo-morto').addEventListener('change', (e) => {
     ESTADO.arquivoMortoFiltroMotivo = e.target.value; ESTADO.arquivoMortoPagina = 0; carregarListaArquivoMorto(el);
+  });
+  document.getElementById('ordem-arquivo-morto').addEventListener('change', (e) => {
+    ESTADO.arquivoMortoOrdem = e.target.value; ESTADO.arquivoMortoPagina = 0; carregarListaArquivoMorto(el);
   });
   document.getElementById('filtro-pasta-arquivo-morto').addEventListener('change', (e) => {
     ESTADO.arquivoMortoFiltroPasta = e.target.value; ESTADO.arquivoMortoPagina = 0; carregarListaArquivoMorto(el);
@@ -2616,7 +2623,11 @@ async function carregarListaArquivoMorto(el){
   const inicio = ESTADO.arquivoMortoPagina * TAMANHO_PAGINA_ARQUIVO_MORTO;
   const fim = inicio + TAMANHO_PAGINA_ARQUIVO_MORTO - 1;
 
-  let query = supabase.from('arquivo_morto').select('*', { count: 'exact' }).order('nome').range(inicio, fim);
+  let query = supabase.from('arquivo_morto').select('*', { count: 'exact' });
+  query = ESTADO.arquivoMortoOrdem === 'numero'
+    ? query.order('pasta').order('numero', { nullsFirst: false }).order('nome')
+    : query.order('nome');
+  query = query.range(inicio, fim);
   if(termo) query = query.ilike('nome', `%${termo}%`);
   if(ESTADO.arquivoMortoFiltroMotivo) query = query.eq('motivo', ESTADO.arquivoMortoFiltroMotivo);
   if(ESTADO.arquivoMortoFiltroPasta) query = query.like('pasta', `${ESTADO.arquivoMortoFiltroPasta} - %`);
