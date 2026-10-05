@@ -1772,6 +1772,7 @@ async function abrirModalAluno(a){
     const dadosAM = {
       nome: document.getElementById('ed-nome').value.trim(),
       numero, pasta,
+      motivo: document.getElementById('ed-situacao').value || null,
       data_nascimento: document.getElementById('ed-nascimento').value || null,
       nome_mae: document.getElementById('ed-mae').value.trim() || null,
       nome_pai: document.getElementById('ed-pai').value.trim() || null,
@@ -2547,88 +2548,188 @@ function funcionariosFiltrados(){
 // ---------------------------------------------------------------
 // ARQUIVO MORTO (índice de ex-alunos com localização da pasta física)
 // ---------------------------------------------------------------
+const MOTIVOS_ARQUIVO_MORTO = [
+  ['transferido', 'Transferido(a)'],
+  ['cancelado', 'Cancelado(a)'],
+  ['concluido', 'Concluinte'],
+  ['outro', 'Outro'],
+];
+const TAMANHO_PAGINA_ARQUIVO_MORTO = 30;
+
 async function renderizarArquivoMorto(el){
+  el.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
+
+  // Estatísticas por pasta: busca só a coluna pasta de todos os registros pra agregar aqui mesmo
+  // (evita trazer os 2000+ registros inteiros só pra contar).
+  const { data: todasPastas } = await supabase.from('arquivo_morto').select('pasta');
+  const contagemPorPasta = {};
+  (todasPastas||[]).forEach(r => { const p = r.pasta || 'Sem pasta'; contagemPorPasta[p] = (contagemPorPasta[p]||0)+1; });
+  const pastasOrdenadas = Object.keys(contagemPorPasta).sort((a,b) => {
+    const na = parseInt((a.match(/\d+/)||['0'])[0], 10), nb = parseInt((b.match(/\d+/)||['0'])[0], 10);
+    return na - nb;
+  });
+  const totalRegistros = (todasPastas||[]).length;
+
+  if(!ESTADO.arquivoMortoPagina) ESTADO.arquivoMortoPagina = 0;
+  if(ESTADO.arquivoMortoFiltroMotivo === undefined) ESTADO.arquivoMortoFiltroMotivo = '';
+  if(ESTADO.arquivoMortoFiltroPasta === undefined) ESTADO.arquivoMortoFiltroPasta = '';
+
   el.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>Arquivo Inativo</h2><p>Índice de ex-alunos e a pasta física onde está o histórico</p></div>
+      <div><h2>Arquivo Inativo</h2><p>${totalRegistros} registro(s) — índice de ex-estudantes e a pasta física onde está o histórico</p></div>
       <button class="botao terracota pequeno" id="btn-novo-arquivo-morto">+ Adicionar ao arquivo</button>
     </div>
-    <div class="painel">
-      <div class="barra">
-        <input type="text" id="busca-arquivo-morto" placeholder="Buscar por nome…" value="${esc(ESTADO.buscaArquivoMorto)}" />
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--borda);"><b>Registros por pasta</b></div>
+      <div style="padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;max-height:110px;overflow-y:auto;">
+        ${pastasOrdenadas.length ? pastasOrdenadas.map(p => {
+          const qtd = contagemPorPasta[p];
+          const cheia = qtd >= CAPACIDADE_PASTA_ARQUIVO_MORTO;
+          return `<span class="pill ${cheia?'vermelho':'verde'}" style="font-size:12px;" title="${cheia?'Pasta cheia':'Vagas restantes: '+(CAPACIDADE_PASTA_ARQUIVO_MORTO-qtd)}">${esc(p)}: ${qtd}/${CAPACIDADE_PASTA_ARQUIVO_MORTO}${cheia?' (cheia)':''}</span>`;
+        }).join('') : '<span style="color:var(--texto-suave);font-size:13px;">Nenhum registro ainda.</span>'}
       </div>
-      <div id="conteudo-arquivo-morto" style="padding:14px;"><p style="color:var(--texto-suave);font-size:13.5px;">Digite ao menos 3 letras do nome para buscar.</p></div>
+    </div>
+    <div class="painel">
+      <div class="barra" style="flex-wrap:wrap;gap:10px;">
+        <input type="text" id="busca-arquivo-morto" placeholder="Buscar por nome…" value="${esc(ESTADO.buscaArquivoMorto)}" style="min-width:200px;flex:1;" />
+        <select id="filtro-motivo-arquivo-morto" style="width:auto;">
+          <option value="">Todos os motivos</option>
+          ${MOTIVOS_ARQUIVO_MORTO.map(([v,l]) => `<option value="${v}" ${ESTADO.arquivoMortoFiltroMotivo===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <select id="filtro-pasta-arquivo-morto" style="width:auto;">
+          <option value="">Todas as pastas</option>
+          ${pastasOrdenadas.map(p => `<option value="${esc(p)}" ${ESTADO.arquivoMortoFiltroPasta===p?'selected':''}>${esc(p)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="conteudo-arquivo-morto" style="padding:14px;"><p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p></div>
     </div>
     <div id="form-arquivo-morto"></div>
   `;
 
   document.getElementById('busca-arquivo-morto').addEventListener('input', (e) => {
     ESTADO.buscaArquivoMorto = e.target.value;
+    ESTADO.arquivoMortoPagina = 0;
     preservarFoco('busca-arquivo-morto');
-    buscarArquivoMorto(el);
+    carregarListaArquivoMorto(el);
+  });
+  document.getElementById('filtro-motivo-arquivo-morto').addEventListener('change', (e) => {
+    ESTADO.arquivoMortoFiltroMotivo = e.target.value; ESTADO.arquivoMortoPagina = 0; carregarListaArquivoMorto(el);
+  });
+  document.getElementById('filtro-pasta-arquivo-morto').addEventListener('change', (e) => {
+    ESTADO.arquivoMortoFiltroPasta = e.target.value; ESTADO.arquivoMortoPagina = 0; carregarListaArquivoMorto(el);
   });
   document.getElementById('btn-novo-arquivo-morto').addEventListener('click', () => {
     exibirFormularioArquivoMorto(document.getElementById('form-arquivo-morto'), null, el);
   });
 
-  if(ESTADO.buscaArquivoMorto.trim().length >= 3) buscarArquivoMorto(el);
+  carregarListaArquivoMorto(el);
 }
 
-async function buscarArquivoMorto(el){
+async function carregarListaArquivoMorto(el){
   const conteudo = document.getElementById('conteudo-arquivo-morto');
+  conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const termo = ESTADO.buscaArquivoMorto.trim();
-  if(termo.length < 3){
-    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Digite ao menos 3 letras do nome para buscar.</p>`;
-    return;
-  }
-  conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Buscando…</p>`;
-  const { data, error } = await supabase.from('arquivo_morto').select('*').ilike('nome', `%${termo}%`).order('nome').limit(100);
+  const inicio = ESTADO.arquivoMortoPagina * TAMANHO_PAGINA_ARQUIVO_MORTO;
+  const fim = inicio + TAMANHO_PAGINA_ARQUIVO_MORTO - 1;
+
+  let query = supabase.from('arquivo_morto').select('*', { count: 'exact' }).order('nome').range(inicio, fim);
+  if(termo) query = query.ilike('nome', `%${termo}%`);
+  if(ESTADO.arquivoMortoFiltroMotivo) query = query.eq('motivo', ESTADO.arquivoMortoFiltroMotivo);
+  if(ESTADO.arquivoMortoFiltroPasta) query = query.eq('pasta', ESTADO.arquivoMortoFiltroPasta);
+
+  const { data, error, count } = await query;
   if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   if(!data || !data.length){
-    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum registro encontrado para "${esc(termo)}".</p>`;
+    conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum registro encontrado.</p>`;
     return;
   }
+
+  const rotuloMotivo = (m) => MOTIVOS_ARQUIVO_MORTO.find(([v]) => v === m)?.[1] || null;
+  const corMotivo = (m) => m==='concluido' ? 'verde' : m==='transferido' ? 'azul' : m==='cancelado' ? 'vermelho' : 'cinza';
+
   const linhas = data.map(r => {
-    const temDetalhes = r.nome_mae || r.nome_pai || r.naturalidade || r.ultima_turma || r.rg;
+    const temDetalhes = r.nome_mae || r.nome_pai || r.naturalidade || r.ultima_turma || r.rg || r.cpf || r.observacoes;
     return `
     <tr>
       <td>${esc(r.nome)}${temDetalhes ? ` <button type="button" class="botao secundario pequeno" data-detalhes-arquivo-morto="${r.id}" style="width:auto;padding:2px 8px;font-size:11px;margin-left:6px;">detalhes</button>` : ''}</td>
+      <td>${rotuloMotivo(r.motivo) ? `<span class="pill ${corMotivo(r.motivo)}">${rotuloMotivo(r.motivo)}</span>` : '—'}</td>
       <td>${esc(r.pasta || '—')}</td>
       <td>${r.numero ?? '—'}</td>
       <td>${fmtData(r.data_nascimento)}</td>
-      <td><button class="botao secundario pequeno" data-remover-arquivo-morto="${r.id}" style="width:auto;padding:4px 10px;">Remover</button></td>
+      <td class="col-acoes">
+        <button class="btn-icone" data-editar-arquivo-morto="${r.id}" title="Editar">✏️</button>
+        <button class="btn-icone perigo" data-remover-arquivo-morto="${r.id}" title="Remover">🗑️</button>
+      </td>
     </tr>
-    ${temDetalhes ? `<tr id="detalhes-am-${r.id}" style="display:none;"><td colspan="5" style="background:var(--areia);font-size:12.5px;padding:8px 12px;">
-      ${r.nome_mae ? `<b>Mãe:</b> ${esc(r.nome_mae)} &nbsp; ` : ''}${r.nome_pai ? `<b>Pai:</b> ${esc(r.nome_pai)} &nbsp; ` : ''}${r.naturalidade ? `<b>Naturalidade:</b> ${esc(r.naturalidade)}${r.uf_naturalidade ? '/'+esc(r.uf_naturalidade) : ''} &nbsp; ` : ''}${r.ultima_turma ? `<b>Última turma:</b> ${esc(r.ultima_turma)} &nbsp; ` : ''}${r.rg ? `<b>RG:</b> ${esc(r.rg)}` : ''}
+    ${temDetalhes ? `<tr id="detalhes-am-${r.id}" style="display:none;"><td colspan="6" style="background:var(--areia);font-size:12.5px;padding:8px 12px;">
+      ${r.cpf ? `<b>CPF:</b> ${esc(r.cpf)} &nbsp; ` : ''}${r.nome_mae ? `<b>Mãe:</b> ${esc(r.nome_mae)} &nbsp; ` : ''}${r.nome_pai ? `<b>Pai:</b> ${esc(r.nome_pai)} &nbsp; ` : ''}${r.naturalidade ? `<b>Naturalidade:</b> ${esc(r.naturalidade)}${r.uf_naturalidade ? '/'+esc(r.uf_naturalidade) : ''} &nbsp; ` : ''}${r.ultima_turma ? `<b>Última turma:</b> ${esc(r.ultima_turma)} &nbsp; ` : ''}${r.rg ? `<b>RG:</b> ${esc(r.rg)}` : ''}${r.observacoes ? `<br/><b>Observações:</b> ${esc(r.observacoes)}` : ''}
     </td></tr>` : ''}`;
   }).join('');
+
+  const totalPaginas = Math.max(1, Math.ceil((count||data.length) / TAMANHO_PAGINA_ARQUIVO_MORTO));
   conteudo.innerHTML = `
-    <p style="color:var(--texto-suave);font-size:12.5px;margin-bottom:8px;">${data.length} resultado(s)${data.length===100?' (mostrando os 100 primeiros)':''}</p>
-    <table><thead><tr><th>Nome</th><th>Pasta</th><th>Número</th><th>Nascimento</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
+    <p style="color:var(--texto-suave);font-size:12.5px;margin-bottom:8px;">${count} resultado(s) — página ${ESTADO.arquivoMortoPagina+1} de ${totalPaginas}</p>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Motivo</th><th>Pasta</th><th>Número</th><th>Nascimento</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
+    <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:12px;">
+      <button class="botao secundario pequeno" id="btn-pagina-anterior-am" style="width:auto;" ${ESTADO.arquivoMortoPagina===0?'disabled':''}>← Anterior</button>
+      <button class="botao secundario pequeno" id="btn-pagina-proxima-am" style="width:auto;" ${ESTADO.arquivoMortoPagina>=totalPaginas-1?'disabled':''}>Próxima →</button>
+    </div>
   `;
   conteudo.querySelectorAll('[data-detalhes-arquivo-morto]').forEach(b => b.addEventListener('click', () => {
     const linha = document.getElementById(`detalhes-am-${b.dataset.detalhesArquivoMorto}`);
     linha.style.display = linha.style.display === 'none' ? '' : 'none';
   }));
-  conteudo.querySelectorAll('[data-remover-arquivo-morto]').forEach(b => b.addEventListener('click', async () => {
-    await supabase.from('arquivo_morto').delete().eq('id', b.dataset.removerArquivoMorto);
-    buscarArquivoMorto(el);
+  conteudo.querySelectorAll('[data-editar-arquivo-morto]').forEach(b => b.addEventListener('click', () => {
+    const registro = data.find(r => r.id === b.dataset.editarArquivoMorto);
+    const formEl = document.getElementById('form-arquivo-morto');
+    exibirFormularioArquivoMorto(formEl, registro, el);
+    formEl.scrollIntoView({ behavior:'smooth' });
   }));
+  conteudo.querySelectorAll('[data-remover-arquivo-morto]').forEach(b => b.addEventListener('click', async () => {
+    if(!confirm('Remover este registro do Arquivo Inativo? Essa ação não pode ser desfeita.')) return;
+    await supabase.from('arquivo_morto').delete().eq('id', b.dataset.removerArquivoMorto);
+    carregarListaArquivoMorto(el);
+  }));
+  const btnAnt = document.getElementById('btn-pagina-anterior-am');
+  if(btnAnt) btnAnt.addEventListener('click', () => { ESTADO.arquivoMortoPagina--; carregarListaArquivoMorto(el); });
+  const btnProx = document.getElementById('btn-pagina-proxima-am');
+  if(btnProx) btnProx.addEventListener('click', () => { ESTADO.arquivoMortoPagina++; carregarListaArquivoMorto(el); });
 }
 
 async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
   const r = registro || {};
-  const sugestao = registro ? { numero: r.numero, pasta: r.pasta } : await proximoRegistroArquivoMorto();
+  const editando = !!registro;
+  const sugestao = editando ? { numero: r.numero, pasta: r.pasta } : await proximoRegistroArquivoMorto();
   formEl.innerHTML = `
     <div class="painel" style="margin-top:16px;border-color:var(--terracota);">
-      <div class="barra"><strong style="font-size:14px;">Adicionar ao Arquivo Inativo</strong></div>
+      <div class="barra"><strong style="font-size:14px;">${editando ? 'Editar registro do Arquivo Inativo' : 'Adicionar ao Arquivo Inativo'}</strong></div>
       <div style="padding:14px;">
         <div class="campo" style="margin-bottom:10px;"><label>Nome</label><input type="text" id="am-nome" value="${esc(r.nome||'')}" /></div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
-          <div class="campo" style="margin-bottom:0;"><label>Número de registro</label><input type="number" id="am-numero" value="${sugestao.numero ?? ''}" /></div>
-          <div class="campo" style="margin-bottom:0;"><label>Pasta</label><input type="text" id="am-pasta" value="${esc(sugestao.pasta || '')}" /></div>
+          <div class="campo"><label>Motivo</label>
+            <select id="am-motivo"><option value="">Selecione…</option>${MOTIVOS_ARQUIVO_MORTO.map(([v,l]) => `<option value="${v}" ${r.motivo===v?'selected':''}>${l}</option>`).join('')}</select>
+          </div>
+          <div class="campo"><label>Última turma</label><input type="text" id="am-ultima-turma" value="${esc(r.ultima_turma||'')}" /></div>
         </div>
-        <p style="font-size:12.5px;color:var(--texto-suave);margin:8px 0 0;">Número e pasta já vêm sugeridos pela sequência atual — altere se preferir outro.</p>
+        <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="campo"><label>Número de registro</label><input type="number" id="am-numero" value="${sugestao.numero ?? ''}" /></div>
+          <div class="campo"><label>Pasta</label><input type="text" id="am-pasta" value="${esc(sugestao.pasta || '')}" /></div>
+        </div>
+        <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="campo"><label>Data de nascimento</label><input type="date" id="am-nascimento" value="${r.data_nascimento||''}" /></div>
+          <div class="campo"><label>CPF</label><input type="text" id="am-cpf" value="${esc(r.cpf||'')}" /></div>
+        </div>
+        <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="campo"><label>Nome da mãe</label><input type="text" id="am-nome-mae" value="${esc(r.nome_mae||'')}" /></div>
+          <div class="campo"><label>Nome do pai</label><input type="text" id="am-nome-pai" value="${esc(r.nome_pai||'')}" /></div>
+        </div>
+        <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="campo"><label>Naturalidade</label><input type="text" id="am-naturalidade" value="${esc(r.naturalidade||'')}" /></div>
+          <div class="campo"><label>UF</label><input type="text" id="am-uf" maxlength="2" style="text-transform:uppercase;" value="${esc(r.uf_naturalidade||'')}" /></div>
+        </div>
+        <div class="campo"><label>RG</label><input type="text" id="am-rg" value="${esc(r.rg||'')}" /></div>
+        <div class="campo"><label>Observações</label><textarea id="am-observacoes" rows="2" style="width:100%;padding:7px 8px;border:1px solid var(--borda);border-radius:6px;font-size:13px;font-family:inherit;">${esc(r.observacoes||'')}</textarea></div>
+        ${editando ? '' : '<p style="font-size:12.5px;color:var(--texto-suave);margin:8px 0 0;">Número e pasta já vêm sugeridos pela sequência atual — altere se preferir outro.</p>'}
         <div id="msg-arquivo-morto" style="margin-top:8px;"></div>
         <div style="display:flex;gap:10px;margin-top:10px;">
           <button class="botao terracota pequeno" id="btn-salvar-arquivo-morto" style="width:auto;">Salvar</button>
@@ -2645,12 +2746,35 @@ async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
     if(!nome){ msg.innerHTML = `<div class="msg-erro">Informe o nome.</div>`; return; }
     if(!numero){ msg.innerHTML = `<div class="msg-erro">Informe o número de registro.</div>`; return; }
     if(!pasta){ msg.innerHTML = `<div class="msg-erro">Informe a pasta.</div>`; return; }
+    const payload = {
+      nome, numero, pasta,
+      motivo: document.getElementById('am-motivo').value || null,
+      ultima_turma: document.getElementById('am-ultima-turma').value.trim() || null,
+      data_nascimento: document.getElementById('am-nascimento').value || null,
+      cpf: document.getElementById('am-cpf').value.trim() || null,
+      nome_mae: document.getElementById('am-nome-mae').value.trim() || null,
+      nome_pai: document.getElementById('am-nome-pai').value.trim() || null,
+      naturalidade: document.getElementById('am-naturalidade').value.trim() || null,
+      uf_naturalidade: document.getElementById('am-uf').value.trim().toUpperCase() || null,
+      rg: document.getElementById('am-rg').value.trim() || null,
+      observacoes: document.getElementById('am-observacoes').value.trim() || null,
+    };
     const btn = document.getElementById('btn-salvar-arquivo-morto');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    const { data: novo, error } = await supabase.from('arquivo_morto').insert({ nome, numero, pasta }).select('*').single();
-    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar'; return; }
+    if(editando){
+      const { error } = await supabase.from('arquivo_morto').update(payload).eq('id', r.id);
+      btn.disabled = false; btn.textContent = 'Salvar';
+      if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+      formEl.innerHTML = `<div class="msg-ok" style="margin-top:10px;">Registro atualizado!</div>`;
+      if(elPai) carregarListaArquivoMorto(elPai);
+      return;
+    }
+    const { data: novo, error } = await supabase.from('arquivo_morto').insert(payload).select('*').single();
+    btn.disabled = false; btn.textContent = 'Salvar';
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
     if(aoSalvar){ aoSalvar(novo); return; }
     formEl.innerHTML = `<div class="msg-ok" style="margin-top:10px;">Adicionado ao Arquivo Inativo — Nº ${numero}, ${esc(pasta)}.</div>`;
+    if(elPai) carregarListaArquivoMorto(elPai);
   });
 }
 
@@ -3143,7 +3267,7 @@ async function carregarListaEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOr
         const { error: erroInsert } = await supabase.from('arquivo_morto').insert({
           nome: aluno.nome, numero, pasta, data_nascimento: aluno.data_nascimento,
           naturalidade: aluno.naturalidade, uf_naturalidade: aluno.uf_naturalidade, rg: aluno.rg,
-          ultima_turma: turma?.nome || null,
+          ultima_turma: turma?.nome || null, motivo: 'concluido',
           observacoes: 'Concluinte do Ensino Fundamental — migrado automaticamente pela Renovação de Matrícula.',
         });
         if(erroInsert) throw erroInsert;
@@ -6958,7 +7082,7 @@ async function renderizarBancoHistorico(conteudo, elPai, contexto){
       <td>${r.ano_civil}</td>
       <td>${esc(r.serie || '—')}</td>
       <td>${esc(r.unidade_ensino || '—')}</td>
-      <td>${r.progressao ? r.progressao.toUpperCase() : '—'}</td>
+      <td>${r.nao_preenchido ? '<span class="pill cinza">NÃO PREENCHIDO</span>' : (r.progressao ? r.progressao.toUpperCase() : '—')}</td>
       <td style="white-space:nowrap;">
         <button class="botao secundario pequeno" data-editar-ano="${r.id}" style="width:auto;padding:4px 10px;">Editar</button>
         <button class="botao secundario pequeno" data-remover-ano="${r.id}" style="width:auto;padding:4px 10px;">Remover</button>
@@ -7088,6 +7212,12 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
     <div class="painel" style="border-color:var(--terracota);">
       <div class="barra" style="padding:10px 14px;"><strong style="font-size:14px;">${registro ? 'Editar ano letivo' : 'Novo ano letivo'}</strong></div>
       <div style="padding:12px 14px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;padding:8px 10px;border:1px solid var(--borda);border-radius:8px;background:var(--areia);">
+          <input type="checkbox" id="he-nao-preenchido" ${r.nao_preenchido ? 'checked' : ''} style="width:auto;" />
+          Este ano letivo não foi preenchido (não há registro disponível — aparecerá com a faixa diagonal no Histórico Escolar)
+        </label>
+        <div class="campo" style="max-width:220px;"><label>Ano civil</label><input type="number" id="he-ano-civil" value="${r.ano_civil || new Date().getFullYear()}" /></div>
+        <div id="he-campos-detalhados">
         <div class="campo" style="border:1px dashed var(--borda);border-radius:10px;padding:10px 12px;margin-bottom:14px;">
           <label>Anexar histórico ou ata de notas (foto ou PDF) para preencher automaticamente</label>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -7095,25 +7225,24 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
             <span id="msg-extracao" style="font-size:12.5px;color:var(--texto-suave);"></span>
           </div>
         </div>
-        <div class="grade-2" style="grid-template-columns:repeat(4, 1fr);gap:10px;">
-          <div class="campo" style="margin-bottom:0;"><label>Ano civil</label><input type="number" id="he-ano-civil" value="${r.ano_civil || new Date().getFullYear()}" /></div>
-          <div class="campo" style="margin-bottom:0;"><label>Série</label><input type="text" id="he-serie" value="${esc(r.serie||'')}" placeholder="Ex: 3º ANO" /></div>
-          <div class="campo" style="margin-bottom:0;"><label>Carga horária anual</label><input type="text" id="he-carga" value="${esc(r.carga_horaria_anual||'')}" placeholder="Ex: 800h" /></div>
-          <div class="campo" style="margin-bottom:0;"><label>Frequência anual</label><input type="text" id="he-freq" value="${esc(r.frequencia_anual||'')}" placeholder="Ex: 85%" /></div>
+        <div class="grade-2" style="grid-template-columns:repeat(3, 1fr);gap:10px;">
+          <div class="campo" style="margin-bottom:0;"><label>Série <span style="color:var(--erro);">*</span></label><input type="text" id="he-serie" value="${esc(r.serie||'')}" placeholder="Ex: 3º ANO" /></div>
+          <div class="campo" style="margin-bottom:0;"><label>Carga horária anual <span style="color:var(--erro);">*</span></label><input type="text" id="he-carga" value="${esc(r.carga_horaria_anual||'')}" placeholder="Ex: 800h" /></div>
+          <div class="campo" style="margin-bottom:0;"><label>Frequência anual <span style="color:var(--erro);">*</span></label><input type="text" id="he-freq" value="${esc(r.frequencia_anual||'')}" placeholder="Ex: 85%" /></div>
         </div>
         <div class="grade-2" style="grid-template-columns:2fr 1fr;gap:10px;margin-top:10px;">
           <div class="campo" style="margin-bottom:0;">
-            <label>Unidade de ensino</label>
+            <label>Unidade de ensino <span style="color:var(--erro);">*</span></label>
             <div style="display:flex;gap:6px;">
               <input type="text" id="he-unidade" value="${esc(r.unidade_ensino||'')}" style="flex:1;" />
               <button type="button" class="botao secundario pequeno" id="btn-usar-esta-escola" style="width:auto;white-space:nowrap;">Esta escola</button>
             </div>
           </div>
-          <div class="campo" style="margin-bottom:0;"><label>Cidade</label><input type="text" id="he-cidade" value="${esc(r.cidade||'')}" /></div>
+          <div class="campo" style="margin-bottom:0;"><label>Cidade <span style="color:var(--erro);">*</span></label><input type="text" id="he-cidade" value="${esc(r.cidade||'')}" /></div>
         </div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div class="campo" style="margin-bottom:0;"><label>UF</label>${selectUF('he-uf', r.uf||'PE')}</div>
-          <div class="campo" style="margin-bottom:0;"><label>Progressão</label>
+          <div class="campo" style="margin-bottom:0;"><label>UF <span style="color:var(--erro);">*</span></label>${selectUF('he-uf', r.uf||'PE')}</div>
+          <div class="campo" style="margin-bottom:0;"><label>Progressão <span style="color:var(--erro);">*</span></label>
             <select id="he-progressao">
               <option value="" ${!r.progressao?'selected':''}>—</option>
               <option value="cursando" ${r.progressao==='cursando'?'selected':''}>Cursando</option>
@@ -7123,11 +7252,13 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
             </select>
           </div>
         </div>
-        <div class="secao-titulo" style="margin-top:14px;">Notas por componente curricular</div>
+        <div class="secao-titulo" style="margin-top:14px;">Notas por componente curricular <span style="color:var(--erro);font-size:12px;font-weight:normal;">(todas obrigatórias)</span></div>
         <div class="grade-2" style="grid-template-columns:repeat(3, 1fr);gap:10px;">
           ${campoMaterias}
         </div>
         <div class="campo" style="margin-top:10px;"><label>Observações</label><input type="text" id="he-obs" value="${esc(r.observacoes||'')}" /></div>
+        </div>
+        <p style="font-size:11.5px;color:var(--texto-suave);margin:-6px 0 10px;">* Campos obrigatórios — se algum ficar em branco, o ano não poderá ser salvo (a menos que marcado como "não preenchido" acima).</p>
         <div id="msg-form-historico" style="margin-top:8px;"></div>
         <div style="display:flex;gap:10px;margin-top:10px;">
           <button class="botao terracota pequeno" id="btn-salvar-ano-historico" style="width:auto;">Salvar</button>
@@ -7136,6 +7267,14 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
       </div>
     </div>`;
 
+  function aplicarNaoPreenchido(){
+    const marcado = document.getElementById('he-nao-preenchido').checked;
+    const bloco = document.getElementById('he-campos-detalhados');
+    bloco.style.opacity = marcado ? '0.4' : '1';
+    bloco.style.pointerEvents = marcado ? 'none' : '';
+  }
+  document.getElementById('he-nao-preenchido').addEventListener('change', aplicarNaoPreenchido);
+  aplicarNaoPreenchido();
   document.getElementById('he-anexo').addEventListener('change', async (e) => {
     const arquivo = e.target.files[0];
     const msgExtracao = document.getElementById('msg-extracao');
@@ -7193,11 +7332,29 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
     const anoCivil = parseInt(document.getElementById('he-ano-civil').value, 10);
     const msg = document.getElementById('msg-form-historico');
     if(!anoCivil){ msg.innerHTML = `<div class="msg-erro">Informe o ano civil.</div>`; return; }
+    const naoPreenchido = document.getElementById('he-nao-preenchido').checked;
+    if(!naoPreenchido){
+      const faltando = [];
+      const obrig = [['he-serie','Série'],['he-carga','Carga horária anual'],['he-freq','Frequência anual'],['he-unidade','Unidade de ensino'],['he-cidade','Cidade'],['he-uf','UF'],['he-progressao','Progressão']];
+      obrig.forEach(([id, rotulo]) => { if(!document.getElementById(id).value.trim()) faltando.push(rotulo); });
+      document.querySelectorAll('.he-materia').forEach(campo => {
+        if(CAMPOS_DISCIPLINA_LIVRE[campo.dataset.campo]) return; // componentes extras seguem opcionais
+        if(!campo.value.trim()){
+          const nome = (MATERIAS_HISTORICO.find(([c]) => c === campo.dataset.campo) || [])[1];
+          faltando.push(nome || campo.dataset.campo);
+        }
+      });
+      if(faltando.length){
+        msg.innerHTML = `<div class="msg-erro">Preencha todos os campos obrigatórios (ou marque o ano como "não preenchido"). Faltando: ${esc(faltando.join(', '))}.</div>`;
+        return;
+      }
+    }
     btn.disabled = true; btn.textContent = 'Salvando…';
     const dados = {
       aluno_id: alunoId,
       arquivo_morto_id: arquivoMortoId,
       ano_civil: anoCivil,
+      nao_preenchido: naoPreenchido,
       serie: document.getElementById('he-serie').value.trim() || null,
       unidade_ensino: document.getElementById('he-unidade').value.trim() || null,
       cidade: document.getElementById('he-cidade').value.trim() || null,
@@ -7245,14 +7402,15 @@ async function gerarHistoricoEscolarDocumento(aluno, anos){
     nomeMae = mae?.responsaveis?.nome || '';
     nomePai = pai?.responsaveis?.nome || '';
   }
-  const ultimoRegistro = anos[anos.length-1] || null;
+  const anosPreenchidos = anos.filter(r => !r.nao_preenchido);
+  const ultimoRegistro = anosPreenchidos[anosPreenchidos.length-1] || null;
   const estaCursandoAnoAtual = ultimoRegistro?.progressao === 'cursando';
-  const registroConcluido = estaCursandoAnoAtual ? anos[anos.length-2] : ultimoRegistro;
+  const registroConcluido = estaCursandoAnoAtual ? anosPreenchidos[anosPreenchidos.length-2] : ultimoRegistro;
   const serieMaisRecente = registroConcluido?.serie || '____';
   const textoSituacaoAtual = estaCursandoAnoAtual
     ? ` O(a) estudante encontra-se cursando o(a) <b>${esc(ultimoRegistro.serie || '____')}</b> no ano letivo de <b>${esc(String(ultimoRegistro.ano_civil || ''))}</b>.`
     : '';
-  const textoObservacoes = anos.filter(r => r.observacoes && r.observacoes.trim())
+  const textoObservacoes = anos.filter(r => !r.nao_preenchido && r.observacoes && r.observacoes.trim())
     .map(r => esc(r.observacoes.trim())).join('<br/><br/>');
 
   const materiasBNC = MATERIAS_HISTORICO.slice(0, 7);
@@ -7283,8 +7441,16 @@ async function gerarHistoricoEscolarDocumento(aluno, anos){
     return NOMES_SERIE[numero].map((nome, i) => `<div style="white-space:nowrap;">(<span style="visibility:${cursada && i===0 ? 'visible' : 'hidden'};">X</span>) ${nome}</div>`).join('');
   }
 
+  // Ano só é impresso com dados se estiver completo (todos os campos obrigatórios) ou em andamento;
+  // caso contrário recebe a faixa diagonal, como um ano sem registro.
+  const anoCompleto = (r) => {
+    if(r.progressao === 'cursando') return true;
+    const base = ['serie','carga_horaria_anual','frequencia_anual','unidade_ensino','cidade','uf','progressao'];
+    if(base.some(c => !String(r[c] || '').trim())) return false;
+    return MATERIAS_HISTORICO.every(([campo]) => CAMPOS_DISCIPLINA_LIVRE[campo] || String(r[campo] || '').trim());
+  };
   const registrosPorSerie = {};
-  anos.forEach(r => {
+  anosPreenchidos.filter(anoCompleto).forEach(r => {
     const m = (r.serie || '').match(/(\d+)/);
     const numero = m ? parseInt(m[1], 10) : null;
     if(numero && numero >= 1 && numero <= 9) registrosPorSerie[numero] = r;
