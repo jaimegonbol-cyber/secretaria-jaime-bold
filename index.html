@@ -2707,19 +2707,36 @@ async function carregarListaArquivoMorto(el){
   inpPag.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); acionarIr(); } });
 }
 
-// Seletor de pasta: letra + número da pasta (ou "SEM PASTA")
+// Seletor de pasta: letra + número da pasta. Só lista as pastas que existem para a letra
+// (1..maior) mais a próxima pasta nova (a numeração segue a capacidade de CAPACIDADE_PASTA_ARQUIVO_MORTO).
 function htmlSeletorPastaAM(id, valor){
   const m = /^([A-ZÀ-Ú])\s*-\s*PASTA\s*(\d+)\s*$/i.exec(valor || '');
   const semPasta = /SEM PASTA/i.test(valor || '');
   const letra = m ? m[1].toUpperCase() : ((valor||'').trim().charAt(0).toUpperCase() || '');
   const num = m ? parseInt(m[2], 10) : 0;
-  const maxNum = Math.max(30, num);
-  const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-  const optsLetra = ['<option value="">Letra…</option>'].concat(letras.map(l => `<option value="${l}" ${l===letra?'selected':''}>${l}</option>`)).join('');
-  let optsNum = '<option value="">Pasta…</option>';
-  for(let i=1;i<=maxNum;i++) optsNum += `<option value="${i}" ${i===num?'selected':''}>PASTA ${i}</option>`;
-  optsNum += `<option value="sem" ${semPasta?'selected':''}>SEM PASTA</option>`;
-  return `<div id="${id}" style="display:flex;gap:8px;"><select id="${id}-letra" style="width:35%;">${optsLetra}</select><select id="${id}-num" style="flex:1;">${optsNum}</select></div>`;
+  const optsLetra = ['<option value="">Letra…</option>'].concat('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(l => `<option value="${l}" ${l===letra?'selected':''}>${l}</option>`)).join('');
+  return `<div id="${id}" data-valor="${esc(valor||'')}" style="display:flex;gap:8px;"><select id="${id}-letra" style="width:35%;">${optsLetra}</select><select id="${id}-num" style="flex:1;"><option value="">Pasta…</option>${num?`<option value="${num}" selected>PASTA ${num}</option>`:''}${semPasta?'<option value="sem" selected>SEM PASTA</option>':''}</select></div>`;
+}
+async function carregarPastasLetraAM(id, manterValor){
+  const letra = document.getElementById(id+'-letra').value;
+  const sel = document.getElementById(id+'-num');
+  if(!letra){ sel.innerHTML = '<option value="">Pasta…</option>'; return; }
+  const { data } = await supabase.from('arquivo_morto').select('pasta').like('pasta', `${letra} - PASTA %`).limit(1000);
+  let max = 0;
+  (data||[]).forEach(r => { const mm = /PASTA (\d+)/.exec(r.pasta||''); if(mm) max = Math.max(max, parseInt(mm[1],10)); });
+  const atual = manterValor !== undefined ? manterValor : sel.value;
+  let html = '<option value="">Pasta…</option>';
+  for(let i=1;i<=max+1;i++) html += `<option value="${i}">PASTA ${i}${i===max+1?' (nova)':''}</option>`;
+  if(atual === 'sem') html += '<option value="sem">SEM PASTA</option>';
+  sel.innerHTML = html;
+  if(atual && sel.querySelector(`option[value="${atual}"]`)) sel.value = atual;
+}
+function iniciarSeletorPastaAM(id){
+  const letraEl = document.getElementById(id+'-letra');
+  const valor = document.getElementById(id).dataset.valor || '';
+  const m = /PASTA\s*(\d+)/i.exec(valor);
+  carregarPastasLetraAM(id, /SEM PASTA/i.test(valor) ? 'sem' : (m ? String(parseInt(m[1],10)) : ''));
+  letraEl.addEventListener('change', () => carregarPastasLetraAM(id, ''));
 }
 function lerSeletorPastaAM(id){
   const l = document.getElementById(id+'-letra').value;
@@ -2727,16 +2744,11 @@ function lerSeletorPastaAM(id){
   if(!l || !n) return '';
   return n === 'sem' ? `${l} - SEM PASTA` : `${l} - PASTA ${n}`;
 }
-function definirSeletorPastaAM(id, valor){
+async function definirSeletorPastaAM(id, valor){
   const m = /^([A-ZÀ-Ú])\s*-\s*PASTA\s*(\d+)\s*$/i.exec(valor || '');
-  if(m){
-    document.getElementById(id+'-letra').value = m[1].toUpperCase();
-    const sel = document.getElementById(id+'-num');
-    if(!sel.querySelector(`option[value="${parseInt(m[2],10)}"]`)){
-      const o = document.createElement('option'); o.value = String(parseInt(m[2],10)); o.textContent = `PASTA ${parseInt(m[2],10)}`; sel.insertBefore(o, sel.querySelector('option[value="sem"]'));
-    }
-    sel.value = String(parseInt(m[2], 10));
-  }
+  if(!m) return;
+  document.getElementById(id+'-letra').value = m[1].toUpperCase();
+  await carregarPastasLetraAM(id, String(parseInt(m[2],10)));
 }
 
 async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
@@ -2780,11 +2792,12 @@ async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
         </div>
       </div>
     </div>`;
+  iniciarSeletorPastaAM('am-pasta');
   document.getElementById('btn-cancelar-arquivo-morto').addEventListener('click', () => { formEl.innerHTML = ''; });
   if(!editando) document.getElementById('am-nome').addEventListener('blur', async (e) => {
     const sug = await proximoRegistroArquivoMorto(e.target.value);
     document.getElementById('am-numero').value = sug.numero;
-    definirSeletorPastaAM('am-pasta', sug.pasta);
+    await definirSeletorPastaAM('am-pasta', sug.pasta);
   });
   document.getElementById('btn-salvar-arquivo-morto').addEventListener('click', async () => {
     const nome = document.getElementById('am-nome').value.trim();
@@ -2937,6 +2950,7 @@ async function renderizarNovoArquivoInativo(el){
       <div id="am-msg" style="margin:8px 0;"></div>
       <button class="botao terracota pequeno" id="am-confirmar" style="width:auto;">Confirmar e arquivar</button>
     `;
+    iniciarSeletorPastaAM('am-pasta-nova');
     document.getElementById('am-confirmar').addEventListener('click', async () => {
       const btn = document.getElementById('am-confirmar');
       const msg = document.getElementById('am-msg');
