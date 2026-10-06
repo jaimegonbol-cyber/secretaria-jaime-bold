@@ -2707,6 +2707,38 @@ async function carregarListaArquivoMorto(el){
   inpPag.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); acionarIr(); } });
 }
 
+// Seletor de pasta: letra + número da pasta (ou "SEM PASTA")
+function htmlSeletorPastaAM(id, valor){
+  const m = /^([A-ZÀ-Ú])\s*-\s*PASTA\s*(\d+)\s*$/i.exec(valor || '');
+  const semPasta = /SEM PASTA/i.test(valor || '');
+  const letra = m ? m[1].toUpperCase() : ((valor||'').trim().charAt(0).toUpperCase() || '');
+  const num = m ? parseInt(m[2], 10) : 0;
+  const maxNum = Math.max(30, num);
+  const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const optsLetra = ['<option value="">Letra…</option>'].concat(letras.map(l => `<option value="${l}" ${l===letra?'selected':''}>${l}</option>`)).join('');
+  let optsNum = '<option value="">Pasta…</option>';
+  for(let i=1;i<=maxNum;i++) optsNum += `<option value="${i}" ${i===num?'selected':''}>PASTA ${i}</option>`;
+  optsNum += `<option value="sem" ${semPasta?'selected':''}>SEM PASTA</option>`;
+  return `<div id="${id}" style="display:flex;gap:8px;"><select id="${id}-letra" style="width:35%;">${optsLetra}</select><select id="${id}-num" style="flex:1;">${optsNum}</select></div>`;
+}
+function lerSeletorPastaAM(id){
+  const l = document.getElementById(id+'-letra').value;
+  const n = document.getElementById(id+'-num').value;
+  if(!l || !n) return '';
+  return n === 'sem' ? `${l} - SEM PASTA` : `${l} - PASTA ${n}`;
+}
+function definirSeletorPastaAM(id, valor){
+  const m = /^([A-ZÀ-Ú])\s*-\s*PASTA\s*(\d+)\s*$/i.exec(valor || '');
+  if(m){
+    document.getElementById(id+'-letra').value = m[1].toUpperCase();
+    const sel = document.getElementById(id+'-num');
+    if(!sel.querySelector(`option[value="${parseInt(m[2],10)}"]`)){
+      const o = document.createElement('option'); o.value = String(parseInt(m[2],10)); o.textContent = `PASTA ${parseInt(m[2],10)}`; sel.insertBefore(o, sel.querySelector('option[value="sem"]'));
+    }
+    sel.value = String(parseInt(m[2], 10));
+  }
+}
+
 async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
   const r = registro || {};
   const editando = !!registro;
@@ -2724,7 +2756,7 @@ async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
         </div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
           <div class="campo"><label>Número de registro</label><input type="number" id="am-numero" value="${sugestao.numero ?? ''}" /></div>
-          <div class="campo"><label>Pasta</label><input type="text" id="am-pasta" value="${esc(sugestao.pasta || '')}" /></div>
+          <div class="campo"><label>Pasta</label>${htmlSeletorPastaAM('am-pasta', sugestao.pasta)}</div>
         </div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:10px;">
           <div class="campo"><label>Data de nascimento</label><input type="date" id="am-nascimento" value="${r.data_nascimento||''}" /></div>
@@ -2752,16 +2784,16 @@ async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
   if(!editando) document.getElementById('am-nome').addEventListener('blur', async (e) => {
     const sug = await proximoRegistroArquivoMorto(e.target.value);
     document.getElementById('am-numero').value = sug.numero;
-    document.getElementById('am-pasta').value = sug.pasta;
+    definirSeletorPastaAM('am-pasta', sug.pasta);
   });
   document.getElementById('btn-salvar-arquivo-morto').addEventListener('click', async () => {
     const nome = document.getElementById('am-nome').value.trim();
     const numero = parseInt(document.getElementById('am-numero').value, 10);
-    const pasta = document.getElementById('am-pasta').value.trim();
+    const pasta = lerSeletorPastaAM('am-pasta');
     const msg = document.getElementById('msg-arquivo-morto');
     if(!nome){ msg.innerHTML = `<div class="msg-erro">Informe o nome.</div>`; return; }
     if(!numero){ msg.innerHTML = `<div class="msg-erro">Informe o número de registro.</div>`; return; }
-    if(!pasta){ msg.innerHTML = `<div class="msg-erro">Informe a pasta.</div>`; return; }
+    if(!pasta){ msg.innerHTML = `<div class="msg-erro">Selecione a letra e o número da pasta.</div>`; return; }
     const payload = {
       nome, numero, pasta,
       motivo: document.getElementById('am-motivo').value || null,
@@ -2898,7 +2930,7 @@ async function renderizarNovoArquivoInativo(el){
       <div class="grade-2" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;">
         <div class="campo"><label>${rotuloData}</label><input type="date" id="am-data" value="${hojeISO()}" /></div>
         <div class="campo"><label>Número de registro</label><input type="number" id="am-num" value="${sug.numero ?? ''}" /></div>
-        <div class="campo"><label>Pasta</label><input type="text" id="am-pasta-nova" value="${esc(sug.pasta || '')}" /></div>
+        <div class="campo"><label>Pasta</label>${htmlSeletorPastaAM('am-pasta-nova', sug.pasta)}</div>
       </div>
       <div class="campo"><label>Observações (opcional)</label><input type="text" id="am-obs-nova" /></div>
       <p style="font-size:12.5px;color:var(--texto-suave);">Ao confirmar, o estudante passa para a situação <b>${est.motivo==='concluido'?'Concluído':'Transferido'}</b> e sai das listas de matriculados. Número e pasta já vêm sugeridos pela letra do nome.</p>
@@ -2909,7 +2941,7 @@ async function renderizarNovoArquivoInativo(el){
       const btn = document.getElementById('am-confirmar');
       const msg = document.getElementById('am-msg');
       const numero = parseInt(document.getElementById('am-num').value, 10);
-      const pasta = document.getElementById('am-pasta-nova').value.trim();
+      const pasta = lerSeletorPastaAM('am-pasta-nova');
       const dataSit = document.getElementById('am-data').value || hojeISO();
       if(!numero || !pasta){ msg.innerHTML = `<div class="msg-erro">Informe número e pasta.</div>`; return; }
       const { data: jaExiste } = await supabase.from('arquivo_morto').select('id').ilike('nome', aluno.nome).limit(1);
