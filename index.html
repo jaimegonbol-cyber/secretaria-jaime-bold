@@ -2665,9 +2665,16 @@ async function carregarListaArquivoMorto(el){
   conteudo.innerHTML = `
     <p style="color:var(--texto-suave);font-size:12.5px;margin-bottom:8px;">${count} resultado(s) — página ${ESTADO.arquivoMortoPagina+1} de ${totalPaginas}</p>
     <div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Motivo</th><th>Pasta</th><th>Número</th><th>Nascimento</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>
-    <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:12px;">
+    <div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;">
+      <button class="botao secundario pequeno" id="btn-pagina-primeira-am" style="width:auto;" ${ESTADO.arquivoMortoPagina===0?'disabled':''}>« Primeira</button>
       <button class="botao secundario pequeno" id="btn-pagina-anterior-am" style="width:auto;" ${ESTADO.arquivoMortoPagina===0?'disabled':''}>← Anterior</button>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;">Ir para a página
+        <input type="number" id="am-ir-pagina" min="1" max="${totalPaginas}" value="${ESTADO.arquivoMortoPagina+1}" style="width:72px;padding:6px 8px;">
+        de ${totalPaginas}
+        <button class="botao pequeno" id="btn-ir-pagina-am" style="width:auto;">Ir</button>
+      </span>
       <button class="botao secundario pequeno" id="btn-pagina-proxima-am" style="width:auto;" ${ESTADO.arquivoMortoPagina>=totalPaginas-1?'disabled':''}>Próxima →</button>
+      <button class="botao secundario pequeno" id="btn-pagina-ultima-am" style="width:auto;" ${ESTADO.arquivoMortoPagina>=totalPaginas-1?'disabled':''}>Última »</button>
     </div>
   `;
   conteudo.querySelectorAll('[data-detalhes-arquivo-morto]').forEach(b => b.addEventListener('click', () => {
@@ -2689,6 +2696,15 @@ async function carregarListaArquivoMorto(el){
   if(btnAnt) btnAnt.addEventListener('click', () => { ESTADO.arquivoMortoPagina--; carregarListaArquivoMorto(el); });
   const btnProx = document.getElementById('btn-pagina-proxima-am');
   if(btnProx) btnProx.addEventListener('click', () => { ESTADO.arquivoMortoPagina++; carregarListaArquivoMorto(el); });
+  const irPara = (n) => { ESTADO.arquivoMortoPagina = Math.min(totalPaginas, Math.max(1, n)) - 1; carregarListaArquivoMorto(el); };
+  const btnPrim = document.getElementById('btn-pagina-primeira-am');
+  if(btnPrim) btnPrim.addEventListener('click', () => irPara(1));
+  const btnUlt = document.getElementById('btn-pagina-ultima-am');
+  if(btnUlt) btnUlt.addEventListener('click', () => irPara(totalPaginas));
+  const inpPag = document.getElementById('am-ir-pagina');
+  const acionarIr = () => { const n = parseInt(inpPag.value, 10); if(!isNaN(n)) irPara(n); };
+  document.getElementById('btn-ir-pagina-am').addEventListener('click', acionarIr);
+  inpPag.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); acionarIr(); } });
 }
 
 async function exibirFormularioArquivoMorto(formEl, registro, elPai, aoSalvar){
