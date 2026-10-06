@@ -7260,7 +7260,7 @@ async function preencherSeriesAutomaticamente(aluno){
   for(const atualizacao of atualizacoesCarga){
     await supabase.from('historico_escolar_anual').update({ carga_horaria_anual: atualizacao.carga_horaria_anual }).eq('id', atualizacao.id);
   }
-  return { ok:true };
+  return { ok:true, numeroAtual };
 }
 
 async function renderizarBancoHistorico(conteudo, elPai, contexto){
@@ -7282,23 +7282,62 @@ async function renderizarBancoHistorico(conteudo, elPai, contexto){
     ? `<p style="color:var(--erro);font-size:13px;margin-bottom:10px;">${mensagensAviso[resultadoAuto.motivo] || ''}</p>`
     : '';
 
-  const linhas = registros.map(r => `
+  // Sempre mostra do 1º ao 9º ano. Digitação liberada até a série que o estudante cursou/cursa;
+  // as séries seguintes ficam bloqueadas e saem com a faixa diagonal no Histórico impresso.
+  const numeroDaSerieHE = (txt) => { const mm = (txt||'').match(/(\d+)/); return mm ? parseInt(mm[1], 10) : null; };
+  const maxRegistrado = registros.reduce((mx, r) => Math.max(mx, numeroDaSerieHE(r.serie) || 0), 0);
+  let limiteSerie = maxRegistrado || 1;
+  if(alunoId && resultadoAuto.ok && resultadoAuto.numeroAtual) limiteSerie = Math.max(limiteSerie, resultadoAuto.numeroAtual);
+  if(arquivoMortoId){
+    const { data: amReg } = await supabase.from('arquivo_morto').select('motivo').eq('id', arquivoMortoId).maybeSingle();
+    if(amReg?.motivo === 'concluido') limiteSerie = 9;
+  }
+  const anoRef = registros.length ? registros[registros.length-1] : null;
+  const estimarAno = (n) => {
+    const refNum = anoRef ? (numeroDaSerieHE(anoRef.serie) || limiteSerie) : limiteSerie;
+    const refAno = anoRef ? anoRef.ano_civil : new Date().getFullYear();
+    return refAno - (refNum - n);
+  };
+  const botoesAno = (r) => `
+      <td style="white-space:nowrap;">
+        <button class="botao secundario pequeno" data-editar-ano="${r.id}" style="width:auto;padding:4px 10px;">Editar</button>
+        <button class="botao secundario pequeno" data-remover-ano="${r.id}" style="width:auto;padding:4px 10px;">Remover</button>
+      </td>`;
+  const linhaRegistro = (r) => `
     <tr>
       <td>${r.ano_civil}</td>
       <td>${esc(r.serie || '—')}</td>
       <td>${esc(r.unidade_ensino || '—')}</td>
       <td>${r.nao_preenchido ? '<span class="pill cinza">NÃO PREENCHIDO</span>' : (r.progressao ? r.progressao.toUpperCase() : '—')}</td>
-      <td style="white-space:nowrap;">
-        <button class="botao secundario pequeno" data-editar-ano="${r.id}" style="width:auto;padding:4px 10px;">Editar</button>
-        <button class="botao secundario pequeno" data-remover-ano="${r.id}" style="width:auto;padding:4px 10px;">Remover</button>
-      </td>
-    </tr>`).join('');
+      ${botoesAno(r)}
+    </tr>`;
+  let linhas = '';
+  for(let n=1; n<=9; n++){
+    const doNumero = registros.filter(r => numeroDaSerieHE(r.serie) === n);
+    if(doNumero.length){ linhas += doNumero.map(linhaRegistro).join(''); continue; }
+    if(n <= limiteSerie){
+      linhas += `
+    <tr>
+      <td>${estimarAno(n)}</td>
+      <td>${n}º ANO</td>
+      <td colspan="2"><span style="color:var(--texto-suave);">Ainda não preenchido</span></td>
+      <td><button class="botao terracota pequeno" data-preencher-serie="${n}" style="width:auto;padding:4px 10px;">Preencher</button></td>
+    </tr>`;
+    } else {
+      linhas += `
+    <tr style="opacity:.55;background:repeating-linear-gradient(135deg,transparent 0 8px,rgba(0,0,0,.05) 8px 10px);">
+      <td>—</td>
+      <td>${n}º ANO</td>
+      <td colspan="2"><span class="pill cinza">NÃO CURSOU — sairá com faixa no histórico</span></td>
+      <td></td>
+    </tr>`;
+    }
+  }
+  linhas += registros.filter(r => { const n = numeroDaSerieHE(r.serie); return !n || n < 1 || n > 9; }).map(linhaRegistro).join('');
 
   conteudo.innerHTML = `
     ${avisoSerie}
-    ${registros.length
-      ? `<table><thead><tr><th>Ano</th><th>Série</th><th>Unidade de Ensino</th><th>Progressão</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`
-      : `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum ano letivo encontrado para este estudante.</p>`}
+    <table><thead><tr><th>Ano</th><th>Série</th><th>Unidade de Ensino</th><th>Progressão</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
       <button class="botao secundario pequeno" id="btn-novo-ano" style="width:auto;">+ Novo ano letivo</button>
       <button class="botao terracota pequeno" id="btn-gerar-historico" style="width:auto;">Gerar Histórico Escolar</button>
@@ -7338,6 +7377,11 @@ async function renderizarBancoHistorico(conteudo, elPai, contexto){
   }
   document.getElementById('btn-gerar-historico').addEventListener('click', acionarGerarHistorico);
   document.getElementById('btn-gerar-historico-2').addEventListener('click', acionarGerarHistorico);
+  conteudo.querySelectorAll('[data-preencher-serie]').forEach(b => b.addEventListener('click', () => {
+    const n = parseInt(b.dataset.preencherSerie, 10);
+    exibirFormularioAno(document.getElementById('he-form'), { serie: `${n}º ANO`, ano_civil: estimarAno(n), carga_horaria_anual: n <= 5 ? '800 h' : '1080 h' }, conteudo, elPai, { alunoId, arquivoMortoId });
+    document.getElementById('he-form').scrollIntoView({ behavior:'smooth', block:'start' });
+  }));
   conteudo.querySelectorAll('[data-editar-ano]').forEach(b => b.addEventListener('click', () => {
     const registro = registros.find(r => r.id === b.dataset.editarAno);
     exibirFormularioAno(document.getElementById('he-form'), registro, conteudo, elPai, { alunoId, arquivoMortoId });
@@ -7415,7 +7459,7 @@ function exibirFormularioAno(formEl, registro, conteudo, elPai, contexto){
 
   formEl.innerHTML = `
     <div class="painel" style="border-color:var(--terracota);">
-      <div class="barra" style="padding:10px 14px;"><strong style="font-size:14px;">${registro ? 'Editar ano letivo' : 'Novo ano letivo'}</strong></div>
+      <div class="barra" style="padding:10px 14px;"><strong style="font-size:14px;">${registro && registro.id ? 'Editar ano letivo' : 'Novo ano letivo'}</strong></div>
       <div style="padding:12px 14px;">
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;padding:8px 10px;border:1px solid var(--borda);border-radius:8px;background:var(--areia);">
           <input type="checkbox" id="he-nao-preenchido" ${r.nao_preenchido ? 'checked' : ''} style="width:auto;" />
