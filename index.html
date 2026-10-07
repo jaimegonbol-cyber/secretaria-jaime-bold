@@ -3239,7 +3239,7 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
       <td style="padding:5px 10px;">
         ${renovacao
           ? `<button class="botao secundario pequeno" style="width:auto;" data-desfazer-renovacao="${a.id}">Desfazer</button>`
-          : `<button class="botao terracota pequeno" style="width:auto;" data-marcar-renovacao="${a.id}">✅ Renovou</button>`}
+          : `<button class="botao terracota pequeno" style="width:auto;" data-marcar-renovacao="${a.id}">✅ Renovar</button>`}
       </td>
     </tr>`;
   };
@@ -3339,7 +3339,7 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
     const { error } = await supabase.from('renovacoes_matricula').insert({
       aluno_id: btn.dataset.marcarRenovacao, ano_letivo_destino: anoDestino, criado_por: ESTADO.perfil.id,
     });
-    if(error){ document.getElementById('msg-renovacao-estudante').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '✅ Renovou'; return; }
+    if(error){ document.getElementById('msg-renovacao-estudante').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '✅ Renovar'; return; }
     renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
   }));
 
@@ -8661,7 +8661,8 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
         </div>
         <div class="campo" id="campo-oc-espaco-outro" style="display:${editando && registroExistente.espaco==='outro'?'':'none'};"><label>Qual espaço?</label><input type="text" id="oc-espaco-outro" value="${editando ? esc(registroExistente.espaco_outro||'') : ''}" /></div>
       </div>
-      <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" placeholder="Nome do professor(a) responsável pelo registro" value="${editando ? esc(registroExistente.professor||'') : ''}" /></div>
+      <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" list="lista-professores-oc" autocomplete="off" placeholder="Clique para escolher o professor(a) cadastrado ou digite o nome" value="${editando ? esc(registroExistente.professor||'') : ''}" /></div>
+      <datalist id="lista-professores-oc">${ESTADO.funcionarios.filter(f => f.ativo !== false && (f.funcao||'').toLowerCase().includes('professor')).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(f => `<option value="${esc(f.nome)}"></option>`).join('')}</datalist>
       <div class="campo">
         <label>Qualificação da ocorrência</label>
         <div style="border:1px solid var(--borda);border-radius:8px;padding:12px;">
