@@ -10949,10 +10949,10 @@ function abrirModalImprimirGabarito(gabarito){
 function montarQuadranteGabarito(gabarito, aluno){
   // Tamanho adaptável: poucas questões => marcações e letras maiores; muitas => reduz para caber no quadrante.
   const n = Math.max(1, gabarito.questoes.length);
-  const alturaLinha = Math.min(38, Math.floor(450 / n));
-  const diametro = Math.max(11, Math.min(24, Math.round(alturaLinha * 0.66)));
-  const fonteLetra = Math.max(12.5, Math.min(22, Math.round(alturaLinha * 0.58)));
-  const fonteNumero = Math.max(10, Math.min(16, Math.round(alturaLinha * 0.42)));
+  const alturaLinha = Math.min(28, Math.floor(420 / n));
+  const diametro = Math.max(11, Math.min(16, Math.round(alturaLinha * 0.58)));
+  const fonteLetra = Math.max(12.5, Math.min(15.5, Math.round(alturaLinha * 0.56)));
+  const fonteNumero = Math.max(10, Math.min(12.5, Math.round(alturaLinha * 0.42)));
   const circulo = `<span style="display:inline-block;width:${diametro}px;height:${diametro}px;border:1.6px solid #000;border-radius:50%;flex-shrink:0;"></span>`;
   const linhasQuestoes = gabarito.questoes.map(q => `
     <div style="display:flex;align-items:center;gap:${Math.round(diametro*0.55)}px;height:${alturaLinha}px;">
