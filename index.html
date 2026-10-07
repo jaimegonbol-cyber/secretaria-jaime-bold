@@ -12625,6 +12625,7 @@ function renderizarRelatorios(el){
     { id:'freq-branco', label:'Lista de Frequência (em branco)' },
     { id:'pasta', label:'Pasta de Estudante' },
     { id:'freq-pct', label:'Frequência (%)' },
+    { id:'freq-baixa', label:'Baixa Frequência (≤ 75%)' },
     { id:'freq-mensal', label:'Frequência Mensal' },
     { id:'aee', label:'Estudantes com AEE' },
   ];
@@ -12641,6 +12642,7 @@ function renderizarRelatorios(el){
   else if(ESTADO.subRelatorios === 'freq-branco') renderizarRelFreqMensalBranco(alvo);
   else if(ESTADO.subRelatorios === 'pasta') renderizarRelListaPasta(alvo);
   else if(ESTADO.subRelatorios === 'freq-pct') renderizarRelFreqPercentual(alvo);
+  else if(ESTADO.subRelatorios === 'freq-baixa') renderizarRelBaixaFrequencia(alvo);
   else if(ESTADO.subRelatorios === 'freq-mensal') renderizarRelFreqMensalDados(alvo);
   else if(ESTADO.subRelatorios === 'aee') renderizarRelAEE(alvo);
   else renderizarRelListaPresenca(alvo);
@@ -12712,6 +12714,173 @@ function renderizarRelFreqMensalDados(el){
   document.getElementById('rel-mes').addEventListener('change', (e) => { ESTADO.relatorioMes = Number(e.target.value); });
   document.getElementById('rel-ano').addEventListener('input', (e) => { ESTADO.relatorioAno = Number(e.target.value) || ESTADO.relatorioAno; });
   document.getElementById('btn-rel-frequencia-mensal').addEventListener('click', (e) => imprimirFrequenciaMensalDiaADia(ESTADO.relatorioTurmaId, ESTADO.relatorioAno, ESTADO.relatorioMes, e.target));
+}
+
+// ---------------------------------------------------------------
+// RELATÓRIO: BAIXA FREQUÊNCIA (≤ 75%) EM 2 MESES CONSECUTIVOS (Sistema Presença)
+// ---------------------------------------------------------------
+function renderizarRelBaixaFrequencia(el){
+  const opcoesTurmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map(t => `<option value="${t.id}" ${ESTADO.relBaixaTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const mesInicial = ESTADO.relBaixaMes1 || Math.max(2, Math.min(11, new Date().getMonth()));
+  const opcoesMeses = Array.from({ length: 10 }, (_, i) => i + 2).map(m =>
+    `<option value="${m}" ${mesInicial===m?'selected':''}>${MESES_EXTENSO[m-1]} e ${MESES_EXTENSO[m]}</option>`).join('');
+  el.innerHTML = `
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Baixa Frequência — 2 meses consecutivos</b></div>
+      <div style="padding:14px 16px;">
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 12px;">Lista em ordem alfabética dos estudantes com frequência <b>igual ou abaixo de 75%</b> em pelo menos um dos dois meses escolhidos, mostrando o percentual dos dois meses (calculado pelo Sistema Presença).</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="campo" style="margin:0;min-width:230px;"><label>Meses consecutivos</label><select id="rel-baixa-meses">${opcoesMeses}</select></div>
+          <div class="campo" style="margin:0;max-width:110px;"><label>Ano</label><input type="number" id="rel-baixa-ano" value="${ESTADO.relBaixaAno || new Date().getFullYear()}" /></div>
+          <div class="campo" style="margin:0;min-width:220px;"><label>Turma (opcional)</label><select id="rel-baixa-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div>
+          <button class="botao terracota pequeno" id="btn-rel-baixa" style="width:auto;">🖨️ Gerar e imprimir</button>
+        </div>
+        <div id="msg-rel-baixa" style="margin-top:10px;"></div>
+      </div>
+    </div>`;
+  document.getElementById('rel-baixa-meses').addEventListener('change', e => { ESTADO.relBaixaMes1 = Number(e.target.value); });
+  document.getElementById('rel-baixa-ano').addEventListener('input', e => { ESTADO.relBaixaAno = Number(e.target.value) || ESTADO.relBaixaAno; });
+  document.getElementById('rel-baixa-turma').addEventListener('change', e => { ESTADO.relBaixaTurmaId = e.target.value; });
+  document.getElementById('btn-rel-baixa').addEventListener('click', (e) => {
+    ESTADO.relBaixaMes1 = Number(document.getElementById('rel-baixa-meses').value);
+    ESTADO.relBaixaAno = Number(document.getElementById('rel-baixa-ano').value) || new Date().getFullYear();
+    ESTADO.relBaixaTurmaId = document.getElementById('rel-baixa-turma').value;
+    imprimirBaixaFrequencia(ESTADO.relBaixaAno, ESTADO.relBaixaMes1, ESTADO.relBaixaTurmaId, e.target, document.getElementById('msg-rel-baixa'));
+  });
+}
+
+// Busca todas as linhas de uma consulta paginando de 1000 em 1000 (limite do Supabase).
+async function buscarTodasLinhasPaginado(montarConsulta){
+  const tamanho = 1000;
+  let todas = [];
+  for(let inicio = 0; ; inicio += tamanho){
+    const { data, error } = await montarConsulta().range(inicio, inicio + tamanho - 1);
+    if(error) throw error;
+    todas = todas.concat(data || []);
+    if(!data || data.length < tamanho) break;
+  }
+  return todas;
+}
+
+async function imprimirBaixaFrequencia(ano, mes1, turmaId, btn, msgEl){
+  const mes2 = mes1 + 1;
+  if(mes1 < 1 || mes2 > 12){ msgEl.innerHTML = `<div class="msg-erro">Escolha dois meses consecutivos dentro do mesmo ano.</div>`; return; }
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Calculando…';
+  msgEl.innerHTML = '';
+  try{
+    const meses = [mes1, mes2];
+    const idsTurmasAno = new Set(ESTADO.turmas.filter(t => Number(t.ano_letivo) === Number(ano)).map(t => t.id));
+    let alunos = ESTADO.alunos.filter(a => idsTurmasAno.has(a.turma_id) && (!turmaId || a.turma_id === turmaId));
+    if(!alunos.length){ msgEl.innerHTML = `<div class="msg-erro">Nenhum estudante encontrado para este ano/turma.</div>`; return; }
+
+    const { data: diasLetivosAno } = await supabase.from('dias_letivos').select('mes, quantidade_dias').eq('ano_letivo', ano).in('mes', meses);
+    const mapaDias = {};
+    (diasLetivosAno||[]).forEach(d => { mapaDias[d.mes] = d.quantidade_dias; });
+    const semDias = meses.filter(m => !mapaDias[m]);
+    if(semDias.length === 2){ msgEl.innerHTML = `<div class="msg-erro">Os dias letivos de ${MESES_EXTENSO[mes1-1]} e ${MESES_EXTENSO[mes2-1]} de ${ano} ainda não foram cadastrados, então não dá para calcular o percentual.</div>`; return; }
+
+    const idsAlunos = alunos.map(a => a.id);
+    const ultimoDia = (m) => new Date(ano, m, 0).getDate();
+    const inicio = `${ano}-${String(mes1).padStart(2,'0')}-01`;
+    const fim = `${ano}-${String(mes2).padStart(2,'0')}-${String(ultimoDia(mes2)).padStart(2,'0')}`;
+
+    // Consultas em blocos de estudantes (evita URLs gigantes) e paginadas (limite de 1000 linhas).
+    const historico = [];
+    const registros = [];
+    for(let i = 0; i < idsAlunos.length; i += 120){
+      const bloco = idsAlunos.slice(i, i + 120);
+      historico.push(...await buscarTodasLinhasPaginado(() => supabase.from('frequencia_mensal_historico').select('aluno_id, mes, faltas').eq('ano_letivo', ano).in('mes', meses).in('aluno_id', bloco).order('aluno_id')));
+      registros.push(...await buscarTodasLinhasPaginado(() => supabase.from('frequencia').select('aluno_id, data, status').in('aluno_id', bloco).gte('data', inicio).lte('data', fim).in('status', ['falta','falta_justificada','outros']).order('aluno_id').order('data')));
+    }
+    const mapaHistorico = {};
+    historico.forEach(h => { mapaHistorico[`${h.aluno_id}-${h.mes}`] = h.faltas; });
+    const faltasAoVivo = {}, outrosAoVivo = {};
+    registros.forEach(r => {
+      const chave = `${r.aluno_id}-${parseInt(r.data.slice(5,7), 10)}`;
+      if(r.status === 'outros') outrosAoVivo[chave] = (outrosAoVivo[chave] || 0) + 1;
+      else faltasAoVivo[chave] = (faltasAoVivo[chave] || 0) + 1;
+    });
+
+    const hoje = new Date();
+    const mesAtualNum = hoje.getFullYear() === Number(ano) ? hoje.getMonth() + 1 : (hoje.getFullYear() > Number(ano) ? 12 : 0);
+    const percentualMes = (aluno, mes) => {
+      const base = mapaDias[mes];
+      if(!base) return null;
+      const dataFimMes = `${ano}-${String(mes).padStart(2,'0')}-${String(ultimoDia(mes)).padStart(2,'0')}`;
+      if(!alunoTemFrequenciaNaData(aluno, dataFimMes)) return null;
+      const chave = `${aluno.id}-${mes}`;
+      let totalDias, faltas;
+      if(chave in mapaHistorico){ totalDias = base; faltas = mapaHistorico[chave]; }
+      else if(mes <= mesAtualNum){ totalDias = Math.max(0, base - (outrosAoVivo[chave] || 0)); faltas = faltasAoVivo[chave] || 0; }
+      else return null;
+      if(!totalDias) return null;
+      return Math.max(0, Math.round(((totalDias - faltas) / totalDias) * 100));
+    };
+
+    const nomeTurma = (a) => { const t = ESTADO.turmas.find(x => x.id === a.turma_id); return t ? `${t.nome} · ${t.turno || ''}` : '—'; };
+    const linhasDados = alunos.map(a => ({ aluno: a, p1: percentualMes(a, mes1), p2: percentualMes(a, mes2) }))
+      .filter(r => (r.p1 !== null && r.p1 <= 75) || (r.p2 !== null && r.p2 <= 75))
+      .sort((x, y) => x.aluno.nome.localeCompare(y.aluno.nome, 'pt-BR'));
+
+    if(!linhasDados.length){ msgEl.innerHTML = `<div class="msg-ok">Nenhum estudante com frequência igual ou abaixo de 75% em ${MESES_EXTENSO[mes1-1]} ou ${MESES_EXTENSO[mes2-1]} de ${ano}. 🎉</div>`; return; }
+
+    const celula = (p) => p === null
+      ? `<td style="text-align:center;color:#888;">—</td>`
+      : `<td style="text-align:center;font-weight:700;${p <= 75 ? 'background:#F6C6C0;color:#7A1E12;' : ''}">${p}%</td>`;
+    const linhasHtml = linhasDados.map((r, i) => `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="padding-left:8px;">${esc(r.aluno.nome)}${anotacaoSituacaoAluno(r.aluno)}</td>
+      <td style="padding-left:6px;white-space:nowrap;">${esc(nomeTurma(r.aluno))}</td>
+      ${celula(r.p1)}${celula(r.p2)}
+    </tr>`).join('');
+    const turmaSel = turmaId ? ESTADO.turmas.find(t => t.id === turmaId) : null;
+    const aviso = semDias.length === 1 ? `<p style="font-size:10px;color:#7A1E12;">Atenção: os dias letivos de ${MESES_EXTENSO[semDias[0]-1]} não estão cadastrados; esse mês aparece como "—".</p>` : '';
+
+    const janela = window.open('', '_blank');
+    janela.document.write(`
+      <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+      <title>Baixa Frequência - ${MESES_EXTENSO[mes1-1]} e ${MESES_EXTENSO[mes2-1]} ${ano}</title>
+      <style>
+        @page{ size: A4; margin: 10mm; }
+        *{ box-sizing:border-box; }
+        body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;}
+        table.lista{width:100%;border-collapse:collapse;}
+        table.lista thead th{background:#15325C;color:#fff;font-size:11px;text-transform:uppercase;padding:6px 4px;border:1px solid #15325C;}
+        table.lista tbody td{padding:6px 4px;border:1px solid #000;}
+        table.lista thead{display:table-header-group;}
+        table.lista tr{page-break-inside:avoid;}
+        @media print{ body{-webkit-print-color-adjust:exact;} }
+      </style></head><body>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:2px;"><tr>
+          <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:52px;height:52px;" /></td>
+          <td style="text-align:center;">
+            <div style="font-size:15px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+            <div style="font-size:14px;font-weight:800;margin-top:2px;">ESTUDANTES COM FREQUÊNCIA ≤ 75% — ${ano}</div>
+          </td>
+          <td style="width:64px;text-align:right;"><img src="${LOGO_DATA_URL}" style="width:52px;height:52px;" /></td>
+        </tr></table>
+        <div style="text-align:center;font-size:13px;font-weight:700;color:#B4432E;margin:4px 0 4px;">${MESES_EXTENSO[mes1-1]} e ${MESES_EXTENSO[mes2-1]}${turmaSel ? ' · ' + esc(turmaSel.nome) + ' · ' + esc(turmaSel.turno || '') : ''}</div>
+        <p style="text-align:center;font-size:10.5px;color:#555;margin:0 0 10px;">${linhasDados.length} estudante(s) com frequência igual ou abaixo de 75% em pelo menos um dos meses · Sistema Presença · emitido em ${fmtData(hojeISO())}</p>
+        ${aviso}
+        <table class="lista">
+          <thead><tr>
+            <th style="width:6%;">Nº</th><th>Estudante</th><th style="width:22%;">Turma</th>
+            <th style="width:12%;">${MESES_EXTENSO[mes1-1].slice(0,3)}</th><th style="width:12%;">${MESES_EXTENSO[mes2-1].slice(0,3)}</th>
+          </tr></thead>
+          <tbody>${linhasHtml}</tbody>
+        </table>
+      </body></html>`);
+    janela.document.close();
+    janela.focus();
+    setTimeout(() => janela.print(), 400);
+    msgEl.innerHTML = `<div class="msg-ok">${linhasDados.length} estudante(s) na lista.</div>`;
+  } catch(err){
+    msgEl.innerHTML = `<div class="msg-erro">${esc(err.message || String(err))}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = textoOriginal;
+  }
 }
 
 function renderizarRelAEE(el){
