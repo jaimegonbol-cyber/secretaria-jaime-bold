@@ -310,6 +310,23 @@ function hojeISO(){
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+
+// Quem assina os documentos pela gestão: Gestor(a) ou Vice-Gestor(a). A escolha é lembrada na sessão (ESTADO.docAssinatura).
+const GESTAO_ASSINATURA = {
+  gestora: { nome: 'Rosineide de Araújo Santos Vieira', cargo: 'Gestora Escolar', matricula: '11.206' },
+  vice:    { nome: 'Lívio Charlles Rembrandt de Santana', cargo: 'Vice-Gestor Escolar', matricula: '11.509' },
+};
+function gestaoAssinante(tipo){ return GESTAO_ASSINATURA[tipo || ESTADO.docAssinatura] || GESTAO_ASSINATURA.gestora; }
+function htmlSeletorGestaoDoc(id){
+  return `<select id="${id}" style="width:auto;">
+    <option value="gestora" ${ESTADO.docAssinatura!=='vice'?'selected':''}>Assina: Gestora — Rosineide</option>
+    <option value="vice" ${ESTADO.docAssinatura==='vice'?'selected':''}>Assina: Vice-Gestor — Lívio</option>
+  </select>`;
+}
+function ligarSeletorGestaoDoc(id){
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('change', e => { ESTADO.docAssinatura = e.target.value; });
+}
 // Mesma ideia de hojeISO(), mas pra converter um Date qualquer (não só "agora") — usado em
 // laços que percorrem um intervalo de datas dia a dia.
 function dataObjParaISO(d){
@@ -1970,6 +1987,7 @@ async function abrirFichaAluno(id){
       <div id="ficha-responsaveis"><p style="color:var(--texto-suave);font-size:13px;">Carregando…</p></div>
       <div style="margin-top:22px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
         <button class="botao secundario pequeno" data-fechar>Fechar</button>
+        ${htmlSeletorGestaoDoc('ficha-assinatura-gestao')}
         <button class="botao secundario pequeno" data-imprimir-ficha>🖨️ Imprimir ficha</button>
         <button class="botao secundario pequeno" data-imprimir-autorizacoes>🖨️ Autorizações</button>
         <button class="botao terracota pequeno" data-editar-ficha>Editar</button>
@@ -1979,6 +1997,7 @@ async function abrirFichaAluno(id){
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
   modal.querySelector('[data-editar-ficha]').addEventListener('click', () => { modal.remove(); abrirModalAluno(a); });
+  ligarSeletorGestaoDoc('ficha-assinatura-gestao');
   modal.querySelector('[data-imprimir-ficha]').addEventListener('click', () => imprimirFichaMatricula(a));
   modal.querySelector('[data-imprimir-autorizacoes]').addEventListener('click', () => imprimirAutorizacoes(a));
 
@@ -2162,7 +2181,7 @@ async function imprimirFichaMatricula(a){
 
       <div class="assinaturas">
         <div>Estudante ou responsável legal</div>
-        <div>Gestor(a) escolar</div>
+        <div>${esc(gestaoAssinante().cargo)}<br/>${esc(gestaoAssinante().nome)}</div>
       </div>
 
       <div class="barra-titulo" style="font-size:13px;margin-top:22px;">Situação após matrícula</div>
@@ -7340,6 +7359,7 @@ async function renderizarBancoHistorico(conteudo, elPai, contexto){
     <table><thead><tr><th>Ano</th><th>Série</th><th>Unidade de Ensino</th><th>Progressão</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
       <button class="botao secundario pequeno" id="btn-novo-ano" style="width:auto;">+ Novo ano letivo</button>
+      ${htmlSeletorGestaoDoc('he-assinatura-gestao')}
       <button class="botao terracota pequeno" id="btn-gerar-historico" style="width:auto;">Gerar Histórico Escolar</button>
     </div>
     <div id="he-form" style="margin-top:14px;"></div>
@@ -7359,6 +7379,7 @@ async function renderizarBancoHistorico(conteudo, elPai, contexto){
     </div>
   `;
 
+  ligarSeletorGestaoDoc('he-assinatura-gestao');
   document.getElementById('btn-novo-ano').addEventListener('click', () => {
     exibirFormularioAno(document.getElementById('he-form'), null, conteudo, elPai, { alunoId, arquivoMortoId });
   });
@@ -7864,7 +7885,7 @@ async function gerarHistoricoEscolarDocumento(aluno, anos){
       <p class="doc-data">Paulista, ${dataPorExtenso(hojeISO())}.</p>
       <div class="assinaturas-duplas">
         <div>Rosemary Martins Feitosa<br/>Matrícula: 10.577<br/>Secretário(a) Escolar</div>
-        <div>Rosineide de Araújo S. Vieira<br/>Matrícula: 11.206<br/>Gestor(a) Escolar</div>
+        <div>${esc(gestaoAssinante().nome)}<br/>Matrícula: ${gestaoAssinante().matricula}<br/>${esc(gestaoAssinante().cargo)}</div>
       </div>
       </div>
     </body></html>
@@ -9057,7 +9078,7 @@ function montarMeioComunicadoOcorrencia(r, aluno, turma, listaTipos, comparecime
       <p style="text-align:right;margin:10px 0 20px;font-size:11px;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
       <div style="text-align:center;font-size:10.5px;">
         <div style="border-top:1px solid #333;width:220px;margin:0 auto 4px;"></div>
-        <p style="margin:0;line-height:1.3;">Direção Escolar — Escola Municipal Jaime Gonçalves Bold</p>
+        <p style="margin:0;line-height:1.3;"><b>${esc(gestaoAssinante().nome)}</b><br/>${esc(gestaoAssinante().cargo)} — Escola Municipal Jaime Gonçalves Bold</p>
       </div>
 
       <div style="margin-top:14px;border-top:1px dashed #999;padding-top:8px;font-size:10.5px;">
@@ -9148,11 +9169,13 @@ async function abrirModalGerarComunicadoOcorrencia(registro, alunoPrincipal){
         <div class="campo"><label>Horário (opcional)</label><input type="time" id="comunicado-horario" /></div>
       </div>
       <p style="font-size:11.5px;color:var(--texto-suave);margin:-6px 0 12px;">Se deixar em branco, o comunicado usa o texto padrão ("no prazo de até 2 dias letivos") em vez de um dia marcado.</p>
+      <div class="campo" style="margin-bottom:12px;"><label>Assinatura da gestão</label>${htmlSeletorGestaoDoc('comunicado-assinatura-gestao').replace('width:auto;','width:100%;')}</div>
       <button class="botao terracota" id="btn-confirmar-comunicado" style="width:100%;">🖨️ Gerar comunicado(s)</button>
     </div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  ligarSeletorGestaoDoc('comunicado-assinatura-gestao');
   document.getElementById('btn-confirmar-comunicado').addEventListener('click', () => {
     const comparecimento = {
       data: document.getElementById('comunicado-data').value || null,
@@ -10924,20 +10947,26 @@ function abrirModalImprimirGabarito(gabarito){
 // Monta o conteúdo compacto de UMA folha (meia página) com a grade de alternativas A-E por questão.
 // Monta o conteúdo compacto de UM quadrante (1/4 da folha) com a grade de alternativas A-E.
 function montarQuadranteGabarito(gabarito, aluno){
-  const circulo = `<span style="display:inline-block;width:11px;height:11px;border:1.3px solid #000;border-radius:50%;flex-shrink:0;"></span>`;
+  // Tamanho adaptável: poucas questões => marcações e letras maiores; muitas => reduz para caber no quadrante.
+  const n = Math.max(1, gabarito.questoes.length);
+  const alturaLinha = Math.min(38, Math.floor(450 / n));
+  const diametro = Math.max(11, Math.min(24, Math.round(alturaLinha * 0.66)));
+  const fonteLetra = Math.max(12.5, Math.min(22, Math.round(alturaLinha * 0.58)));
+  const fonteNumero = Math.max(10, Math.min(16, Math.round(alturaLinha * 0.42)));
+  const circulo = `<span style="display:inline-block;width:${diametro}px;height:${diametro}px;border:1.6px solid #000;border-radius:50%;flex-shrink:0;"></span>`;
   const linhasQuestoes = gabarito.questoes.map(q => `
-    <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px;">
-      <span style="font-weight:700;font-size:10px;min-width:16px;">${q.numero}.</span>
-      ${LETRAS_GABARITO.map(l => `<span style="display:flex;align-items:center;gap:3px;font-size:12.5px;font-weight:600;">${circulo}${l}</span>`).join('')}
+    <div style="display:flex;align-items:center;gap:${Math.round(diametro*0.55)}px;height:${alturaLinha}px;">
+      <span style="font-weight:700;font-size:${fonteNumero}px;min-width:${Math.round(fonteNumero*2)}px;">${q.numero}.</span>
+      ${LETRAS_GABARITO.map(l => `<span style="display:flex;align-items:center;gap:4px;font-size:${fonteLetra}px;font-weight:700;">${circulo}${l}</span>`).join('')}
     </div>`).join('');
   return `
       <div style="text-align:center;margin-bottom:4px;">
-        <div style="font-weight:700;font-size:10.5px;">Escola Municipal Jaime Gonçalves Bold</div>
-        <div style="font-weight:700;font-size:12px;text-transform:uppercase;">${esc(gabarito.titulo)}</div>
-        ${gabarito.disciplina ? `<p style="font-size:9px;color:#555;margin:1px 0 0;">${esc(gabarito.disciplina)}</p>` : ''}
+        <div style="font-weight:700;font-size:11.5px;">Escola Municipal Jaime Gonçalves Bold</div>
+        <div style="font-weight:700;font-size:14px;text-transform:uppercase;">${esc(gabarito.titulo)}</div>
+        ${gabarito.disciplina ? `<p style="font-size:10.5px;color:#555;margin:1px 0 0;">${esc(gabarito.disciplina)}</p>` : ''}
       </div>
-      <div style="font-size:10px;margin:4px 0 2px;"><b>Nome:</b> ${aluno ? esc(aluno.nome) : '_______________________________'}</div>
-      <div style="font-size:10px;margin:0 0 6px;"><b>Data:</b> ____/____/______</div>
+      <div style="font-size:12px;margin:6px 0 3px;"><b>Nome:</b> ${aluno ? esc(aluno.nome) : '_______________________________'}</div>
+      <div style="font-size:12px;margin:0 0 8px;"><b>Data:</b> ____/____/______</div>
       ${linhasQuestoes}`;
 }
 
