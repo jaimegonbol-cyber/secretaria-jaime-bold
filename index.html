@@ -917,7 +917,7 @@ function renderizarPainel(el){
     { n: transferidos, l: 'Transferidos', cor: '#6B7280' },
     { n: cancelados, l: 'Cancelados', cor: '#B4432E' },
     { n: aee, l: 'AEE', cor: '#B4791F' },
-    { n: turmasAnoAtual().length, l: 'Turmas ativas (máx. ' + MAX_TURMAS_POR_TURNO + '/turno · Manhã ' + turmasAnoAtual().filter(t=>t.turno==='MANHÃ').length + ' · Tarde ' + turmasAnoAtual().filter(t=>t.turno==='TARDE').length + ')', cor: '#2E6BB8' },
+    { n: turmasAnoAtual().length, l: 'Turmas ativas (Manhã ' + turmasAnoAtual().filter(t=>t.turno==='MANHÃ').length + ' · Tarde ' + turmasAnoAtual().filter(t=>t.turno==='TARDE').length + ')', cor: '#2E6BB8' },
     { n: infantil, l: 'Ed. Infantil', cor: '#2E6BB8' },
     { n: anosIniciais, l: 'Anos Iniciais', cor: '#1F4573' },
     { n: anosFinais, l: 'Anos Finais', cor: '#B4432E' },
