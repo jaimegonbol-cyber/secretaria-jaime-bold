@@ -850,6 +850,17 @@ function anoLetivoAtual(){
   const anos = Array.from(new Set(ESTADO.turmas.map(t => t.ano_letivo))).sort((a,b) => b-a);
   return anos[0] || new Date().getFullYear();
 }
+const MAX_TURMAS_POR_TURNO = 10;
+function excedeLimiteTurmas(novas, ignorarId){
+  // novas: [{turno, ano_letivo}] -> retorna mensagem de erro ou null
+  const cont = {};
+  (ESTADO.turmas||[]).forEach(t => { if(t.id===ignorarId) return; const k=t.ano_letivo+'|'+t.turno; cont[k]=(cont[k]||0)+1; });
+  for(const n of novas){
+    const k=n.ano_letivo+'|'+n.turno; cont[k]=(cont[k]||0)+1;
+    if(cont[k]>MAX_TURMAS_POR_TURNO) return `Limite atingido: a escola pode ter no máximo ${MAX_TURMAS_POR_TURNO} turmas por turno (${n.turno} de ${n.ano_letivo}).`;
+  }
+  return null;
+}
 function turmasAnoAtual(){
   return ESTADO.turmas.filter(t => t.ano_letivo === anoLetivoAtual());
 }
@@ -906,7 +917,7 @@ function renderizarPainel(el){
     { n: transferidos, l: 'Transferidos', cor: '#6B7280' },
     { n: cancelados, l: 'Cancelados', cor: '#B4432E' },
     { n: aee, l: 'AEE', cor: '#B4791F' },
-    { n: ESTADO.turmas.length, l: 'Turmas ativas', cor: '#2E6BB8' },
+    { n: turmasAnoAtual().length, l: 'Turmas ativas (máx. ' + MAX_TURMAS_POR_TURNO + '/turno · Manhã ' + turmasAnoAtual().filter(t=>t.turno==='MANHÃ').length + ' · Tarde ' + turmasAnoAtual().filter(t=>t.turno==='TARDE').length + ')', cor: '#2E6BB8' },
     { n: infantil, l: 'Ed. Infantil', cor: '#2E6BB8' },
     { n: anosIniciais, l: 'Anos Iniciais', cor: '#1F4573' },
     { n: anosFinais, l: 'Anos Finais', cor: '#B4432E' },
@@ -2538,6 +2549,8 @@ function abrirModalEditarTurma(turma){
     const turno = document.getElementById('turma-turno').value;
     const ano_letivo = parseInt(document.getElementById('turma-ano').value, 10) || 2026;
     const btn = document.getElementById('btn-salvar-turma');
+    const erroLimite = excedeLimiteTurmas([{ turno, ano_letivo }], editando ? turma.id : null);
+    if(erroLimite){ document.getElementById('msg-turma').innerHTML = `<div class="msg-erro">${esc(erroLimite)}</div>`; return; }
     btn.disabled = true; btn.textContent = 'Salvando…';
     const { error } = editando
       ? await supabase.from('turmas').update({ nome, ensino, turno, ano_letivo }).eq('id', turma.id)
@@ -3150,6 +3163,8 @@ function renderizarRenovacaoTurma(alvo, el, anoOrigem, anoDestino, turmasOrigem,
       const turno = linha.querySelector('.campo-turno-turma-destino').value;
       return { nome, turno, ensino: ensinoParaNomeTurma(nome), ano_letivo: anoDestino };
     }).filter(t => t.nome);
+    const erroLimite = excedeLimiteTurmas(novasTurmas);
+    if(erroLimite){ btn.disabled = false; btn.textContent = `+ Criar turmas marcadas para ${anoDestino}`; msg.innerHTML = `<div class="msg-erro">${esc(erroLimite)}</div>`; return; }
     const { error } = await supabase.from('turmas').insert(novasTurmas);
     btn.disabled = false; btn.textContent = `+ Criar turmas marcadas para ${anoDestino}`;
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
