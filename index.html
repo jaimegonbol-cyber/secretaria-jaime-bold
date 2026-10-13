@@ -3925,7 +3925,15 @@ async function carregarFrequenciaFuncionariosDia(el){
         <select class="sel-tipo-justificativa" style="width:auto;padding:6px 8px;font-size:12.5px;">
           ${TIPOS_JUSTIFICATIVA_FUNCIONARIO.map(([chave,nome]) => `<option value="${chave}" ${r.tipo_justificativa===chave?'selected':''}>${nome}</option>`).join('')}
         </select>
-        <input type="number" min="1" class="input-dias-atestado" placeholder="Dias" value="${r.quantidade_dias_atestado||''}" style="width:70px;padding:6px 8px;font-size:12.5px;display:${(r.tipo_justificativa||'atestado')==='atestado'?'':'none'};" />
+        <div class="campos-atestado" style="display:${(r.tipo_justificativa||'atestado')==='atestado'?'flex':'none'};gap:8px;align-items:center;">
+          <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Início
+            <input type="date" class="input-inicio-atestado" value="${r.data_inicio_licenca || ESTADO.freqFuncData}" style="padding:6px 8px;font-size:12.5px;" />
+          </label>
+          <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Qtde. dias
+            <input type="number" min="1" max="365" class="input-dias-atestado" placeholder="Dias" value="${(r.status==='falta_justificada' && r.quantidade_dias_licenca) || r.quantidade_dias_atestado || ''}" style="width:70px;padding:6px 8px;font-size:12.5px;" />
+          </label>
+          ${r.status === 'falta_justificada' && (r.tipo_justificativa||'atestado')==='atestado' && r.dias_restantes_licenca ? `<span class="pill azul" style="font-size:10.5px;">${r.dias_restantes_licenca} dia(s) restante(s)</span>` : ''}
+        </div>
       </div>
       <div class="campos-licenca" style="display:${status==='licenca'?'flex':'none'};gap:8px;align-items:center;">
         <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Início
@@ -3955,7 +3963,8 @@ async function carregarFrequenciaFuncionariosDia(el){
     }));
     if(selTipo && inputDias){
       selTipo.addEventListener('change', () => {
-        inputDias.style.display = selTipo.value === 'atestado' ? '' : 'none';
+        const ca = linha.querySelector('.campos-atestado');
+        if(ca) ca.style.display = selTipo.value === 'atestado' ? 'flex' : 'none';
       });
     }
   });
@@ -3979,7 +3988,26 @@ async function carregarFrequenciaFuncionariosDia(el){
         const dias = (status === 'falta_justificada' && tipoJustificativa === 'atestado' && inputDias.value)
           ? parseInt(inputDias.value, 10) : null;
 
-        if(status === 'licenca'){
+        if(status === 'falta_justificada' && tipoJustificativa === 'atestado' && dias){
+          // atestado conta os dias igual à licença médica: um registro por dia, com contagem regressiva
+          const dataInicio = linha.querySelector('.input-inicio-atestado').value || ESTADO.freqFuncData;
+          const dataBase = new Date(dataInicio + 'T00:00:00');
+          for(let i=0;i<dias;i++){
+            const d = new Date(dataBase); d.setDate(d.getDate()+i);
+            dadosSalvar.push({
+              funcionario_id: funcionarioId,
+              data: dataObjParaISO(d),
+              status: 'falta_justificada',
+              tipo_justificativa: 'atestado',
+              quantidade_dias_atestado: 1, // cada dia conta 1 nos relatórios
+              data_inicio_licenca: dataInicio,
+              quantidade_dias_licenca: dias,
+              dias_restantes_licenca: dias - i,
+              registrado_por: ESTADO.perfil.id,
+              atualizado_em: new Date().toISOString(),
+            });
+          }
+        } else if(status === 'licenca'){
           const dataInicio = inputInicioLicenca.value || ESTADO.freqFuncData;
           const nDias = parseInt(inputDiasLicenca.value, 10) || 1;
           const dataBase = new Date(dataInicio + 'T00:00:00');
@@ -4104,7 +4132,7 @@ async function gerarRelatorioFrequenciaFuncionarios(){
     const semExpediente = !temExpediente(f);
     const statusTxt = semExpediente ? 'SEM EXPEDIENTE' : (!r ? '—' : (r.status === 'presente' ? 'PRESENTE' : r.status === 'falta' ? 'FALTA' :
       r.status === 'licenca' ? `LICENÇA (${r.dias_restantes_licenca||'?'}/${r.quantidade_dias_licenca||'?'} dias restantes)` :
-      `FALTA JUST. (${rotuloJustificativaFuncionario(r.tipo_justificativa)}${r.quantidade_dias_atestado ? ' · '+r.quantidade_dias_atestado+'d' : ''})`));
+      `FALTA JUST. (${rotuloJustificativaFuncionario(r.tipo_justificativa)}${r.dias_restantes_licenca && r.quantidade_dias_licenca ? ' · '+r.dias_restantes_licenca+'/'+r.quantidade_dias_licenca+' dias restantes' : (r.quantidade_dias_atestado ? ' · '+r.quantidade_dias_atestado+'d' : '')})`));
     const cor = semExpediente ? '#999' : (!r ? '#999' : (r.status === 'presente' ? '#1f6b39' : r.status === 'falta' ? '#b4432e' : r.status === 'licenca' ? '#1f4f8b' : '#9a5b12'));
     return `<tr>
       <td style="text-align:left;padding-left:6px;">${esc(f.nome)}</td>
