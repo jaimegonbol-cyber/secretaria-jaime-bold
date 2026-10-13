@@ -3731,19 +3731,19 @@ function imprimirRelacaoFuncionarios(idsSelecionados, chavesColunas){
   janela.focus();
 }
 
-const TIPOS_LICENCA_FUNCIONARIO = [
+const TIPOS_JUSTIFICATIVA_FUNCIONARIO = [
+  ['atestado_medico', 'Atestado Médico'],
   ['licenca_medica', 'Licença Médica'],
   ['licenca_curso', 'Licença Curso'],
-  ['atestado_medico', 'Atestado Médico'],
-];
-const TIPOS_JUSTIFICATIVA_FUNCIONARIO = [
-  ['atestado', 'Atestado'],
   ['declaracao', 'Declaração'],
   ['formacao', 'Formação'],
   ['assembleia', 'Assembleia'],
   ['tre', 'TRE'],
   ['outros', 'Outros'],
+  ['atestado', 'Atestado (antigo)'],
 ];
+// tipos que contam vários dias com contagem regressiva
+const TIPOS_MULTIDIA_FUNCIONARIO = ['atestado_medico','licenca_medica','licenca_curso'];
 function rotuloJustificativaFuncionario(chave){
   const item = TIPOS_JUSTIFICATIVA_FUNCIONARIO.find(([c]) => c === chave);
   return item ? item[1] : (chave || '—');
@@ -3898,7 +3898,8 @@ async function carregarFrequenciaFuncionariosDia(el){
     </p>
   ` + ativos.map(f => {
     const r = porFuncionario[f.id] || {};
-    const status = r.status || 'presente';
+    const status = r.status === 'licenca' ? 'falta_justificada' : (r.status || 'presente');
+    const tipoAtual = r.tipo_justificativa || 'atestado_medico';
     const seguirDiaUtil = funcionarioSegueDiaUtil(f);
     const bloqueadoPorSuspensao = ehSuspensao && turnoAfetaSuspensao(f.turno, feriadoData.turno_afetado);
     const emFerias = funcionarioEmFerias(f.id, ESTADO.freqFuncData, feriasNoDia);
@@ -3924,26 +3925,20 @@ async function carregarFrequenciaFuncionariosDia(el){
         <button type="button" class="botao-status ${status==='presente'?'ativo verde':''}" data-status="presente" style="width:auto;padding:6px 12px;font-size:12.5px;">Presente</button>
         <button type="button" class="botao-status ${status==='falta'?'ativo vermelho':''}" data-status="falta" style="width:auto;padding:6px 12px;font-size:12.5px;">Falta</button>
         <button type="button" class="botao-status ${status==='falta_justificada'?'ativo laranja':''}" data-status="falta_justificada" style="width:auto;padding:6px 12px;font-size:12.5px;">Falta Justificada</button>
-        <button type="button" class="botao-status ${status==='licenca'?'ativo azul':''}" data-status="licenca" style="width:auto;padding:6px 12px;font-size:12.5px;">Licença</button>
       </div>
-      <div class="campos-justificativa" style="display:${status==='falta_justificada'?'flex':'none'};gap:8px;align-items:center;">
+      <div class="campos-justificativa" style="display:${status==='falta_justificada'?'flex':'none'};gap:8px;align-items:center;flex-wrap:wrap;">
         <select class="sel-tipo-justificativa" style="width:auto;padding:6px 8px;font-size:12.5px;">
-          ${TIPOS_JUSTIFICATIVA_FUNCIONARIO.map(([chave,nome]) => `<option value="${chave}" ${r.tipo_justificativa===chave?'selected':''}>${nome}</option>`).join('')}
+          ${TIPOS_JUSTIFICATIVA_FUNCIONARIO.filter(([c]) => c !== 'atestado' || r.tipo_justificativa === 'atestado').map(([chave,nome]) => `<option value="${chave}" ${tipoAtual===chave?'selected':''}>${nome}</option>`).join('')}
         </select>
-      </div>
-      <div class="campos-licenca" style="display:${status==='licenca'?'flex':'none'};gap:8px;align-items:center;">
-        <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Tipo
-          <select class="sel-tipo-licenca" style="width:auto;padding:6px 8px;font-size:12.5px;">
-            ${TIPOS_LICENCA_FUNCIONARIO.map(([chave,nome]) => `<option value="${chave}" ${(r.status==='licenca' ? (r.tipo_justificativa||'licenca_medica') : 'licenca_medica')===chave?'selected':''}>${nome}</option>`).join('')}
-          </select>
-        </label>
-        <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Início
-          <input type="date" class="input-inicio-licenca" value="${r.data_inicio_licenca || ESTADO.freqFuncData}" style="padding:6px 8px;font-size:12.5px;" />
-        </label>
-        <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Qtde. dias
-          <input type="number" min="1" max="365" class="input-dias-licenca" placeholder="Dias" value="${r.quantidade_dias_licenca||''}" style="width:70px;padding:6px 8px;font-size:12.5px;" />
-        </label>
-        ${r.status === 'licenca' && r.dias_restantes_licenca ? `<span class="pill azul" style="font-size:10.5px;">${r.dias_restantes_licenca} dia(s) restante(s)</span>` : ''}
+        <div class="campos-multidia" style="display:${TIPOS_MULTIDIA_FUNCIONARIO.includes(tipoAtual)?'flex':'none'};gap:8px;align-items:center;">
+          <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Início
+            <input type="date" class="input-inicio-licenca" value="${r.data_inicio_licenca || ESTADO.freqFuncData}" style="padding:6px 8px;font-size:12.5px;" />
+          </label>
+          <label style="font-size:11px;color:var(--texto-suave);display:flex;flex-direction:column;gap:2px;">Qtde. dias
+            <input type="number" min="1" max="365" class="input-dias-licenca" placeholder="Dias" value="${r.quantidade_dias_licenca||''}" style="width:70px;padding:6px 8px;font-size:12.5px;" />
+          </label>
+          ${r.dias_restantes_licenca && TIPOS_MULTIDIA_FUNCIONARIO.includes(tipoAtual) ? `<span class="pill azul" style="font-size:10.5px;">${r.dias_restantes_licenca} dia(s) restante(s)</span>` : ''}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -3951,7 +3946,6 @@ async function carregarFrequenciaFuncionariosDia(el){
   listaEl.querySelectorAll('.linha-freq-func').forEach(linha => {
     const botoes = linha.querySelectorAll('.botao-status');
     const camposJustif = linha.querySelector('.campos-justificativa');
-    const camposLicenca = linha.querySelector('.campos-licenca');
     const selTipo = linha.querySelector('.sel-tipo-justificativa');
     const inputDias = linha.querySelector('.input-dias-atestado');
     botoes.forEach(b => b.addEventListener('click', () => {
@@ -3960,8 +3954,11 @@ async function carregarFrequenciaFuncionariosDia(el){
       b.classList.add('ativo', st==='presente'?'verde':(st==='falta'?'vermelho':(st==='licenca'?'azul':'laranja')));
       linha.dataset.statusAtual = st;
       camposJustif.style.display = st === 'falta_justificada' ? 'flex' : 'none';
-      if(camposLicenca) camposLicenca.style.display = st === 'licenca' ? 'flex' : 'none';
     }));
+    if(selTipo){
+      const camposMulti = linha.querySelector('.campos-multidia');
+      selTipo.addEventListener('change', () => { if(camposMulti) camposMulti.style.display = TIPOS_MULTIDIA_FUNCIONARIO.includes(selTipo.value) ? 'flex' : 'none'; });
+    }
   });
 
   const btnSalvar = document.getElementById('btn-salvar-freq-func');
@@ -3976,14 +3973,12 @@ async function carregarFrequenciaFuncionariosDia(el){
         const status = linha.dataset.statusAtual || 'presente';
         const funcionarioId = linha.dataset.funcId;
         const selTipo = linha.querySelector('.sel-tipo-justificativa');
-        const inputDias = linha.querySelector('.input-dias-atestado');
         const inputInicioLicenca = linha.querySelector('.input-inicio-licenca');
         const inputDiasLicenca = linha.querySelector('.input-dias-licenca');
         const tipoJustificativa = status === 'falta_justificada' ? selTipo.value : null;
         const dias = null;
-        const tipoLicenca = linha.querySelector('.sel-tipo-licenca');
 
-        if(status === 'licenca'){
+        if(status === 'falta_justificada' && TIPOS_MULTIDIA_FUNCIONARIO.includes(tipoJustificativa)){
           const dataInicio = inputInicioLicenca.value || ESTADO.freqFuncData;
           const nDias = parseInt(inputDiasLicenca.value, 10) || 1;
           const dataBase = new Date(dataInicio + 'T00:00:00');
@@ -3994,8 +3989,9 @@ async function carregarFrequenciaFuncionariosDia(el){
             dadosSalvar.push({
               funcionario_id: funcionarioId,
               data: dataObjParaISO(d),
-              status: 'licenca',
-              tipo_justificativa: tipoLicenca ? tipoLicenca.value : 'licenca_medica',
+              status: 'falta_justificada',
+              tipo_justificativa: tipoJustificativa,
+              quantidade_dias_atestado: 1,
               data_inicio_licenca: dataInicio,
               quantidade_dias_licenca: nDias,
               dias_restantes_licenca: nDias - i,
@@ -4074,7 +4070,8 @@ async function gerarRelatorioFrequenciaFuncionarios(){
       porCategoria[chave].faltasJustificadas++;
       const tipo = r.tipo_justificativa || 'outros';
       porCategoria[chave].justificativas[tipo] = (porCategoria[chave].justificativas[tipo]||0) + 1;
-      if(tipo === 'atestado' && r.quantidade_dias_atestado) porCategoria[chave].diasAtestado += r.quantidade_dias_atestado;
+      if(tipo === 'atestado_medico') porCategoria[chave].diasAtestado++;
+      else if(tipo === 'atestado' && r.quantidade_dias_atestado) porCategoria[chave].diasAtestado += r.quantidade_dias_atestado;
     }
   });
 
@@ -4108,7 +4105,7 @@ async function gerarRelatorioFrequenciaFuncionarios(){
     const r = porFuncionarioId[f.id];
     const semExpediente = !temExpediente(f);
     const statusTxt = semExpediente ? 'SEM EXPEDIENTE' : (!r ? '—' : (r.status === 'presente' ? 'PRESENTE' : r.status === 'falta' ? 'FALTA' :
-      r.status === 'licenca' ? `${(TIPOS_LICENCA_FUNCIONARIO.find(([c])=>c===r.tipo_justificativa)||[0,'LICENÇA'])[1].toUpperCase()} (${r.dias_restantes_licenca||'?'}/${r.quantidade_dias_licenca||'?'} dias restantes)` :
+      r.status === 'licenca' ? `${(r.tipo_justificativa ? rotuloJustificativaFuncionario(r.tipo_justificativa) : 'Licença').toUpperCase()} (${r.dias_restantes_licenca||'?'}/${r.quantidade_dias_licenca||'?'} dias restantes)` :
       `FALTA JUST. (${rotuloJustificativaFuncionario(r.tipo_justificativa)}${r.dias_restantes_licenca && r.quantidade_dias_licenca ? ' · '+r.dias_restantes_licenca+'/'+r.quantidade_dias_licenca+' dias restantes' : (r.quantidade_dias_atestado ? ' · '+r.quantidade_dias_atestado+'d' : '')})`));
     const cor = semExpediente ? '#999' : (!r ? '#999' : (r.status === 'presente' ? '#1f6b39' : r.status === 'falta' ? '#b4432e' : r.status === 'licenca' ? '#1f4f8b' : '#9a5b12'));
     return `<tr>
@@ -4224,7 +4221,8 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       else if(r.status === 'licenca'){ licencas++; if(r.tipo_justificativa === 'atestado_medico') diasAtestado++; }
       else if(r.status === 'falta_justificada'){
         faltasJust++;
-        if(r.tipo_justificativa === 'atestado' && r.quantidade_dias_atestado) diasAtestado += r.quantidade_dias_atestado;
+        if(r.tipo_justificativa === 'atestado_medico') diasAtestado++;
+        else if(r.tipo_justificativa === 'atestado' && r.quantidade_dias_atestado) diasAtestado += r.quantidade_dias_atestado;
       }
     });
     return { f, comExpediente, presentes, faltas, faltasJust, diasAtestado, licencas, semRegistro };
@@ -6043,7 +6041,7 @@ async function renderizarChamada(el){
 
   conteudo.innerHTML = `
     ${registroEmMassa ? `<div class="msg-erro" style="margin-bottom:12px;">Este dia já tem um lançamento em massa registrado como <b>"${rotulosEmMassa[registroEmMassa.status] || registroEmMassa.status}"</b> (aplicado a todos os estudantes de uma vez, não pela chamada individual) — por isso nenhuma opção aparece marcada abaixo. Se você preencher e salvar a chamada individual agora, o registro de cada estudante marcado abaixo vai <b>substituir</b> esse lançamento em massa.</div>` : ''}
-    <datalist id="lista-motivos-just-aluno"><option value="Atestado Médico"></option><option value="Licença Médica"></option><option value="Licença Curso"></option><option value="Declaração"></option></datalist>
+    <datalist id="lista-motivos-just-aluno"><option value="Atestado Médico"></option></datalist>
     ${alunosTurma.length
       ? `<table style="font-size:13px;"><thead><tr><th style="padding:6px 12px;">Estudante</th><th style="padding:6px 12px;">Situação</th><th style="padding:6px 12px;">Nº dias (se justificada)</th><th style="padding:6px 12px;">Motivo (se justificada)</th></tr></thead><tbody>${linhas}</tbody></table>`
       : `<p style="color:var(--texto-suave);font-size:13.5px;">Nenhum estudante nessa turma.</p>`}
