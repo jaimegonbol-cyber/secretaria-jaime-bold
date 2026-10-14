@@ -3971,6 +3971,7 @@ const TIPOS_JUSTIFICATIVA_FUNCIONARIO = [
   ['atestado_medico', 'Atestado Médico'],
   ['licenca_medica', 'Licença Médica'],
   ['licenca_curso', 'Licença Curso'],
+  ['licenca_premio', 'Licença Prêmio'],
   ['declaracao', 'Declaração'],
   ['formacao', 'Formação'],
   ['assembleia', 'Assembleia'],
@@ -3979,7 +3980,7 @@ const TIPOS_JUSTIFICATIVA_FUNCIONARIO = [
   ['atestado', 'Atestado (antigo)'],
 ];
 // tipos que contam vários dias com contagem regressiva
-const TIPOS_MULTIDIA_FUNCIONARIO = ['atestado_medico','licenca_medica','licenca_curso'];
+const TIPOS_MULTIDIA_FUNCIONARIO = ['atestado_medico','licenca_medica','licenca_curso','licenca_premio'];
 function rotuloJustificativaFuncionario(chave){
   const item = TIPOS_JUSTIFICATIVA_FUNCIONARIO.find(([c]) => c === chave);
   return item ? item[1] : (chave || '—');
