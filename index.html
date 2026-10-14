@@ -8642,6 +8642,7 @@ function renderizarOcorrencias(el){
       <div class="barra" style="padding:10px 14px;flex-wrap:wrap;gap:12px;">
         <div class="campo" style="margin:0;min-width:220px;"><label>Turma</label><select id="oc-turma"><option value="">Todas as turmas</option>${opcoesTurmas}</select></div>
         <div class="campo" style="margin:0;min-width:260px;flex:1;"><label>Estudante</label><select id="oc-aluno"><option value="">Selecione o estudante</option>${opcoesAlunos}</select></div>
+        <button class="botao terracota" id="btn-nova-ocorrencia-topo" style="width:auto;align-self:flex-end;">+ Nova ocorrência</button>
       </div>
       <div id="oc-conteudo" style="padding:12px 14px;"></div>
     </div>`;
@@ -8654,6 +8655,39 @@ function renderizarOcorrencias(el){
     renderizarOcorrencias(el);
   });
   document.getElementById('oc-aluno').addEventListener('change', e => { ESTADO.ocorrenciasAlunoId = e.target.value; renderizarOcorrencias(el); });
+  document.getElementById('btn-nova-ocorrencia-topo').addEventListener('click', () => {
+    const abrirComAluno = (aluno) => {
+      ESTADO.ocorrenciasAlunoId = aluno.id;
+      renderizarOcorrencias(el);
+      abrirModalNovaOcorrencia(aluno, document.getElementById('oc-conteudo'), el);
+    };
+    if(ESTADO.ocorrenciasAlunoId){
+      const aluno = ESTADO.alunos.find(a => a.id === ESTADO.ocorrenciasAlunoId);
+      if(aluno){ abrirModalNovaOcorrencia(aluno, document.getElementById('oc-conteudo'), el); return; }
+    }
+    const modalSel = document.createElement('div');
+    modalSel.className = 'fundo-modal';
+    modalSel.innerHTML = `
+      <div class="modal" style="max-width:460px;">
+        <div class="modal-topo"><h3>Nova ocorrência</h3><button data-fechar>✕</button></div>
+        <div class="campo"><label>Estudante</label>
+          <input type="text" id="oc-novo-aluno" list="lista-alunos-oc-novo" placeholder="Digite o nome do estudante…" autocomplete="off" />
+          <datalist id="lista-alunos-oc-novo">${alunosFiltrados.map(a => `<option value="${esc(a.nome)}"></option>`).join('')}</datalist>
+        </div>
+        <div id="msg-oc-novo"></div>
+        <button class="botao terracota" id="btn-oc-novo-continuar" style="width:100%;margin-top:8px;">Continuar</button>
+      </div>`;
+    document.body.appendChild(modalSel);
+    modalSel.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modalSel.remove()));
+    modalSel.addEventListener('click', (e) => { if(e.target === modalSel) modalSel.remove(); });
+    document.getElementById('btn-oc-novo-continuar').addEventListener('click', () => {
+      const nome = document.getElementById('oc-novo-aluno').value.trim().toLowerCase();
+      const aluno = alunosFiltrados.find(a => a.nome.toLowerCase() === nome);
+      if(!aluno){ document.getElementById('msg-oc-novo').innerHTML = `<div class="msg-erro">Escolha um estudante da lista.</div>`; return; }
+      modalSel.remove();
+      abrirComAluno(aluno);
+    });
+  });
 
   const conteudo = document.getElementById('oc-conteudo');
   if(!ESTADO.ocorrenciasAlunoId){
