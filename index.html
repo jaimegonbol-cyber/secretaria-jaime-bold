@@ -2588,8 +2588,242 @@ const MOTIVOS_ARQUIVO_MORTO = [
 ];
 const TAMANHO_PAGINA_ARQUIVO_MORTO = 30;
 
+// ---------------------------------------------------------------
+// ARQUIVO INATIVO — FUNCIONÁRIOS + FICHA FUNCIONAL
+// ---------------------------------------------------------------
+const MOTIVOS_INATIVACAO_FUNCIONARIO = [
+  ['aposentadoria', 'Aposentadoria'],
+  ['exoneracao', 'Exoneração'],
+  ['transferencia', 'Transferência'],
+  ['fim_contrato', 'Fim de contrato'],
+  ['licenca_longa', 'Licença prolongada'],
+  ['outros', 'Outros'],
+];
+function rotuloMotivoInativacao(v){
+  const i = MOTIVOS_INATIVACAO_FUNCIONARIO.find(([c]) => c === v);
+  return i ? i[1] : (v || '—');
+}
+
+function htmlAbasArquivoInativo(aba){
+  return `<div class="subtabs" style="margin-bottom:12px;">
+    <button class="aba-cadastro ${aba!=='funcionarios'?'ativa':''}" data-aba-am="estudantes">Estudantes</button>
+    <button class="aba-cadastro ${aba==='funcionarios'?'ativa':''}" data-aba-am="funcionarios">Funcionários</button>
+  </div>`;
+}
+function ligarAbasArquivoInativo(el){
+  el.querySelectorAll('[data-aba-am]').forEach(b => b.addEventListener('click', () => {
+    ESTADO.arquivoMortoAba = b.dataset.abaAm;
+    renderizarArquivoMorto(el);
+  }));
+}
+
+function renderizarArquivoInativoFuncionarios(el){
+  const termo = (ESTADO.buscaArquivoFunc || '').trim().toLowerCase();
+  const inativos = ESTADO.funcionarios.filter(f => !f.ativo)
+    .filter(f => !termo || (f.nome||'').toLowerCase().includes(termo) || (f.funcao||'').toLowerCase().includes(termo))
+    .slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const totalInativos = ESTADO.funcionarios.filter(f => !f.ativo).length;
+  const ehAdmin = ESTADO.perfil.role === 'admin';
+
+  const linhas = inativos.map(f => `
+    <tr>
+      <td>${esc(f.nome)}</td>
+      <td>${esc(f.funcao || '—')}</td>
+      <td>${f.vinculo ? esc(rotuloVinculo(f.vinculo)) : '—'}</td>
+      <td>${esc(f.matricula || '—')}</td>
+      <td>${f.motivo_inativacao ? esc(rotuloMotivoInativacao(f.motivo_inativacao)) : '—'}</td>
+      <td>${f.data_inativacao ? fmtData(f.data_inativacao) : '—'}</td>
+      <td>${esc(f.pasta_arquivo || '—')}</td>
+      <td class="col-acoes" style="white-space:nowrap;">
+        <button class="btn-icone" data-ficha-func-am="${f.id}" title="Imprimir ficha funcional">🖨️</button>
+        <button class="btn-icone" data-ver-func-am="${f.id}" title="Ver cadastro">👁️</button>
+        <button class="btn-icone" data-editar-inativ-am="${f.id}" title="Editar dados do arquivo">✏️</button>
+        <button class="btn-icone" data-reativar-func-am="${f.id}" title="Reativar funcionário">↩️</button>
+      </td>
+    </tr>`).join('');
+
+  el.innerHTML = `
+    ${htmlAbasArquivoInativo('funcionarios')}
+    <div class="cabecalho-pagina">
+      <div><h2>Arquivo Inativo — Funcionários</h2><p>${totalInativos} funcionário(s) inativo(s) — ficha funcional e pasta física</p></div>
+      <button class="botao terracota pequeno" id="btn-inativar-func" style="width:auto;">+ Inativar funcionário</button>
+    </div>
+    <div class="painel">
+      <div class="barra"><input type="text" id="busca-arquivo-func" placeholder="Buscar por nome ou função…" value="${esc(ESTADO.buscaArquivoFunc || '')}" /></div>
+      ${inativos.length
+        ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nome</th><th>Função</th><th>Vínculo</th><th>Matrícula</th><th>Motivo</th><th>Data</th><th>Pasta</th><th class="col-acoes"></th></tr></thead><tbody>${linhas}</tbody></table></div>`
+        : `<div class="vazio">${totalInativos ? 'Nenhum resultado para a busca.' : 'Nenhum funcionário inativo. Use “+ Inativar funcionário” para mover um funcionário para o arquivo.'}</div>`}
+    </div>`;
+
+  ligarAbasArquivoInativo(el);
+  document.getElementById('busca-arquivo-func').addEventListener('input', (e) => {
+    ESTADO.buscaArquivoFunc = e.target.value; renderizarArquivoInativoFuncionarios(el); preservarFoco('busca-arquivo-func');
+  });
+  document.getElementById('btn-inativar-func').addEventListener('click', () => abrirModalInativarFuncionario(null, el));
+  const achar = id => ESTADO.funcionarios.find(f => f.id === id);
+  el.querySelectorAll('[data-ficha-func-am]').forEach(b => b.addEventListener('click', () => imprimirFichaFuncional(achar(b.dataset.fichaFuncAm))));
+  el.querySelectorAll('[data-ver-func-am]').forEach(b => b.addEventListener('click', () => abrirFichaFuncionario(achar(b.dataset.verFuncAm))));
+  el.querySelectorAll('[data-editar-inativ-am]').forEach(b => b.addEventListener('click', () => abrirModalInativarFuncionario(achar(b.dataset.editarInativAm), el)));
+  el.querySelectorAll('[data-reativar-func-am]').forEach(b => b.addEventListener('click', async () => {
+    const f = achar(b.dataset.reativarFuncAm);
+    if(!confirm(`Reativar ${f.nome}? Ele(a) volta para a lista de funcionários ativos.`)) return;
+    const { error } = await supabase.from('funcionarios').update({ ativo: true, data_inativacao: null, motivo_inativacao: null, pasta_arquivo: null }).eq('id', f.id);
+    if(error){ alert('Erro ao reativar: ' + error.message); return; }
+    await carregarDadosBase();
+    renderizarArquivoInativoFuncionarios(el);
+  }));
+}
+
+function abrirModalInativarFuncionario(funcExistente, el){
+  const editando = !!funcExistente;
+  const ativos = ESTADO.funcionarios.filter(f => f.ativo).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-topo"><h3>${editando ? 'Dados do arquivo — ' + esc(funcExistente.nome) : 'Inativar funcionário'}</h3><button data-fechar>✕</button></div>
+      ${editando ? '' : `<div class="campo"><label>Funcionário(a)</label>
+        <select id="inat-func"><option value="">Selecione…</option>${ativos.map(f => `<option value="${f.id}">${esc(f.nome)} — ${esc(f.funcao||'')}</option>`).join('')}</select></div>`}
+      <div class="campo"><label>Motivo</label>
+        <select id="inat-motivo">${MOTIVOS_INATIVACAO_FUNCIONARIO.map(([v,l]) => `<option value="${v}" ${editando && funcExistente.motivo_inativacao===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="campo"><label>Data da inativação</label>
+        <input type="date" id="inat-data" value="${editando && funcExistente.data_inativacao ? funcExistente.data_inativacao : hojeISO()}" /></div>
+      <div class="campo"><label>Pasta no arquivo físico (opcional)</label>
+        <input type="text" id="inat-pasta" value="${editando ? esc(funcExistente.pasta_arquivo||'') : ''}" placeholder="Ex: Pasta 3" /></div>
+      <div id="msg-inat"></div>
+      <button class="botao terracota" id="btn-salvar-inat" style="width:100%;margin-top:8px;">${editando ? 'Salvar' : 'Mover para o Arquivo Inativo'}</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.getElementById('btn-salvar-inat').addEventListener('click', async () => {
+    const id = editando ? funcExistente.id : document.getElementById('inat-func').value;
+    const msg = document.getElementById('msg-inat');
+    if(!id){ msg.innerHTML = `<div class="msg-erro">Selecione o funcionário.</div>`; return; }
+    const dados = {
+      ativo: false,
+      motivo_inativacao: document.getElementById('inat-motivo').value,
+      data_inativacao: document.getElementById('inat-data').value || null,
+      pasta_arquivo: document.getElementById('inat-pasta').value.trim() || null,
+    };
+    const { error } = await supabase.from('funcionarios').update(dados).eq('id', id);
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    modal.remove();
+    await carregarDadosBase();
+    renderizarArquivoInativoFuncionarios(el);
+  });
+}
+
+// Ficha funcional impressa — mesmo modelo da Gerência de Pessoal (Prefeitura do Paulista), preenchida com o cadastro
+function imprimirFichaFuncional(f){
+  if(!f) return;
+  const norm = s => (s || '').toString().trim().toLowerCase();
+  const cx = marcado => `<span class="cx">${marcado ? '&#9746;' : '&#9744;'}</span>`;
+  const opc = (rotulo, marcado) => `<span class="op">${cx(marcado)} ${esc(rotulo)}</span>`;
+  const v = x => esc(x || '');
+  const dn = f.data_nascimento ? f.data_nascimento.split('-').reverse().join(' / ') : '';
+  const tel = x => x ? esc(x) : '(&nbsp;&nbsp;&nbsp;)';
+  const escol = f.escolaridade || '';
+  const nivel = (chave, rotulo) => {
+    const marcado = escol === chave;
+    return `<td class="esc"><div class="escT">${cx(marcado)} <b>${rotulo}</b></div>
+      <div class="escL">Instituição: <span class="ln">${marcado ? v(f.instituicao_ensino) : ''}</span></div>
+      <div class="escL">Ano de conclusão: <span class="ln">${marcado ? v(f.ano_conclusao) : ''}</span></div></td>`;
+  };
+  const vinc = VINCULOS_FUNCIONARIO.map(([c,l]) => opc(l, f.vinculo === c)).join(' ');
+  const racas = ['Branca','Preta','Parda','Amarela','Indígena'];
+  const rc = norm(f.cor_raca);
+  const ec = norm(f.estado_civil);
+  const estados = ['Solteiro(a)','Casado(a)','Viúvo(a)','União Estável','Divorciado(a)'];
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+  <title>Ficha Funcional - ${esc(f.nome)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    *{ box-sizing:border-box; }
+    body{ font-family:'Times New Roman',serif; font-size:10pt; color:#000; margin:0; }
+    .topo{ text-align:center; line-height:1.25; }
+    .topo img{ width:58px; height:58px; }
+    .topo .t1{ font-weight:700; font-size:9.5pt; }
+    .topo h1{ font-size:15pt; margin:8px 0 6px; font-weight:700; }
+    table.f{ width:100%; border-collapse:collapse; border:1px solid #000; table-layout:fixed; }
+    table.f td{ border:1px solid #000; padding:0; vertical-align:top; }
+    .h{ background:#d9d9d9; font-weight:700; font-size:8.5pt; padding:1.5px 4px; border-bottom:1px solid #000; }
+    .val{ min-height:16px; padding:2px 5px; font-size:10pt; }
+    .opts{ padding:3px 5px; font-size:9pt; }
+    .op{ display:inline-block; margin-right:12px; white-space:nowrap; }
+    .cx{ font-size:11pt; line-height:1; }
+    .lin2 .op{ display:block; margin:2px 0; }
+    td.esc{ padding:3px 5px; border:none !important; }
+    table.e{ width:100%; border-collapse:collapse; table-layout:fixed; }
+    table.e td{ border:none !important; }
+    .escT{ font-size:9pt; margin-bottom:3px; }
+    .escL{ font-size:8pt; margin:2px 0 4px; white-space:nowrap; overflow:hidden; }
+    .ln{ display:inline-block; border-bottom:1px solid #000; min-width:50%; max-width:62%; vertical-align:bottom; font-size:8.5pt; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; height:11px; }
+    .cinza td{ background:#eee !important; }
+    .ass{ margin-top:30px; display:flex; justify-content:space-between; align-items:flex-end; font-size:10pt; padding:0 6px; }
+    .ass .l{ border-top:1px solid #000; width:300px; text-align:center; padding-top:2px; font-size:9.5pt; }
+  </style></head><body>
+  <div class="topo">
+    <img src="${LOGO_ESCOLA_URL}" />
+    <div class="t1">PREFEITURA DA CIDADE DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/>GERÊNCIA DE PESSOAL</div>
+    <h1>FICHA FUNCIONAL</h1>
+  </div>
+  <table class="f">
+    <colgroup><col style="width:19%"><col style="width:17%"><col style="width:21%"><col style="width:21%"><col style="width:22%"></colgroup>
+    <tr><td colspan="4"><div class="h">NOME COMPLETO:</div><div class="val">${v(f.nome)}</div></td>
+        <td><div class="h">TELEFONE:</div><div class="val">${tel(f.telefone)}</div></td></tr>
+    <tr><td colspan="4"><div class="h">VÍNCULO DO(A) SERVIDOR(A)</div><div class="opts">${vinc}</div></td>
+        <td><div class="h">MATRÍCULA:</div><div class="val">${v(f.matricula)}</div></td></tr>
+    <tr>
+      <td><div class="h">DATA DE NASC.</div><div class="val" style="text-align:center;">${dn || '____ /_____ /_____'}</div>
+          <div class="h" style="border-top:1px solid #000;">CARGO/FUNÇÃO</div><div class="val">${v(f.cargo || f.funcao)}</div></td>
+      <td><div class="h">SEXO</div><div class="opts lin2">${opc('M', f.sexo==='M')}${opc('F', f.sexo==='F')}${opc('Outro', f.sexo==='NI'||f.sexo==='Outro')}</div></td>
+      <td><div class="h">RAÇA</div><div class="opts">${racas.map(r => opc(r, rc === norm(r))).join('')}</div></td>
+      <td colspan="2"><div class="h">ESTADO CIVIL</div><div class="opts">${estados.map(e => opc(e, ec === norm(e))).join('')}</div></td>
+    </tr>
+    <tr><td colspan="2"><div class="h">NACIONALIDADE:</div><div class="val">${v(f.nacionalidade)}</div></td>
+        <td><div class="h">TELEFONE (Emergência)</div><div class="val">${tel(f.telefone_emergencia)}</div></td>
+        <td><div class="h">MUNICÍPIO DE NASCIMENTO:</div><div class="val">${v(f.municipio_nascimento)}</div></td>
+        <td><div class="h">UF:</div><div class="val">${v(f.uf_nascimento)}</div></td></tr>
+    <tr><td colspan="3"><div class="h">CPF:</div><div class="val">${v(f.cpf)}</div></td>
+        <td><div class="h">IDENTIDADE / RG:</div><div class="val">${v(f.rg)}</div></td>
+        <td><div class="h">ÓRGÃO EXPEDITOR: &nbsp; UF:</div><div class="val">${v(f.orgao_expedidor)}${f.rg_uf ? ' / ' + v(f.rg_uf) : ''}</div></td></tr>
+    <tr><td colspan="5"><div class="h">FILIAÇÃO:</div>
+        <div style="display:flex;"><div class="val" style="width:50%;border-right:1px solid #000;"><span style="font-size:8pt;color:#444;">Mãe:</span> ${v(f.mae)}</div><div class="val" style="width:50%;"><span style="font-size:8pt;color:#444;">Pai:</span> ${v(f.pai)}</div></div></td></tr>
+    <tr><td colspan="2"><div class="h">PIS / PASEP:</div><div class="val">${v(f.pis_pasep)}</div></td>
+        <td><div class="h">TÍTULO DE ELEITOR:</div><div class="val">${v(f.titulo_eleitor)}</div></td>
+        <td><div class="h">ZONA:</div><div class="val">${v(f.zona)}</div></td>
+        <td><div class="h">SEÇÃO:</div><div class="val">${v(f.secao)}</div></td></tr>
+    <tr><td colspan="5"><div class="h">ENDEREÇO:</div><div class="val">${v(f.endereco)}</div></td></tr>
+    <tr><td colspan="2"><div class="h">COMPLEMENTO:</div><div class="val">${v(f.complemento)}</div></td>
+        <td><div class="h">BAIRRO:</div><div class="val">${v(f.bairro)}</div></td>
+        <td><div class="h">CIDADE:</div><div class="val">${v(f.cidade)}</div></td>
+        <td><div class="h">UF:</div><div class="val">${v(f.uf)}</div></td></tr>
+    <tr><td colspan="2"><div class="h">CEP:</div><div class="val">${v(f.cep)}</div></td>
+        <td colspan="2"><div class="h">E-MAIL:</div><div class="val">${v(f.email)}</div></td>
+        <td><div class="h">FATOR RH:</div><div class="val">${v(f.fator_rh)}</div></td></tr>
+    <tr><td colspan="5"><div class="h">ESCOLARIDADE:</div>
+      <table class="e"><tr>${nivel('ensino_fundamental_completo','Ensino Fundamental completo')}${nivel('ensino_medio_incompleto','Ensino Médio Incompleto')}${nivel('ensino_medio_completo','Ensino Médio completo')}</tr>
+      <tr class="cinza">${nivel('superior_cursando','Superior (Cursando)')}${nivel('superior_incompleto','Superior Incompleto')}${nivel('superior_completo','Superior completo')}</tr>
+      <tr>${nivel('especializacao','Especialização')}${nivel('mestrado','Mestrado')}${nivel('doutorado','Doutorado')}</tr></table></td></tr>
+    <tr><td colspan="5"><div class="h">INFORME SUA GRADUAÇÃO E PÓS-GRADUAÇÃO</div><div class="val" style="min-height:22px;">${v(f.formacao_detalhada)}</div></td></tr>
+    <tr><td colspan="5"><div class="h">PORTADOR DE NECESSIDADES ESPECIAIS</div>
+        <div class="opts" style="font-size:10pt;">${opc('Não', f.portador_necessidades_especiais === false || f.portador_necessidades_especiais == null)} &nbsp;&nbsp; ${opc('Sim, qual?', f.portador_necessidades_especiais === true)} <span class="ln" style="min-width:60%;max-width:70%;">${f.portador_necessidades_especiais ? v(f.necessidades_especiais_qual) : ''}</span></div></td></tr>
+  </table>
+  <div class="ass"><div>Paulista, _____ de ______________________ de 20____</div><div class="l">Assinatura do Servidor(a)</div></div>
+  <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script>
+  </body></html>`;
+  const janela = window.open('', '_blank');
+  if(!janela){ alert('Não foi possível abrir a janela de impressão. Libere pop-ups para este site.'); return; }
+  janela.document.write(html);
+  janela.document.close();
+  janela.focus();
+}
+
 async function renderizarArquivoMorto(el){
   if(ESTADO.arquivoMortoTela === 'novo'){ renderizarNovoArquivoInativo(el); return; }
+  if(ESTADO.arquivoMortoAba === 'funcionarios' && ESTADO.arquivoMortoTela !== 'novo'){ renderizarArquivoInativoFuncionarios(el); return; }
   el.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
   const { count: totalRegistros } = await supabase.from('arquivo_morto').select('id', { count:'exact', head:true });
 
@@ -2599,6 +2833,7 @@ async function renderizarArquivoMorto(el){
   const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
   el.innerHTML = `
+    ${htmlAbasArquivoInativo('estudantes')}
     <div class="cabecalho-pagina">
       <div><h2>Arquivo Inativo</h2><p>${totalRegistros ?? 0} registro(s) — índice de ex-estudantes e a pasta física onde está o histórico</p></div>
       <button class="botao terracota pequeno" id="btn-novo-arquivo-morto">+ Adicionar ao arquivo</button>
@@ -2624,6 +2859,7 @@ async function renderizarArquivoMorto(el){
     <div id="form-arquivo-morto"></div>
   `;
 
+  ligarAbasArquivoInativo(el);
   document.getElementById('busca-arquivo-morto').addEventListener('input', (e) => {
     ESTADO.buscaArquivoMorto = e.target.value;
     ESTADO.arquivoMortoPagina = 0;
@@ -4332,6 +4568,7 @@ function abrirFichaFuncionario(f){
         ${ESTADO.perfil.role === 'admin' ? `<button class="botao secundario pequeno" data-excluir-func-ficha style="color:var(--erro);border-color:var(--erro);">Excluir</button>` : ''}
         <button class="botao secundario pequeno" data-cadastrar-rosto>📷 ${f.face_descriptor ? 'Recadastrar rosto' : 'Cadastrar rosto'}</button>
         <button class="botao secundario pequeno" data-gerenciar-ferias>🏖️ Férias</button>
+        <button class="botao secundario pequeno" data-imprimir-ficha-funcional>🖨️ Ficha funcional</button>
         <button class="botao terracota pequeno" data-editar>Editar</button>
       </div>
     </div>`;
@@ -4341,6 +4578,7 @@ function abrirFichaFuncionario(f){
   modal.querySelector('[data-editar]').addEventListener('click', () => { modal.remove(); abrirModalFuncionario(f); });
   modal.querySelector('[data-cadastrar-rosto]').addEventListener('click', () => abrirModalCadastrarRosto(f));
   modal.querySelector('[data-gerenciar-ferias]').addEventListener('click', () => abrirModalFerias(f));
+  modal.querySelector('[data-imprimir-ficha-funcional]').addEventListener('click', () => imprimirFichaFuncional(f));
   const btnExcluirFicha = modal.querySelector('[data-excluir-func-ficha]');
   if(btnExcluirFicha){
     btnExcluirFicha.addEventListener('click', async () => {
