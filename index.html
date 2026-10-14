@@ -8723,6 +8723,16 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
   };
 
   const pendentes = registros.filter(r => !r.presenca_responsavel_confirmada);
+  // contadores: sem filtro de turma usa a contagem real no banco (a lista carrega no máximo 500)
+  let totalOcorrencias = registros.length, totalPendentes = pendentes.length;
+  if(!ESTADO.ocorrenciasTurmaId){
+    const [{ count: cTotal }, { count: cPend }] = await Promise.all([
+      supabase.from('ocorrencias_estudantes').select('id', { count:'exact', head:true }),
+      supabase.from('ocorrencias_estudantes').select('id', { count:'exact', head:true }).or('presenca_responsavel_confirmada.is.null,presenca_responsavel_confirmada.eq.false'),
+    ]);
+    if(cTotal != null) totalOcorrencias = cTotal;
+    if(cPend != null) totalPendentes = cPend;
+  }
   const linhasUltimas = pendentes.length
     ? pendentes.map(r => `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;border:1px solid var(--borda);border-radius:7px;margin-bottom:5px;">
@@ -8753,6 +8763,16 @@ async function carregarVisaoGeralOcorrencias(conteudo, elPai){
     : `<tr><td colspan="7" style="color:var(--texto-suave);font-size:13px;text-align:center;padding:16px;">Nenhuma ocorrência encontrada.</td></tr>`;
 
   conteudo.innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;">
+      <div style="flex:1;min-width:170px;border:1px solid var(--borda);border-radius:10px;padding:12px 16px;text-align:center;">
+        <div style="font-size:30px;font-weight:800;color:#2E6BB8;line-height:1;">${totalOcorrencias}</div>
+        <div style="font-size:12px;color:var(--texto-suave);margin-top:4px;">Ocorrências${ESTADO.ocorrenciasTurmaId ? ' da turma' : ' registradas'}</div>
+      </div>
+      <div style="flex:1;min-width:170px;border:1px solid var(--borda);border-radius:10px;padding:12px 16px;text-align:center;">
+        <div style="font-size:30px;font-weight:800;color:${totalPendentes ? '#D98A1F' : '#2E7D5B'};line-height:1;">${totalPendentes}</div>
+        <div style="font-size:12px;color:var(--texto-suave);margin-top:4px;">Pendentes (presença do responsável)</div>
+      </div>
+    </div>
     <h3 style="margin:0 0 10px;">Presença de responsáveis pendente</h3>
     <div style="margin-bottom:22px;">${linhasUltimas}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
@@ -8806,6 +8826,7 @@ async function carregarOcorrencias(conteudo, elPai){
   const registros = data || [];
   const total = registros.length;
   const corContador = total === 0 ? '#2E7D5B' : (total <= 2 ? '#D98A1F' : 'var(--erro)');
+  const pendentesAluno = registros.filter(r => !r.presenca_responsavel_confirmada).length;
 
   const linhasHistorico = registros.length
     ? registros.map(r => {
@@ -8837,8 +8858,15 @@ async function carregarOcorrencias(conteudo, elPai){
         <strong>${esc(aluno?.nome || '')}</strong>
         <div style="font-size:12.5px;color:var(--texto-suave);">${esc(turmaAluno?.nome || 'Sem turma')} · Total de ocorrências registradas</div>
       </div>
-      <div style="text-align:center;">
-        <div style="font-size:28px;font-weight:800;color:${corContador};line-height:1;">${total}</div>
+      <div style="display:flex;gap:22px;">
+        <div style="text-align:center;">
+          <div style="font-size:28px;font-weight:800;color:${corContador};line-height:1;">${total}</div>
+          <div style="font-size:11px;color:var(--texto-suave);margin-top:3px;">Ocorrências</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:28px;font-weight:800;color:${pendentesAluno ? '#D98A1F' : '#2E7D5B'};line-height:1;">${pendentesAluno}</div>
+          <div style="font-size:11px;color:var(--texto-suave);margin-top:3px;">Pendentes</div>
+        </div>
       </div>
       <button class="botao terracota" style="width:auto;" id="btn-nova-ocorrencia">+ Registrar ocorrência</button>
     </div>
