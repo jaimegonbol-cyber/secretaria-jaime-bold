@@ -1979,6 +1979,7 @@ async function abrirFichaAluno(id){
       </div>
       <div class="secao-titulo">Dados gerais</div>
       <div class="ficha-linha"><span>Situação</span><span>${situacaoPill(a.situacao)}</span></div>
+      ${['transferido','cancelado'].includes(a.situacao) ? `<div class="ficha-linha"><span>${a.situacao === 'transferido' ? 'Data da transferência' : 'Data do cancelamento'}</span><span>${(a.data_situacao || a.data_transferencia) ? fmtData(a.data_situacao || a.data_transferencia) : '<span style="color:var(--texto-suave);font-weight:400;">não informada</span>'}</span></div>` : ''}
       <div class="ficha-linha"><span>Data de nascimento</span><span>${fmtData(a.data_nascimento)}</span></div>
       <div class="ficha-linha"><span>CPF</span><span>${esc(a.cpf||'—')}</span></div>
       <div class="ficha-linha"><span>Sexo</span><span>${rotuloSexo(a.sexo)}</span></div>
