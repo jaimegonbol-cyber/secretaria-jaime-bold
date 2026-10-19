@@ -7662,10 +7662,7 @@ async function renderizarBancoHistorico(conteudo, elPai, contexto){
     document.getElementById('he-form').scrollIntoView({ behavior:'smooth', block:'start' });
   });
   function acionarGerarHistorico(){
-    if(!registros.length){
-      document.getElementById('msg-historico').innerHTML = `<div class="msg-erro">Cadastre pelo menos um ano letivo antes de gerar o Histórico Escolar.</div>`;
-      return;
-    }
+    // gera mesmo sem nenhum ano lançado: os 9 anos saem com a faixa diagonal (não cursou) até serem preenchidos
     if(alunoId) gerarHistoricoEscolarDocumento(aluno, registros);
     else gerarHistoricoEscolarDocumentoArquivoMorto(arquivoMortoId, registros);
   }
