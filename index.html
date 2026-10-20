@@ -5347,17 +5347,21 @@ function parseNotaDiario(v){
   if(s === '') return null;
   const n = parseFloat(s);
   if(isNaN(n)) return null;
-  return Math.min(10, Math.max(0, Math.round(n * 100) / 100));
+  return Math.min(10, Math.max(0, Math.round(n * 10) / 10));
 }
 function fmtNotaDiario(n){
   if(n === null || n === undefined || n === '') return '';
-  return String(Math.round(Number(n) * 100) / 100).replace('.', ',');
+  return (Math.round(Number(n) * 10) / 10).toFixed(1).replace('.', ',');
+}
+// arredonda para cima, de 0,5 em 0,5 (ex.: 7,1 -> 7,5 · 8,25 -> 8,5 · 7,5 -> 7,5)
+function arredondarMeioDiario(x){
+  return Math.ceil(Math.round(x * 2 * 100) / 100) / 2;
 }
 function calcularN1Media(atv1, atv2, atv3, n2){
   if([atv1, atv2, atv3, n2].every(v => v === null || v === undefined)) return { n1: null, media: null };
-  const n1 = Math.min(10, (atv1 || 0) + (atv2 || 0) + (atv3 || 0));
-  const media = (n1 + (n2 || 0)) / 2;
-  return { n1: Math.round(n1 * 100) / 100, media: Math.round(media * 10) / 10 };
+  const n1 = Math.min(10, Math.round(((atv1 || 0) + (atv2 || 0) + (atv3 || 0)) * 10) / 10);
+  const media = arredondarMeioDiario((n1 + (n2 || 0)) / 2);
+  return { n1, media: Math.min(10, media) };
 }
 function corMediaDiario(m){
   if(m === null) return '';
@@ -5590,7 +5594,7 @@ async function abaResumoDiario(corpo, { alunos, ano, nomeComp, chaveBase }){
   const linhas = alunos.map((a, i) => {
     const medias = [1, 2, 3, 4].map(b => { const n = (mapa[a.id] || {})[b]; return n ? calcularN1Media(num(n.atv1), num(n.atv2), num(n.atv3), num(n.n2)).media : null; });
     const preench = medias.filter(m => m !== null);
-    const anual = preench.length ? Math.round(preench.reduce((s, m) => s + m, 0) / preench.length * 10) / 10 : null;
+    const anual = preench.length ? arredondarMeioDiario(preench.reduce((s, m) => s + m, 0) / preench.length) : null;
     return `<tr><td>${i + 1}</td><td>${esc(a.nome)}</td>${medias.map(m => `<td style="text-align:center;${corMediaDiario(m)}">${m === null ? '—' : fmtNotaDiario(m)}</td>`).join('')}<td style="text-align:center;${corMediaDiario(anual)}">${anual === null ? '—' : fmtNotaDiario(anual)}</td></tr>`;
   }).join('');
   corpo.innerHTML = `<div class="painel"><h3 style="margin-top:0;">Médias bimestrais — ${esc(nomeComp)} · ${ano}</h3>
