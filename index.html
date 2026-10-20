@@ -2376,8 +2376,7 @@ async function renderizarTurmas(el){
   // Anos Finais (6º ao 9º) têm obrigatoriamente 9 disciplinas — as mesmas 8 fixas, mais EDI
   // (só no 6º ano) ou EDHC (7º a 9º) no lugar uma da outra.
   function disciplinasEsperadasAnosFinais(nomeTurma){
-    const nomeNormalizado = (nomeTurma||'').replace(/°/g, 'º').toUpperCase();
-    const temEDI = /^6º\s*ANO\b/.test(nomeNormalizado);
+    const temEDI = temEDISerie(numeroSerie(nomeTurma));
     return ['Arte', 'Ciências', 'Educação Física', 'Geografia', 'História', 'Língua Inglesa', 'Língua Portuguesa', 'Matemática', temEDI ? 'EDI' : 'EDHC'];
   }
   function ehAnosFinais(nomeTurma){
@@ -2528,14 +2527,12 @@ function abrirModalEditarTurma(turma){
       if(!funcionarioId || !disciplina){ msgVinculo.innerHTML = `<div class="msg-erro">Selecione o professor e informe a disciplina.</div>`; return; }
 
       // Professor(a) Polivalente (Anos Iniciais) leciona todas as disciplinas dos Anos Iniciais
-      // de uma vez só (Arte, Ciências, Geografia, História, Língua Portuguesa, Matemática, e EDI
-      // ou EDHC dependendo da série — EDI ainda só está implantada no 1º ano e no 6º ano) — em
+      // de uma vez só (Arte, Ciências, Geografia, História, Língua Portuguesa, Matemática e EDI no 1º ano) — em
       // vez de cadastrar 1 vínculo "Polivalente", já cadastra as disciplinas reais de uma vez.
       // Polivalente (Educação Infantil) fica como uma categoria própria, sem essa expansão.
-      const nomeSerieNormalizado = turma.nome.replace(/°/g, 'º').toUpperCase();
-      const temEDI = /^1º\s*ANO\b/.test(nomeSerieNormalizado) || /^6º\s*ANO\b/.test(nomeSerieNormalizado);
+      // EDHC só existe nos Anos Finais; nos Anos Iniciais só entra EDI nas séries que já o têm (1º ano).
       const disciplinasParaSalvar = disciplina === 'Polivalente (Anos Iniciais)'
-        ? ['Arte', 'Ciências', 'Geografia', 'História', 'Língua Portuguesa', 'Matemática', temEDI ? 'EDI' : 'EDHC']
+        ? ['Arte', 'Ciências', 'Geografia', 'História', 'Língua Portuguesa', 'Matemática'].concat(temEDISerie(numeroSerie(turma.nome)) ? ['EDI'] : [])
         : [disciplina];
 
       const { error: erroVinculo } = await supabase.from('turma_professor_disciplina').upsert(
@@ -5382,7 +5379,7 @@ async function renderizarDiario(el){
     const { data } = await supabase.from('turma_professor_disciplina').select('turma_id, disciplina').eq('funcionario_id', perfil.funcionario_id);
     vinculos = data || [];
   }
-  const compsPermitidas = (turmaId) => COMPONENTES_FICHA_NOTAS.filter(([chave]) =>
+  const compsPermitidas = (turmaId) => componentesFicha((ESTADO.turmas.find(t => t.id === turmaId) || {}).nome, {}, {}).filter(([chave]) =>
     !ehProfessor || vinculos.some(v => v.turma_id === turmaId && disciplinaCasaComponente(v.disciplina, chave)));
   const turmas = turmasAnoAtual().filter(t => !ehProfessor || vinculos.some(v => v.turma_id === t.id))
     .slice().sort((a, b) => a.nome.localeCompare(b.nome));
@@ -7186,7 +7183,31 @@ const COMPONENTES_FICHA_NOTAS = [
   ['ensino_religioso', 'Ensino Religioso'],
   ['lingua_inglesa', 'Língua Inglesa'],
   ['edhc', 'Ed. Dir. Hum. Cidadania'],
+  ['edi', 'EDI'],
 ];
+
+// Currículo vigente: Ensino Religioso não é mais ofertado. EDI está implantado só nas séries abaixo
+// (1º e 6º ano) e substitui o EDHC; a cada ano novas séries entram — em 2027 acrescentar 2 e 7 aqui.
+// EDHC existe apenas nos Anos Finais (6º ao 9º) das séries que ainda não têm EDI.
+const SERIES_COM_EDI = [1, 6];
+function numeroSerie(nomeTurmaOuSerie){
+  const m = String(nomeTurmaOuSerie || '').replace(/°/g, 'º').toUpperCase().match(/^\s*(\d+)\s*º/);
+  return m ? parseInt(m[1], 10) : null;
+}
+function temEDISerie(n){ return n !== null && SERIES_COM_EDI.includes(n); }
+function temEDHCSerie(n){ return n !== null && n >= 6 && n <= 9 && !SERIES_COM_EDI.includes(n); }
+// Componentes da ficha/diário para a série. Componentes fora do currículo atual só aparecem se já houver nota lançada (dados antigos).
+function componentesFicha(nomeSerie, notas, parciais){
+  const n = numeroSerie(nomeSerie);
+  const anosIniciais = n !== null && n >= 1 && n <= 5;
+  const fora = ['ensino_religioso', 'edhc', 'edi'].concat(anosIniciais ? ['lingua_inglesa'] : []);
+  const lista = COMPONENTES_FICHA_NOTAS.filter(([k]) => !fora.includes(k));
+  const temDado = (k) => [(notas || {})[k], (parciais || {})[k]].some(o => o && Object.values(o).some(x => x && String(x).trim()));
+  if(temEDISerie(n)) lista.push(COMPONENTES_FICHA_NOTAS.find(c => c[0] === 'edi'));
+  if(temEDHCSerie(n)) lista.push(COMPONENTES_FICHA_NOTAS.find(c => c[0] === 'edhc'));
+  fora.forEach(k => { if(!lista.some(c => c[0] === k) && temDado(k)) lista.push(COMPONENTES_FICHA_NOTAS.find(c => c[0] === k)); });
+  return lista;
+}
 
 function renderizarFichaNotas(el){
   const opcoesTurmasFiltro = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome))
@@ -7241,6 +7262,7 @@ async function carregarFichaNotas(conteudo, elPai){
 function renderizarFormularioFicha(conteudo, elPai, aluno, registro){
   const notas = registro?.notas || {};
   const partes = registro?.progressao_parcial || {};
+  const COMPONENTES_FICHA_NOTAS = componentesFicha(aluno?.turmas?.nome || registro?.serie, notas, partes);
   const exameEsp = registro?.exame_especial || {};
 
   const linhasNotas = COMPONENTES_FICHA_NOTAS.map(([chave, nome]) => {
@@ -7482,6 +7504,7 @@ async function gerarFichaNotasDocumento(aluno, registro, assinaturaGestao){
   const serieTexto = registro.serie || (aluno.turmas ? extrairSerie(aluno.turmas.nome) : '____');
   const notas = registro.notas || {};
   const partes = registro.progressao_parcial || {};
+  const COMPONENTES_FICHA_NOTAS = componentesFicha(serieTexto, notas, partes);
   const exameEsp = registro.exame_especial || {};
   const nn = (v) => (v===undefined||v===null||v==='') ? '' : esc(v);
   const preenchido = (v) => !!(v && String(v).trim());
