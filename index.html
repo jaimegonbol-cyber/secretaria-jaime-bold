@@ -667,9 +667,12 @@ function itensNav(){
     { id:'avaliacoes', label:'Avaliações', icone:'📊' },
     { id:'relatorios', label:'Relatórios', icone:'🖨️' },
   ];
+  const itemDiario = { id:'diario', label:'Diário do Professor', icone:'📓' };
+  if(ESTADO.perfil.role === 'professor') return [itemDiario];
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
     ? base.filter(item => ESTADO.perfil.permissoes.includes(item.id))
     : base;
+  permitidos.push(itemDiario);
   if(ESTADO.perfil.role === 'admin') permitidos.push({ id:'usuarios', label:'Usuários', icone:'◈' });
   return permitidos;
 }
@@ -677,6 +680,7 @@ function itensNav(){
 function rotuloPapel(role){
   if(role === 'admin') return 'Administrador';
   if(role === 'coordenacao') return 'Coordenação/Apoio';
+  if(role === 'professor') return 'Professor';
   return 'Secretaria';
 }
 
@@ -762,6 +766,7 @@ function renderizarApp(){
   else if(ESTADO.pagina === 'documentos') renderizarDocumentos(conteudoPagina);
   else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(conteudoPagina);
   else if(ESTADO.pagina === 'avaliacoes') renderizarAvaliacoes(conteudoPagina);
+  else if(ESTADO.pagina === 'diario') renderizarDiario(conteudoPagina);
   else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(conteudoPagina);
   else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(conteudoPagina);
 }
@@ -5317,6 +5322,282 @@ function abrirModalFuncionario(funcionario){
 }
 
 // ---------------------------------------------------------------
+// DIÁRIO DO PROFESSOR (notas, avaliações e registro de aula)
+// N1 = ATV1 + ATV2 + ATV3 (máx. 10) · N2 = avaliação · Média = (N1 + N2) ÷ 2
+// ---------------------------------------------------------------
+const DIARIO = { turmaId: '', comp: '', bim: 1, aba: 'notas', dataAula: '' };
+const SLOTS_DIARIO = [
+  ['atv1', 'ATV 1'], ['atv2', 'ATV 2'], ['atv3', 'ATV 3'], ['n2', 'Avaliação (N2)'],
+];
+
+function normDisc(t){
+  return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+function disciplinaCasaComponente(disciplina, chave){
+  const n = normDisc(disciplina);
+  if(n === 'polivalente' || n === chave) return true;
+  if(chave === 'edhc') return n.startsWith('ed_dir');
+  if(chave === 'lingua_portuguesa') return n === 'portugues';
+  if(chave === 'lingua_inglesa') return n === 'ingles';
+  return false;
+}
+function parseNotaDiario(v){
+  const s = String(v ?? '').trim().replace(',', '.');
+  if(s === '') return null;
+  const n = parseFloat(s);
+  if(isNaN(n)) return null;
+  return Math.min(10, Math.max(0, Math.round(n * 100) / 100));
+}
+function fmtNotaDiario(n){
+  if(n === null || n === undefined || n === '') return '';
+  return String(Math.round(Number(n) * 100) / 100).replace('.', ',');
+}
+function calcularN1Media(atv1, atv2, atv3, n2){
+  if([atv1, atv2, atv3, n2].every(v => v === null || v === undefined)) return { n1: null, media: null };
+  const n1 = Math.min(10, (atv1 || 0) + (atv2 || 0) + (atv3 || 0));
+  const media = (n1 + (n2 || 0)) / 2;
+  return { n1: Math.round(n1 * 100) / 100, media: Math.round(media * 10) / 10 };
+}
+function corMediaDiario(m){
+  if(m === null) return '';
+  return m >= 6 ? 'color:#1F6B3A;font-weight:700;' : 'color:#B4432E;font-weight:700;';
+}
+
+async function renderizarDiario(el){
+  const perfil = ESTADO.perfil;
+  const ehProfessor = perfil.role === 'professor';
+  const podeEditar = ['admin', 'coordenacao', 'professor'].includes(perfil.role);
+
+  let vinculos = null;
+  if(ehProfessor){
+    const { data } = await supabase.from('turma_professor_disciplina').select('turma_id, disciplina').eq('funcionario_id', perfil.funcionario_id);
+    vinculos = data || [];
+  }
+  const compsPermitidas = (turmaId) => COMPONENTES_FICHA_NOTAS.filter(([chave]) =>
+    !ehProfessor || vinculos.some(v => v.turma_id === turmaId && disciplinaCasaComponente(v.disciplina, chave)));
+  const turmas = turmasAnoAtual().filter(t => !ehProfessor || vinculos.some(v => v.turma_id === t.id))
+    .slice().sort((a, b) => a.nome.localeCompare(b.nome));
+
+  if(!turmas.length){
+    el.innerHTML = `<div class="cabecalho-pagina"><div><h2>Diário do Professor</h2></div></div>
+      <div class="painel"><p style="color:var(--texto-suave);">${ehProfessor ? 'Nenhuma turma está vinculada a você ainda. Peça à secretaria/direção para vincular suas turmas e disciplinas em Cadastro → Turmas.' : 'Nenhuma turma cadastrada.'}</p></div>`;
+    return;
+  }
+  if(!turmas.some(t => t.id === DIARIO.turmaId)) DIARIO.turmaId = turmas[0].id;
+  let comps = compsPermitidas(DIARIO.turmaId);
+  if(!comps.some(c => c[0] === DIARIO.comp)) DIARIO.comp = comps[0] ? comps[0][0] : '';
+  const ano = anoLetivoAtual();
+  const turma = turmas.find(t => t.id === DIARIO.turmaId);
+  if(!DIARIO.dataAula) DIARIO.dataAula = hojeISO();
+
+  const abas = [['notas', 'Notas'], ['avaliacoes', 'Avaliações'], ['aulas', 'Registro de aula'], ['resumo', 'Resumo do ano']];
+  el.innerHTML = `
+    <div class="cabecalho-pagina">
+      <div><h2>Diário do Professor</h2>
+      <p>${podeEditar ? 'Lance notas, avaliações e o registro de aula.' : 'Visualização somente leitura — alterações são feitas pelo professor, coordenação ou direção.'}
+      N1 = ATV1 + ATV2 + ATV3 (máx. 10) · Média = (N1 + N2) ÷ 2</p></div>
+    </div>
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;">
+        <div class="campo" style="margin:0;"><label>Turma</label><select id="dr-turma">${turmas.map(t => `<option value="${t.id}" ${t.id===DIARIO.turmaId?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('')}</select></div>
+        <div class="campo" style="margin:0;"><label>Disciplina</label><select id="dr-comp">${comps.map(([k, n]) => `<option value="${k}" ${k===DIARIO.comp?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+        <div class="campo" style="margin:0;"><label>Bimestre</label><select id="dr-bim">${[1,2,3,4].map(b => `<option value="${b}" ${b===DIARIO.bim?'selected':''}>${b}º bimestre</option>`).join('')}</select></div>
+      </div>
+    </div>
+    <div class="subtabs">${abas.map(([k, n]) => `<button class="aba-cadastro ${DIARIO.aba===k?'ativa':''}" data-dr-aba="${k}">${n}</button>`).join('')}</div>
+    <div id="dr-corpo"><p style="color:var(--texto-suave);">Carregando…</p></div>`;
+
+  document.getElementById('dr-turma').addEventListener('change', e => { DIARIO.turmaId = e.target.value; renderizarDiario(el); });
+  document.getElementById('dr-comp').addEventListener('change', e => { DIARIO.comp = e.target.value; renderizarDiario(el); });
+  document.getElementById('dr-bim').addEventListener('change', e => { DIARIO.bim = parseInt(e.target.value, 10); renderizarDiario(el); });
+  el.querySelectorAll('[data-dr-aba]').forEach(b => b.addEventListener('click', () => { DIARIO.aba = b.dataset.drAba; renderizarDiario(el); }));
+
+  const corpo = document.getElementById('dr-corpo');
+  if(!DIARIO.comp){ corpo.innerHTML = '<p style="color:var(--texto-suave);">Nenhuma disciplina vinculada a você nesta turma.</p>'; return; }
+  const nomeComp = (COMPONENTES_FICHA_NOTAS.find(c => c[0] === DIARIO.comp) || [])[1] || DIARIO.comp;
+  const alunos = ESTADO.alunos.filter(a => a.turma_id === DIARIO.turmaId && (a.situacao || 'matriculado') === 'matriculado')
+    .slice().sort((a, b) => a.nome.localeCompare(b.nome));
+  const chaveBase = { turma_id: DIARIO.turmaId, componente: DIARIO.comp };
+
+  if(DIARIO.aba === 'notas') await abaNotasDiario(corpo, { alunos, podeEditar, ano, nomeComp, chaveBase });
+  else if(DIARIO.aba === 'avaliacoes') await abaAvaliacoesDiario(corpo, { podeEditar, ano, nomeComp, chaveBase });
+  else if(DIARIO.aba === 'aulas') await abaAulasDiario(corpo, { podeEditar, nomeComp, chaveBase });
+  else await abaResumoDiario(corpo, { alunos, ano, nomeComp, chaveBase });
+}
+
+async function abaNotasDiario(corpo, { alunos, podeEditar, ano, nomeComp, chaveBase }){
+  const [{ data: notas, error: e1 }, { data: avs }] = await Promise.all([
+    supabase.from('diario_notas').select('*').eq('turma_id', chaveBase.turma_id).eq('componente', chaveBase.componente).eq('ano_letivo', ano).eq('bimestre', DIARIO.bim),
+    supabase.from('diario_avaliacoes').select('slot, titulo, data').eq('turma_id', chaveBase.turma_id).eq('componente', chaveBase.componente).eq('ano_letivo', ano).eq('bimestre', DIARIO.bim),
+  ]);
+  if(e1){ corpo.innerHTML = `<div class="msg-erro">${esc(e1.message)}</div>`; return; }
+  const porAluno = {}; (notas || []).forEach(n => { porAluno[n.aluno_id] = n; });
+  const titulos = {}; (avs || []).forEach(a => { titulos[a.slot] = a; });
+  const cab = (slot, rotulo) => {
+    const t = titulos[slot];
+    return `<th style="text-align:center;min-width:92px;" ${t && t.titulo ? `title="${esc(t.titulo)}"` : ''}>${rotulo}${t && t.titulo ? `<div style="font-weight:400;font-size:10px;color:var(--texto-suave);text-transform:none;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.titulo)}</div>` : ''}</th>`;
+  };
+  const campo = (id, slot, valor) => podeEditar
+    ? `<input type="text" inputmode="decimal" class="dr-nota" data-aluno="${id}" data-slot="${slot}" value="${fmtNotaDiario(valor)}" style="width:70px;text-align:center;padding:6px;" />`
+    : `<span>${fmtNotaDiario(valor) || '—'}</span>`;
+  const linhas = alunos.map((a, i) => {
+    const n = porAluno[a.id] || {};
+    const num = (v) => v === null || v === undefined ? null : Number(v);
+    const cc = calcularN1Media(num(n.atv1), num(n.atv2), num(n.atv3), num(n.n2));
+    return `<tr data-linha="${a.id}">
+      <td>${i + 1}</td><td>${esc(a.nome)}</td>
+      <td style="text-align:center;">${campo(a.id, 'atv1', n.atv1)}</td>
+      <td style="text-align:center;">${campo(a.id, 'atv2', n.atv2)}</td>
+      <td style="text-align:center;">${campo(a.id, 'atv3', n.atv3)}</td>
+      <td style="text-align:center;" class="dr-n1">${cc.n1 === null ? '—' : fmtNotaDiario(cc.n1)}</td>
+      <td style="text-align:center;">${campo(a.id, 'n2', n.n2)}</td>
+      <td style="text-align:center;${corMediaDiario(cc.media)}" class="dr-media">${cc.media === null ? '—' : fmtNotaDiario(cc.media)}</td>
+    </tr>`;
+  }).join('');
+  corpo.innerHTML = `
+    <div class="painel">
+      <h3 style="margin-top:0;">${esc(nomeComp)} — ${DIARIO.bim}º bimestre</h3>
+      <div id="dr-msg"></div>
+      ${alunos.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nº</th><th>Estudante</th>${cab('atv1','ATV 1')}${cab('atv2','ATV 2')}${cab('atv3','ATV 3')}<th style="text-align:center;">N1<div style="font-weight:400;font-size:10px;color:var(--texto-suave);">soma (máx. 10)</div></th>${cab('n2','Avaliação (N2)')}<th style="text-align:center;">Média<div style="font-weight:400;font-size:10px;color:var(--texto-suave);">(N1+N2)÷2</div></th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p style="color:var(--texto-suave);">Nenhum estudante matriculado nesta turma.</p>'}
+      ${podeEditar && alunos.length ? `<button class="botao terracota" id="dr-salvar-notas" style="width:auto;margin-top:14px;">Salvar notas</button>
+      <p style="font-size:12px;color:var(--texto-suave);margin:8px 0 0;">A média do bimestre é enviada automaticamente para a Ficha Individual das Notas do estudante.</p>` : ''}
+    </div>`;
+  if(!podeEditar) return;
+
+  const recalcular = (tr) => {
+    const g = (s) => parseNotaDiario(tr.querySelector(`[data-slot="${s}"]`).value);
+    const r = calcularN1Media(g('atv1'), g('atv2'), g('atv3'), g('n2'));
+    tr.querySelector('.dr-n1').textContent = r.n1 === null ? '—' : fmtNotaDiario(r.n1);
+    const m = tr.querySelector('.dr-media');
+    m.textContent = r.media === null ? '—' : fmtNotaDiario(r.media);
+    m.style.cssText = 'text-align:center;' + corMediaDiario(r.media);
+  };
+  corpo.querySelectorAll('.dr-nota').forEach(inp => {
+    inp.addEventListener('input', () => recalcular(inp.closest('tr')));
+    inp.addEventListener('blur', () => { const v = parseNotaDiario(inp.value); inp.value = v === null ? '' : fmtNotaDiario(v); recalcular(inp.closest('tr')); });
+  });
+  const btn = document.getElementById('dr-salvar-notas');
+  if(btn) btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const msg = document.getElementById('dr-msg');
+    const upserts = []; const apagar = [];
+    corpo.querySelectorAll('tr[data-linha]').forEach(tr => {
+      const id = tr.dataset.linha;
+      const g = (s) => parseNotaDiario(tr.querySelector(`[data-slot="${s}"]`).value);
+      const v = { atv1: g('atv1'), atv2: g('atv2'), atv3: g('atv3'), n2: g('n2') };
+      const vazio = Object.values(v).every(x => x === null);
+      if(vazio){ if(porAluno[id]) apagar.push(porAluno[id].id); return; }
+      upserts.push({ aluno_id: id, turma_id: chaveBase.turma_id, componente: chaveBase.componente, ano_letivo: ano, bimestre: DIARIO.bim, ...v, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString() });
+    });
+    let erro = null;
+    if(upserts.length){ const r = await supabase.from('diario_notas').upsert(upserts, { onConflict: 'aluno_id,ano_letivo,bimestre,componente' }); erro = r.error; }
+    if(!erro && apagar.length){ const r = await supabase.from('diario_notas').delete().in('id', apagar); erro = r.error; }
+    btn.disabled = false; btn.textContent = 'Salvar notas';
+    msg.innerHTML = erro ? `<div class="msg-erro">${esc(erro.message)}</div>` : `<div class="msg-ok">Notas salvas e médias enviadas para a Ficha Individual das Notas.</div>`;
+    if(!erro) setTimeout(() => { const m = document.getElementById('dr-msg'); if(m) m.innerHTML = ''; }, 4000);
+  });
+}
+
+async function abaAvaliacoesDiario(corpo, { podeEditar, ano, nomeComp, chaveBase }){
+  const { data, error } = await supabase.from('diario_avaliacoes').select('*').eq('turma_id', chaveBase.turma_id).eq('componente', chaveBase.componente).eq('ano_letivo', ano).eq('bimestre', DIARIO.bim);
+  if(error){ corpo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const porSlot = {}; (data || []).forEach(a => { porSlot[a.slot] = a; });
+  const dis = podeEditar ? '' : 'disabled';
+  corpo.innerHTML = `
+    <div class="painel">
+      <h3 style="margin-top:0;">Avaliações — ${esc(nomeComp)} · ${DIARIO.bim}º bimestre</h3>
+      <div id="dr-msg"></div>
+      ${SLOTS_DIARIO.map(([slot, rot]) => {
+        const a = porSlot[slot] || {};
+        return `<div style="border:1px solid var(--borda);border-radius:10px;padding:12px;margin-bottom:10px;">
+          <strong>${rot}</strong>
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:8px;">
+            <div class="campo" style="margin:0;"><label>Título / tipo</label><input type="text" data-av="${slot}" data-f="titulo" value="${esc(a.titulo || '')}" placeholder="Ex: Prova, trabalho em grupo, caderno…" ${dis} /></div>
+            <div class="campo" style="margin:0;"><label>Data</label><input type="date" data-av="${slot}" data-f="data" value="${a.data || ''}" ${dis} /></div>
+          </div>
+          <div class="campo" style="margin:8px 0 0;"><label>Descrição / conteúdo avaliado</label><textarea rows="2" data-av="${slot}" data-f="descricao" ${dis}>${esc(a.descricao || '')}</textarea></div>
+        </div>`;
+      }).join('')}
+      ${podeEditar ? `<button class="botao terracota" id="dr-salvar-av" style="width:auto;">Salvar avaliações</button>` : ''}
+    </div>`;
+  const btn = document.getElementById('dr-salvar-av');
+  if(!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const linhas = []; const apagar = [];
+    SLOTS_DIARIO.forEach(([slot]) => {
+      const g = (f) => corpo.querySelector(`[data-av="${slot}"][data-f="${f}"]`).value.trim();
+      const t = g('titulo'), d = g('data'), desc = g('descricao');
+      if(!t && !d && !desc){ if(porSlot[slot]) apagar.push(porSlot[slot].id); return; }
+      linhas.push({ ...chaveBase, ano_letivo: ano, bimestre: DIARIO.bim, slot, titulo: t || null, data: d || null, descricao: desc || null, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString() });
+    });
+    let erro = null;
+    if(linhas.length){ const r = await supabase.from('diario_avaliacoes').upsert(linhas, { onConflict: 'turma_id,ano_letivo,bimestre,componente,slot' }); erro = r.error; }
+    if(!erro && apagar.length){ const r = await supabase.from('diario_avaliacoes').delete().in('id', apagar); erro = r.error; }
+    btn.disabled = false; btn.textContent = 'Salvar avaliações';
+    document.getElementById('dr-msg').innerHTML = erro ? `<div class="msg-erro">${esc(erro.message)}</div>` : `<div class="msg-ok">Avaliações salvas.</div>`;
+  });
+}
+
+async function abaAulasDiario(corpo, { podeEditar, nomeComp, chaveBase }){
+  const { data, error } = await supabase.from('diario_aulas').select('*').eq('turma_id', chaveBase.turma_id).eq('componente', chaveBase.componente).order('data', { ascending: false }).limit(60);
+  if(error){ corpo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const aulas = data || [];
+  const atual = aulas.find(a => a.data === DIARIO.dataAula) || {};
+  corpo.innerHTML = `
+    <div class="painel">
+      <h3 style="margin-top:0;">Registro de aula — ${esc(nomeComp)}</h3>
+      <div id="dr-msg"></div>
+      <div class="campo" style="max-width:220px;"><label>Data da aula</label><input type="date" id="dr-data-aula" value="${DIARIO.dataAula}" /></div>
+      <div class="campo"><label>Conteúdo ministrado</label><textarea rows="4" id="dr-conteudo" ${podeEditar ? '' : 'disabled'}>${esc(atual.conteudo || '')}</textarea></div>
+      <div class="campo"><label>Observações</label><textarea rows="2" id="dr-obs" ${podeEditar ? '' : 'disabled'}>${esc(atual.observacoes || '')}</textarea></div>
+      ${podeEditar ? `<button class="botao terracota" id="dr-salvar-aula" style="width:auto;">Salvar registro</button>
+      ${atual.id ? `<button class="botao secundario" id="dr-excluir-aula" style="width:auto;margin-left:8px;">Excluir registro</button>` : ''}` : ''}
+    </div>
+    <div class="painel" style="margin-top:14px;">
+      <h3 style="margin-top:0;">Últimos registros</h3>
+      ${aulas.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Data</th><th>Conteúdo</th><th>Observações</th></tr></thead><tbody>${aulas.map(a => `<tr data-dr-aula="${a.data}" style="cursor:pointer;"><td style="white-space:nowrap;">${fmtData(a.data)}</td><td>${esc(a.conteudo || '')}</td><td>${esc(a.observacoes || '')}</td></tr>`).join('')}</tbody></table></div>` : '<p style="color:var(--texto-suave);">Nenhuma aula registrada ainda.</p>'}
+    </div>`;
+  const corpoEl = corpo;
+  document.getElementById('dr-data-aula').addEventListener('change', e => { if(e.target.value){ DIARIO.dataAula = e.target.value; abaAulasDiario(corpoEl, { podeEditar, nomeComp, chaveBase }); } });
+  corpo.querySelectorAll('[data-dr-aula]').forEach(tr => tr.addEventListener('click', () => { DIARIO.dataAula = tr.dataset.drAula; abaAulasDiario(corpoEl, { podeEditar, nomeComp, chaveBase }); }));
+  const btn = document.getElementById('dr-salvar-aula');
+  if(btn) btn.addEventListener('click', async () => {
+    const conteudo = document.getElementById('dr-conteudo').value.trim();
+    const obs = document.getElementById('dr-obs').value.trim();
+    if(!conteudo && !obs){ document.getElementById('dr-msg').innerHTML = `<div class="msg-erro">Informe o conteúdo ou observações da aula.</div>`; return; }
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error: erro } = await supabase.from('diario_aulas').upsert({ ...chaveBase, data: DIARIO.dataAula, conteudo: conteudo || null, observacoes: obs || null, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString() }, { onConflict: 'turma_id,componente,data' });
+    if(erro){ btn.disabled = false; btn.textContent = 'Salvar registro'; document.getElementById('dr-msg').innerHTML = `<div class="msg-erro">${esc(erro.message)}</div>`; return; }
+    await abaAulasDiario(corpoEl, { podeEditar, nomeComp, chaveBase });
+    document.getElementById('dr-msg').innerHTML = `<div class="msg-ok">Registro de aula salvo.</div>`;
+  });
+  const btnEx = document.getElementById('dr-excluir-aula');
+  if(btnEx) btnEx.addEventListener('click', async () => {
+    if(!confirm('Excluir o registro desta aula?')) return;
+    const { error: erro } = await supabase.from('diario_aulas').delete().eq('id', atual.id);
+    if(erro){ document.getElementById('dr-msg').innerHTML = `<div class="msg-erro">${esc(erro.message)}</div>`; return; }
+    abaAulasDiario(corpoEl, { podeEditar, nomeComp, chaveBase });
+  });
+}
+
+async function abaResumoDiario(corpo, { alunos, ano, nomeComp, chaveBase }){
+  const { data, error } = await supabase.from('diario_notas').select('*').eq('turma_id', chaveBase.turma_id).eq('componente', chaveBase.componente).eq('ano_letivo', ano);
+  if(error){ corpo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const mapa = {}; (data || []).forEach(n => { (mapa[n.aluno_id] = mapa[n.aluno_id] || {})[n.bimestre] = n; });
+  const num = (v) => v === null || v === undefined ? null : Number(v);
+  const linhas = alunos.map((a, i) => {
+    const medias = [1, 2, 3, 4].map(b => { const n = (mapa[a.id] || {})[b]; return n ? calcularN1Media(num(n.atv1), num(n.atv2), num(n.atv3), num(n.n2)).media : null; });
+    const preench = medias.filter(m => m !== null);
+    const anual = preench.length ? Math.round(preench.reduce((s, m) => s + m, 0) / preench.length * 10) / 10 : null;
+    return `<tr><td>${i + 1}</td><td>${esc(a.nome)}</td>${medias.map(m => `<td style="text-align:center;${corMediaDiario(m)}">${m === null ? '—' : fmtNotaDiario(m)}</td>`).join('')}<td style="text-align:center;${corMediaDiario(anual)}">${anual === null ? '—' : fmtNotaDiario(anual)}</td></tr>`;
+  }).join('');
+  corpo.innerHTML = `<div class="painel"><h3 style="margin-top:0;">Médias bimestrais — ${esc(nomeComp)} · ${ano}</h3>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Nº</th><th>Estudante</th><th style="text-align:center;">1º Bim.</th><th style="text-align:center;">2º Bim.</th><th style="text-align:center;">3º Bim.</th><th style="text-align:center;">4º Bim.</th><th style="text-align:center;">Média anual</th></tr></thead><tbody>${linhas}</tbody></table></div></div>`;
+}
+
+// ---------------------------------------------------------------
 // USUÁRIOS (admin)
 // ---------------------------------------------------------------
 const ABAS_PERMISSIVEIS = [
@@ -5340,8 +5621,8 @@ function renderizarUsuarios(el){
       <td style="white-space:nowrap;">
         <button class="botao secundario pequeno" data-editar-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar</button>
         <button class="botao secundario pequeno" data-resetar-senha="${p.id}" style="width:auto;padding:4px 10px;">Resetar senha</button>
-        ${p.role !== 'admin' ? `<button class="botao secundario pequeno" data-permissoes-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar permissões</button>` : ''}
-        ${p.role !== 'admin' && Array.isArray(p.permissoes) ? `<button class="botao secundario pequeno" data-excluir-permissoes="${p.id}" style="width:auto;padding:4px 10px;">Excluir permissões</button>` : ''}
+        ${p.role !== 'admin' && p.role !== 'professor' ? `<button class="botao secundario pequeno" data-permissoes-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar permissões</button>` : ''}
+        ${p.role !== 'admin' && p.role !== 'professor' && Array.isArray(p.permissoes) ? `<button class="botao secundario pequeno" data-excluir-permissoes="${p.id}" style="width:auto;padding:4px 10px;">Excluir permissões</button>` : ''}
         ${p.id !== ESTADO.perfil.id ? `<button class="botao ${p.status==='ativo'?'secundario':'terracota'} pequeno" data-bloquear-usuario="${p.id}" data-status-atual="${p.status}" style="width:auto;padding:4px 10px;">${p.status==='ativo'?'Bloquear':'Liberar'}</button>` : ''}
       </td>
     </tr>`).join('');
@@ -5480,9 +5761,13 @@ function abrirModalEditarUsuario(perfil, elPai){
           <select id="edu-role" ${perfil.id === ESTADO.perfil.id ? 'disabled' : ''}>
             <option value="secretaria" ${perfil.role==='secretaria'?'selected':''}>Secretaria</option>
             <option value="coordenacao" ${perfil.role==='coordenacao'?'selected':''}>Coordenação/Apoio Escolar</option>
+            <option value="professor" ${perfil.role==='professor'?'selected':''}>Professor (Diário)</option>
             <option value="admin" ${perfil.role==='admin'?'selected':''}>Administrador</option>
           </select>
           ${perfil.id === ESTADO.perfil.id ? '<p style="font-size:12px;color:var(--texto-suave);margin:4px 0 0;">Você não pode alterar seu próprio papel.</p>' : ''}
+        </div>
+        <div class="campo" id="edu-campo-func" style="${perfil.role==='professor'?'':'display:none;'}"><label>Funcionário (professor) vinculado</label>
+          <select id="edu-func">${opcoesFuncionariosProfessor(perfil.funcionario_id || '')}</select>
         </div>
         <button class="botao terracota" type="submit" id="btn-salvar-edicao-usuario">Salvar alterações</button>
       </form>
@@ -5491,11 +5776,16 @@ function abrirModalEditarUsuario(perfil, elPai){
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
 
+  document.getElementById('edu-role').addEventListener('change', e => {
+    document.getElementById('edu-campo-func').style.display = e.target.value === 'professor' ? '' : 'none';
+  });
   document.getElementById('form-editar-usuario').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = document.getElementById('edu-nome').value.trim();
     const email = document.getElementById('edu-email').value.trim();
     const role = perfil.id === ESTADO.perfil.id ? perfil.role : document.getElementById('edu-role').value;
+    const funcionario_id = role === 'professor' ? document.getElementById('edu-func').value : null;
+    if(role === 'professor' && !funcionario_id){ document.getElementById('msg-editar-usuario').innerHTML = '<div class="msg-erro">Selecione o funcionário vinculado.</div>'; return; }
     const btn = document.getElementById('btn-salvar-edicao-usuario');
     btn.disabled = true; btn.textContent = 'Salvando…';
     try{
@@ -5503,7 +5793,7 @@ function abrirModalEditarUsuario(perfil, elPai){
       const resp = await fetch(`${EDGE_URL}/editar-usuario`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({ user_id: perfil.id, nome, email, role }),
+        body: JSON.stringify({ user_id: perfil.id, nome, email, role, funcionario_id }),
       });
       const json = await resp.json();
       if(!resp.ok) throw new Error(json.error || 'Falha ao salvar alterações');
@@ -5551,6 +5841,11 @@ function abrirModalPermissoes(perfil, elPai){
   });
 }
 
+function opcoesFuncionariosProfessor(selecionado){
+  const lista = ESTADO.funcionarios.filter(f => f.ativo !== false).slice().sort((a, b) => a.nome.localeCompare(b.nome));
+  return '<option value="">Selecione…</option>' + lista.map(f => `<option value="${f.id}" ${f.id===selecionado?'selected':''}>${esc(f.nome)}${f.funcao ? ' — ' + esc(f.funcao) : ''}</option>`).join('');
+}
+
 function gerarSenhaAleatoria(){
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   let s = '';
@@ -5570,7 +5865,11 @@ function abrirModalConvite(){
         <div class="campo"><label>Nome completo</label><input type="text" id="conv-nome" required /></div>
         <div class="campo"><label>E-mail</label><input type="email" id="conv-email" required /></div>
         <div class="campo"><label>Papel</label>
-          <select id="conv-role"><option value="secretaria">Secretaria</option><option value="coordenacao">Coordenação/Apoio Escolar</option><option value="admin">Administrador</option></select>
+          <select id="conv-role"><option value="secretaria">Secretaria</option><option value="coordenacao">Coordenação/Apoio Escolar</option><option value="professor">Professor (Diário)</option><option value="admin">Administrador</option></select>
+        </div>
+        <div class="campo" id="conv-campo-func" style="display:none;"><label>Funcionário (professor) vinculado</label>
+          <select id="conv-func">${opcoesFuncionariosProfessor('')}</select>
+          <p style="font-size:12px;color:var(--texto-suave);margin:4px 0 0;">O professor só verá as turmas/disciplinas vinculadas a este cadastro.</p>
         </div>
         <div class="campo">
           <label>Senha inicial</label>
@@ -5585,6 +5884,9 @@ function abrirModalConvite(){
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.getElementById('conv-role').addEventListener('change', e => {
+    document.getElementById('conv-campo-func').style.display = e.target.value === 'professor' ? '' : 'none';
+  });
   document.getElementById('btn-gerar-senha').addEventListener('click', () => {
     document.getElementById('conv-senha').value = gerarSenhaAleatoria();
   });
@@ -5595,6 +5897,8 @@ function abrirModalConvite(){
     const email = document.getElementById('conv-email').value.trim();
     const role = document.getElementById('conv-role').value;
     const senha = document.getElementById('conv-senha').value;
+    const funcionario_id = role === 'professor' ? document.getElementById('conv-func').value : null;
+    if(role === 'professor' && !funcionario_id){ document.getElementById('msg-modal-convite').innerHTML = '<div class="msg-erro">Selecione o funcionário vinculado.</div>'; return; }
     const btn = document.getElementById('btn-enviar-convite');
     btn.disabled = true; btn.textContent = 'Criando…';
     try{
@@ -5602,7 +5906,7 @@ function abrirModalConvite(){
       const resp = await fetch(`${EDGE_URL}/convidar-usuario`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({ nome, email, role, senha }),
+        body: JSON.stringify({ nome, email, role, senha, funcionario_id }),
       });
       const json = await resp.json();
       if(!resp.ok) throw new Error(json.error || 'Falha ao criar acesso');
