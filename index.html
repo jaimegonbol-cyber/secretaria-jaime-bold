@@ -5398,6 +5398,13 @@ async function renderizarDiario(el){
   const ano = anoLetivoAtual();
   const turma = turmas.find(t => t.id === DIARIO.turmaId);
   if(!DIARIO.dataAula) DIARIO.dataAula = hojeISO();
+  let nomesProfessores = '—';
+  if(DIARIO.comp){
+    const { data: vincsTurma } = await supabase.from('turma_professor_disciplina').select('funcionario_id, disciplina').eq('turma_id', DIARIO.turmaId);
+    const nomes = [...new Set((vincsTurma || []).filter(v => disciplinaCasaComponente(v.disciplina, DIARIO.comp))
+      .map(v => (ESTADO.funcionarios.find(f => f.id === v.funcionario_id) || {}).nome).filter(Boolean))];
+    if(nomes.length) nomesProfessores = nomes.join(' / ');
+  }
 
   const abas = [['notas', 'Notas'], ['avaliacoes', 'Avaliações'], ['aulas', 'Registro de aula'], ['resumo', 'Resumo do ano']];
   el.innerHTML = `
@@ -5410,6 +5417,7 @@ async function renderizarDiario(el){
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;">
         <div class="campo" style="margin:0;"><label>Turma</label><select id="dr-turma">${turmas.map(t => `<option value="${t.id}" ${t.id===DIARIO.turmaId?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('')}</select></div>
         <div class="campo" style="margin:0;"><label>Disciplina</label><select id="dr-comp">${comps.map(([k, n]) => `<option value="${k}" ${k===DIARIO.comp?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+        <div class="campo" style="margin:0;"><label>Professor(a)</label><div style="padding:9px 2px;font-weight:700;color:var(--verde-escuro);">${esc(nomesProfessores)}</div></div>
         <div class="campo" style="margin:0;"><label>Bimestre</label><select id="dr-bim">${[1,2,3,4].map(b => `<option value="${b}" ${b===DIARIO.bim?'selected':''}>${b}º bimestre</option>`).join('')}</select></div>
       </div>
     </div>
