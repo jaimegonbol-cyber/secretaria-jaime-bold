@@ -276,6 +276,10 @@
       cursor:pointer;
     }
   }
+  .tabela-diario{font-size:13px;}
+  .tabela-diario tbody td{padding:2px 8px;line-height:1.2;}
+  .tabela-diario thead th{padding:6px 8px;}
+  .tabela-diario input.dr-nota{padding:2px 4px;height:26px;font-size:13px;}
   .tabela-compacta{font-size:11.5px;}
   .tabela-compacta thead th{padding:7px 8px;font-size:10px;white-space:nowrap;}
   .tabela-compacta tbody td{padding:6px 8px;line-height:1.35;}
@@ -5443,7 +5447,7 @@ async function abaNotasDiario(corpo, { alunos, podeEditar, ano, nomeComp, chaveB
     return `<th style="text-align:center;min-width:92px;" ${t && t.titulo ? `title="${esc(t.titulo)}"` : ''}>${rotulo}${t && t.titulo ? `<div style="font-weight:400;font-size:10px;color:var(--texto-suave);text-transform:none;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.titulo)}</div>` : ''}</th>`;
   };
   const campo = (id, slot, valor) => podeEditar
-    ? `<input type="text" inputmode="decimal" class="dr-nota" data-aluno="${id}" data-slot="${slot}" value="${fmtNotaDiario(valor)}" style="width:70px;text-align:center;padding:6px;" />`
+    ? `<input type="text" inputmode="decimal" class="dr-nota" data-aluno="${id}" data-slot="${slot}" value="${fmtNotaDiario(valor)}" style="width:64px;text-align:center;" />`
     : `<span>${fmtNotaDiario(valor) || '—'}</span>`;
   const linhas = alunos.map((a, i) => {
     const n = porAluno[a.id] || {};
@@ -5463,7 +5467,7 @@ async function abaNotasDiario(corpo, { alunos, podeEditar, ano, nomeComp, chaveB
     <div class="painel">
       <h3 style="margin-top:0;">${esc(nomeComp)} — ${DIARIO.bim}º bimestre</h3>
       <div id="dr-msg"></div>
-      ${alunos.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nº</th><th>Estudante</th>${cab('atv1','ATV 1')}${cab('atv2','ATV 2')}${cab('atv3','ATV 3')}<th style="text-align:center;">N1<div style="font-weight:400;font-size:10px;color:var(--texto-suave);">soma (máx. 10)</div></th>${cab('n2','Avaliação (N2)')}<th style="text-align:center;">Média<div style="font-weight:400;font-size:10px;color:var(--texto-suave);">(N1+N2)÷2</div></th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p style="color:var(--texto-suave);">Nenhum estudante matriculado nesta turma.</p>'}
+      ${alunos.length ? `<div style="overflow-x:auto;"><table class="tabela-diario"><thead><tr><th>Nº</th><th>Estudante</th>${cab('atv1','ATV 1')}${cab('atv2','ATV 2')}${cab('atv3','ATV 3')}<th style="text-align:center;">N1<div style="font-weight:400;font-size:10px;color:var(--texto-suave);">soma (máx. 10)</div></th>${cab('n2','Avaliação (N2)')}<th style="text-align:center;">Média<div style="font-weight:400;font-size:10px;color:var(--texto-suave);">(N1+N2)÷2</div></th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p style="color:var(--texto-suave);">Nenhum estudante matriculado nesta turma.</p>'}
       ${podeEditar && alunos.length ? `<button class="botao terracota" id="dr-salvar-notas" style="width:auto;margin-top:14px;">Salvar notas</button>
       <p style="font-size:12px;color:var(--texto-suave);margin:8px 0 0;">A média do bimestre é enviada automaticamente para a Ficha Individual das Notas do estudante.</p>` : ''}
     </div>`;
