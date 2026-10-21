@@ -4016,9 +4016,9 @@ async function statusDiasFuncionarios(primeiroDiaMes, ultimoDiaMes, feriadosMes)
     const diaSemana = new Date(anoIni, mesIni-1, d).getDay();
     if(diaSemana === 0 || diaSemana === 6) continue; // fim de semana: mantém a cor padrão de não letivo
     const feriado = mapaFeriados[iso];
-    if(feriado && (feriado.tipo === 'feriado' || feriado.tipo === 'ponto_facultativo')) continue; // ninguém tem expediente
+    if(feriado && (feriado.tipo === 'feriado' || feriado.tipo === 'ponto_facultativo') && !ehDiaParcial(feriado)) continue; // ninguém tem expediente
     const ehRecesso = !!feriado && feriado.tipo === 'recesso';
-    const ehSuspensao = !!feriado && feriado.tipo === 'suspensao_aulas';
+    const ehSuspensao = ehDiaParcial(feriado);
     const aplicaveis = ativos.filter(f => {
       if(!funcionarioSegueDiaUtil(f) && ehRecesso && !funcionarioConvocadoNoDia(f, iso, convocacoesMes)) return false;
       if(ehSuspensao && !turnoAfetaSuspensao(f.turno, feriado.turno_afetado)) return false;
@@ -4042,12 +4042,12 @@ async function carregarStatusFrequenciaHoje(){
   if(diaSemana === 0 || diaSemana === 6){ btn.title = 'Fim de semana — sem expediente'; return; }
 
   const { data: feriadoHoje } = await supabase.from('feriados').select('*').eq('data', hoje).maybeSingle();
-  if(feriadoHoje && (feriadoHoje.tipo === 'feriado' || feriadoHoje.tipo === 'ponto_facultativo')){
+  if(feriadoHoje && (feriadoHoje.tipo === 'feriado' || feriadoHoje.tipo === 'ponto_facultativo') && !ehDiaParcial(feriadoHoje)){
     btn.title = 'Feriado/Ponto Facultativo — sem expediente';
     return;
   }
   const ehRecesso = !!feriadoHoje && feriadoHoje.tipo === 'recesso';
-  const ehSuspensao = !!feriadoHoje && feriadoHoje.tipo === 'suspensao_aulas';
+  const ehSuspensao = ehDiaParcial(feriadoHoje);
   const ativos = ESTADO.funcionarios.filter(f => f.ativo);
   const { data: feriasHoje } = await supabase.from('ferias_funcionarios').select('funcionario_id, data_inicio, data_fim').lte('data_inicio', hoje).gte('data_fim', hoje);
   const { data: convocacoesHoje } = await supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes').eq('data', hoje);
@@ -4118,9 +4118,9 @@ async function carregarFrequenciaFuncionariosDia(el){
   // dia letivo (calendário de professores/coordenação/apoio): dia de semana, exceto feriado/ponto facultativo/recesso — igual ao calendário escolar dos estudantes
   const diaSemana = new Date(ESTADO.freqFuncData + 'T00:00:00').getDay();
   const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
-  const bloqueiaAmbos = ehFimDeSemana || (feriadoData && (feriadoData.tipo === 'feriado' || feriadoData.tipo === 'ponto_facultativo'));
+  const bloqueiaAmbos = ehFimDeSemana || (feriadoData && (feriadoData.tipo === 'feriado' || feriadoData.tipo === 'ponto_facultativo') && !ehDiaParcial(feriadoData));
   const ehRecesso = !!feriadoData && feriadoData.tipo === 'recesso';
-  const ehSuspensao = !!feriadoData && feriadoData.tipo === 'suspensao_aulas';
+  const ehSuspensao = ehDiaParcial(feriadoData);
   const diaUtil = !bloqueiaAmbos;
   const diaLetivo = !bloqueiaAmbos && !ehRecesso;
   let motivoBloqueio = '';
@@ -4278,9 +4278,9 @@ async function gerarRelatorioFrequenciaFuncionarios(){
 
   const diaSemana = new Date(ESTADO.freqFuncData + 'T00:00:00').getDay();
   const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
-  const bloqueiaAmbos = ehFimDeSemana || (feriadoData && (feriadoData.tipo === 'feriado' || feriadoData.tipo === 'ponto_facultativo'));
+  const bloqueiaAmbos = ehFimDeSemana || (feriadoData && (feriadoData.tipo === 'feriado' || feriadoData.tipo === 'ponto_facultativo') && !ehDiaParcial(feriadoData));
   const ehRecesso = !!feriadoData && feriadoData.tipo === 'recesso';
-  const ehSuspensao = !!feriadoData && feriadoData.tipo === 'suspensao_aulas';
+  const ehSuspensao = ehDiaParcial(feriadoData);
   const diaUtil = !bloqueiaAmbos;
   const diaLetivo = !bloqueiaAmbos && !ehRecesso;
   const temExpediente = (f) => {
@@ -4428,9 +4428,9 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
     const diaSemana = new Date(ano, mes-1, d).getDay();
     const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
     const feriado = mapaFeriados[iso];
-    const bloqueiaAmbos = ehFimDeSemana || (feriado && (feriado.tipo === 'feriado' || feriado.tipo === 'ponto_facultativo'));
+    const bloqueiaAmbos = ehFimDeSemana || (feriado && (feriado.tipo === 'feriado' || feriado.tipo === 'ponto_facultativo') && !ehDiaParcial(feriado));
     const ehRecesso = !!feriado && feriado.tipo === 'recesso';
-    const ehSuspensao = !!feriado && feriado.tipo === 'suspensao_aulas';
+    const ehSuspensao = ehDiaParcial(feriado);
     dias.push({ iso, diaUtil: !bloqueiaAmbos, diaLetivo: !bloqueiaAmbos && !ehRecesso, ehRecesso, ehSuspensao, turnoAfetado: feriado ? feriado.turno_afetado : null });
   }
 
@@ -6173,9 +6173,15 @@ function renderizarFrequenciaEstudantes(el){
   else renderizarChamada(alvo);
 }
 
+// Suspensão de Aulas, ou Ponto Facultativo que vale só para um turno (ex.: prédio cedido ao TRE só de manhã):
+// afetam apenas o turno informado em turno_afetado; sem turno = dia todo.
+function ehDiaParcial(f){
+  return !!f && (f.tipo === 'suspensao_aulas' || (f.tipo === 'ponto_facultativo' && !!f.turno_afetado));
+}
+
 function rotuloTipoFeriado(f){
   if(f.tipo === 'feriado') return 'Feriado';
-  if(f.tipo === 'ponto_facultativo') return 'Ponto Facultativo';
+  if(f.tipo === 'ponto_facultativo') return 'Ponto Facultativo' + (f.turno_afetado === 'manha' ? ' (Manhã)' : f.turno_afetado === 'tarde' ? ' (Tarde)' : '');
   if(f.tipo === 'recesso') return 'Recesso Escolar';
   if(f.tipo === 'suspensao_aulas') return 'Suspensão de Aulas' + (f.turno_afetado === 'manha' ? ' (Manhã)' : f.turno_afetado === 'tarde' ? ' (Tarde)' : ' (Dia todo)');
   return f.tipo;
@@ -6288,7 +6294,7 @@ async function renderizarDiasLetivos(el){
     criarSeletorData('fer-data-container', '', null, { inputId:'fer-data', permiteLimpar:false, rotuloVazio:'Selecione a data' });
     criarSeletorData('fer-data-fim-container', '', null, { inputId:'fer-data-fim', permiteLimpar:true, rotuloVazio:'(opcional)' });
     document.getElementById('fer-tipo').addEventListener('change', (e) => {
-      document.getElementById('campo-fer-turno').style.display = e.target.value === 'suspensao_aulas' ? '' : 'none';
+      document.getElementById('campo-fer-turno').style.display = ['suspensao_aulas','ponto_facultativo'].includes(e.target.value) ? '' : 'none';
     });
   }
   if(podeEditar){
@@ -6313,7 +6319,7 @@ async function renderizarDiasLetivos(el){
     if(!dataInicio){ msg.innerHTML = `<div class="msg-erro">Informe a data.</div>`; return; }
     if(dataFim && dataFim < dataInicio){ msg.innerHTML = `<div class="msg-erro">A data fim deve ser igual ou posterior à data início.</div>`; return; }
     const tipo = document.getElementById('fer-tipo').value;
-    const turnoAfetado = tipo === 'suspensao_aulas' ? (document.getElementById('fer-turno').value || null) : null;
+    const turnoAfetado = ['suspensao_aulas','ponto_facultativo'].includes(tipo) ? (document.getElementById('fer-turno').value || null) : null;
     const descricao = document.getElementById('fer-descricao').value.trim() || null;
     const btn = document.getElementById('btn-add-feriado');
     btn.disabled = true; btn.textContent = 'Adicionando…';
@@ -6379,7 +6385,7 @@ function abrirModalEditarFeriado(feriado, elPai){
           <option value="suspensao_aulas" ${feriado.tipo==='suspensao_aulas'?'selected':''}>Suspensão de Aulas</option>
         </select>
       </div>
-      <div class="campo" id="campo-edfer-turno" style="display:${feriado.tipo==='suspensao_aulas'?'':'none'};">
+      <div class="campo" id="campo-edfer-turno" style="display:${['suspensao_aulas','ponto_facultativo'].includes(feriado.tipo)?'':'none'};">
         <label>Turno afetado</label>
         <select id="edfer-turno">
           <option value="" ${!feriado.turno_afetado?'selected':''}>Dia todo</option>
@@ -6396,14 +6402,14 @@ function abrirModalEditarFeriado(feriado, elPai){
 
   criarSeletorData('edfer-data-container', feriado.data, null, { inputId:'edfer-data', permiteLimpar:false, rotuloVazio:'Selecione a data' });
   document.getElementById('edfer-tipo').addEventListener('change', (e) => {
-    document.getElementById('campo-edfer-turno').style.display = e.target.value === 'suspensao_aulas' ? '' : 'none';
+    document.getElementById('campo-edfer-turno').style.display = ['suspensao_aulas','ponto_facultativo'].includes(e.target.value) ? '' : 'none';
   });
 
   document.getElementById('btn-salvar-editar-feriado').addEventListener('click', async () => {
     const msg = document.getElementById('msg-editar-feriado');
     const novaData = document.getElementById('edfer-data').value;
     const novoTipo = document.getElementById('edfer-tipo').value;
-    const novoTurno = novoTipo === 'suspensao_aulas' ? (document.getElementById('edfer-turno').value || null) : null;
+    const novoTurno = ['suspensao_aulas','ponto_facultativo'].includes(novoTipo) ? (document.getElementById('edfer-turno').value || null) : null;
     const novaDescricao = document.getElementById('edfer-descricao').value.trim() || null;
     if(!novaData){ msg.innerHTML = `<div class="msg-erro">Informe a data.</div>`; return; }
     const btn = document.getElementById('btn-salvar-editar-feriado');
@@ -6470,7 +6476,7 @@ async function renderizarChamada(el){
   const diaSemana = new Date(ESTADO.chamadaData + 'T00:00:00').getDay();
   const ehFimDeSemana = diaSemana === 0 || diaSemana === 6;
   const turmaSelecionada = ESTADO.turmas.find(t => t.id === ESTADO.chamadaTurma);
-  const suspensaoAfetaTurma = !feriadosData || feriadosData.tipo !== 'suspensao_aulas' || !turmaSelecionada
+  const suspensaoAfetaTurma = !feriadosData || !ehDiaParcial(feriadosData) || !turmaSelecionada
     || turnoAfetaSuspensao(turmaSelecionada.turno, feriadosData.turno_afetado);
   const diaNaoLetivo = ehFimDeSemana || (!!feriadosData && suspensaoAfetaTurma);
   let motivoNaoLetivo = '';
@@ -9277,8 +9283,8 @@ async function dataEhNaoLetiva(dataIso, turnoTurma){
   if(diaSemana === 0 || diaSemana === 6) return true;
   const { data: feriado } = await supabase.from('feriados').select('tipo, turno_afetado').eq('data', dataIso).maybeSingle();
   if(!feriado) return false;
+  if(ehDiaParcial(feriado)) return turnoAfetaSuspensao(turnoTurma, feriado.turno_afetado);
   if(['feriado','ponto_facultativo','recesso'].includes(feriado.tipo)) return true;
-  if(feriado.tipo === 'suspensao_aulas') return turnoAfetaSuspensao(turnoTurma, feriado.turno_afetado);
   return false;
 }
 
