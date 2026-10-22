@@ -11449,6 +11449,27 @@ async function abrirModalResultadosAvaliacaoPersonalizada(avaliacao){
 // ---------------------------------------------------------------
 // GABARITO DE PROVAS — criação com descritor por questão + correção por foto
 // ---------------------------------------------------------------
+// Matrizes de Referência do SAEPE — 9º ano do Ensino Fundamental (descritores oficiais).
+const MATRIZ_SAEPE_9ANO = {"Matemática": {"D01": "Identificar a localização/movimentação de objeto em mapas, croquis e outras representações gráficas.", "D02": "Identificar propriedades comuns e diferenças entre figuras bidimensionais e tridimensionais, relacionando-as com as suas planificações.", "D03": "Identificar propriedades de triângulos pela comparação de medidas de lados e ângulos.", "D04": "Identificar relação entre quadriláteros por meio de suas propriedades.", "D05": "Reconhecer a conservação ou modificação de medidas dos lados, do perímetro, da área em ampliação e/ou redução de figuras poligonais usando malhas quadriculadas.", "D06": "Reconhecer ângulos como mudança de direção ou giros, identificando ângulos retos e não retos.", "D07": "Reconhecer que as imagens de uma figura construída por uma transformação homotética são semelhantes, identificando propriedades e/ou medidas que se modificam ou não se alteram.", "D08": "Resolver problema utilizando propriedades dos polígonos (soma de seus ângulos internos, número de diagonais, cálculo da medida de cada ângulo interno nos polígonos regulares).", "D09": "Resolver problema utilizando relações métricas no triângulo retângulo.", "D10": "Resolver problema utilizando razões trigonométricas no triângulo retângulo.", "D11": "Reconhecer círculo/circunferência, seus elementos e algumas de suas relações.", "D12": "Resolver problema envolvendo o perímetro de figuras planas.", "D13": "Resolver problema envolvendo área de figuras planas.", "D14": "Resolver problema envolvendo noções de volume.", "D15": "Resolver problema utilizando relações entre diferentes unidades de medida.", "D16": "Identificar a localização de números inteiros na reta numérica.", "D17": "Identificar a localização de números racionais na reta numérica.", "D18": "Efetuar cálculos com números inteiros, envolvendo as operações (adição, subtração, multiplicação, divisão, potenciação).", "D19": "Resolver problema com números naturais, envolvendo diferentes significados das operações (adição, subtração, multiplicação, divisão, potenciação).", "D20": "Resolver problema com números inteiros envolvendo as operações (adição, subtração, multiplicação, divisão, potenciação).", "D21": "Reconhecer as diferentes representações de um número racional.", "D22": "Identificar fração como representação que pode estar associada a diferentes significados.", "D23": "Resolver problemas utilizando frações equivalentes.", "D24": "Reconhecer as representações decimais dos números racionais como uma extensão do sistema de numeração decimal, identificando a existência de “ordens” como décimos, centésimos e milésimos.", "D25": "Efetuar cálculos que envolvam operações com números racionais (adição, subtração, multiplicação, divisão, potenciação).", "D26": "Resolver problema com números racionais envolvendo as operações (adição, subtração, multiplicação, divisão, potenciação).", "D27": "Resolver problema que envolva porcentagem.", "D28": "Resolver problema que envolva variação proporcional, direta ou inversa, entre grandezas.", "D29": "Identificar uma equação ou inequação do 1º grau que expressa um problema.", "D30": "Resolver problema que envolva equação do 1º grau.", "D31": "Identificar a equação do 2º grau que expressa um problema.", "D32": "Resolver problema que envolva equação do 2º grau.", "D33": "Identificar a expressão algébrica que expressa uma regularidade observada em sequências de números ou figuras (padrões).", "D34": "Identificar um sistema de equações do 1º grau que expressa um problema.", "D35": "Resolver problema elementar envolvendo o princípio fundamental da contagem.", "D36": "Resolver problema envolvendo probabilidade de um evento.", "D37": "Resolver problema envolvendo informações apresentadas em tabelas e/ou gráficos.", "D38": "Associar informações apresentadas em listas e/ou tabelas simples aos gráficos que as representam e vice-versa."}, "Português": {"D06": "Localizar informação explícita em um texto.", "D07": "Inferir informação em um texto.", "D08": "Inferir o sentido de palavra ou expressão a partir do contexto.", "D09": "Identificar o tema central de um texto.", "D10": "Distinguir fato de uma opinião.", "D11": "Interpretar textos não verbais e textos que articulam elementos verbais e não verbais.", "D12": "Identificar o gênero do texto.", "D13": "Identificar a finalidade de diferentes gêneros textuais.", "D14": "Reconhecer semelhanças e/ou diferenças de ideias e opiniões na comparação entre textos que tratem da mesma temática.", "D16": "Estabelecer relação de causa e consequência entre partes de um texto.", "D17": "Estabelecer relações lógico-discursivas entre partes de um texto, marcadas por locuções adverbiais ou advérbios.", "D18": "Reconhecer relações entre partes de um texto, identificando os recursos coesivos que contribuem para sua continuidade (substituições e repetições).", "D19": "Identificar a tese de um texto.", "D21": "Reconhecer o conflito gerador do enredo e os elementos de uma narrativa.", "D27": "Diferenciar as partes principais das secundárias em um texto.", "D22": "Identificar efeitos de humor no texto.", "D23": "Identificar efeitos de sentido decorrente do uso de pontuação e outras notações.", "D24": "Reconhecer o efeito de sentido decorrente do emprego de recursos estilísticos e morfossintáticos.", "D25": "Reconhecer o efeito de sentido decorrente da escolha de palavras, frases ou expressões.", "D26": "Identificar as marcas linguísticas que evidenciam o locutor e/ou o interlocutor."}};
+function chaveDisciplinaSaepe(nome){
+  const n = String(nome || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if(n.includes('matem')) return 'Matemática';
+  if(n.includes('portug')) return 'Português';
+  return null;
+}
+// "D11" + "Matemática" -> "Matemática: D11 — Reconhecer círculo/circunferência, seus elementos e algumas de suas relações."
+function expandirDescritorSaepe(disciplina, descritor){
+  const m = String(descritor || '').trim().match(/^D\s*0*(\d{1,2})\.?$/i);
+  const chave = chaveDisciplinaSaepe(disciplina);
+  if(!m || !chave) return descritor;
+  const cod = 'D' + String(m[1]).padStart(2, '0');
+  const texto = MATRIZ_SAEPE_9ANO[chave][cod];
+  return texto ? `${cod} — ${texto}` : descritor;
+}
+function codigoDescritor(desc){
+  const m = String(desc || '').match(/(?:^|:\s*)(D\s?\d{1,2})\b/i);
+  return m ? m[1].toUpperCase().replace(/\s/g, '') : '';
+}
 const LETRAS_GABARITO = ['A','B','C','D','E'];
 // Cada gabarito tem 4 (A–D) ou 5 (A–E) alternativas por questão (padrão 5).
 function letrasDoGabarito(g){ return LETRAS_GABARITO.slice(0, (g && g.num_alternativas === 4) ? 4 : 5); }
@@ -11526,6 +11547,7 @@ function parsearGabaritoColado(texto){
     let desc = (m[3] || '').trim().replace(/\s+/g, ' ').replace(/\s+\.$/, '.');
     const cod = desc.match(/^Descritor(?:\s+SAEPE)?\s*:\s*(.+)$/i);
     if(cod) desc = cod[1].trim();
+    desc = expandirDescritorSaepe(secao, desc);
     questoes.push({ secao, descritor: desc, resposta_correta: m[2].toUpperCase() });
   });
   const usarSecao = secoes.size > 0;
@@ -11536,6 +11558,12 @@ function parsearGabaritoColado(texto){
     })),
     secoes: Array.from(secoes),
   };
+}
+
+function descritoresSaepeParaLista(){
+  const lista = [];
+  Object.entries(MATRIZ_SAEPE_9ANO).forEach(([disc, mapa]) => Object.entries(mapa).forEach(([cod, txt]) => lista.push(`${disc}: ${cod} — ${txt}`)));
+  return lista;
 }
 
 async function abrirModalCriarGabarito(elPai){
@@ -11563,7 +11591,7 @@ async function abrirModalCriarGabarito(elPai){
       <div class="campo" style="max-width:260px;"><label>Alternativas por questão</label>
         <select id="gab-num-alt"><option value="4">4 alternativas (A a D)</option><option value="5" selected>5 alternativas (A a E)</option></select>
       </div>
-      <datalist id="datalist-descritores">${descritoresExistentes.map(d => `<option value="${esc(d)}"></option>`).join('')}</datalist>
+      <datalist id="datalist-descritores">${descritoresSaepeParaLista().concat(descritoresExistentes).map(d => `<option value="${esc(d)}"></option>`).join('')}</datalist>
       <div class="campo">
         <label>Questões <span id="gab-rotulo-alt">(5 alternativas: A a E)</span></label>
         <div id="gab-questoes"></div>
@@ -11939,11 +11967,20 @@ function htmlResumoVisualAluno(gabarito, registro){
       <div style="font-size:11px;font-weight:700;">${q.numero}º ${simbolo}</div>
       <div style="font-size:13px;font-weight:800;">${esc(marcou)}</div>
       <div style="font-size:9.5px;">Gab.: ${esc(q.resposta_correta)}</div>
+      ${codigoDescritor(q.descritor) ? `<div style="font-size:9.5px;font-weight:700;border-top:1px solid ${c.borda};margin-top:2px;padding-top:1px;">${esc(codigoDescritor(q.descritor))}</div>` : ''}
     </div>`;
   };
   return Object.entries(grupos).map(([nome, qs]) => `
     ${Object.keys(grupos).length > 1 ? `<div style="font-size:12px;font-weight:700;color:#15325C;margin:10px 0 5px;">${esc(nome)}</div>` : ''}
     <div style="display:flex;flex-wrap:wrap;gap:6px;">${qs.map(chip).join('')}</div>`).join('') + `
+    <div style="font-size:12px;font-weight:700;color:#15325C;margin:14px 0 4px;font-family:Arial,sans-serif;">Descritores avaliados</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:Arial,sans-serif;">
+      ${Object.values(gabarito.questoes.reduce((acc, q) => { (acc[q.descritor] = acc[q.descritor] || { descritor: q.descritor, qs: [] }).qs.push(q); return acc; }, {})).map(d => `
+      <tr style="border-bottom:1px solid #ccc;">
+        <td style="padding:3px 4px;">${esc(d.descritor)}</td>
+        <td style="padding:3px 4px;white-space:nowrap;text-align:right;">${d.qs.map(q => { const st = situacaoResposta(mapa[q.numero], q); const c = COR_SITUACAO_GAB[st]; return `<span style="display:inline-block;min-width:34px;text-align:center;margin-left:3px;padding:0 3px;border:1.5px solid ${c.borda};background:${c.fundo};color:${c.texto};border-radius:4px;font-weight:700;">${q.numero}º ${st === 'acerto' ? '✓' : st === 'erro' ? '✗' : '∅'}</span>`; }).join('')}</td>
+      </tr>`).join('')}
+    </table>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;font-family:Arial,sans-serif;">
       ${Object.values(COR_SITUACAO_GAB).map(c => `<span><span style="display:inline-block;width:11px;height:11px;background:${c.fundo};border:2px solid ${c.borda};border-radius:3px;vertical-align:-2px;"></span> ${c.rotulo}</span>`).join('')}
     </div>`;
