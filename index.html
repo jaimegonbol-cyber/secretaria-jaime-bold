@@ -11450,6 +11450,8 @@ async function abrirModalResultadosAvaliacaoPersonalizada(avaliacao){
 // GABARITO DE PROVAS — criação com descritor por questão + correção por foto
 // ---------------------------------------------------------------
 const LETRAS_GABARITO = ['A','B','C','D','E'];
+// Cada gabarito tem 4 (A–D) ou 5 (A–E) alternativas por questão (padrão 5).
+function letrasDoGabarito(g){ return LETRAS_GABARITO.slice(0, (g && g.num_alternativas === 4) ? 4 : 5); }
 
 async function buscarDescritoresSaevExistentes(){
   const { data } = await supabase.from('saev_resultados_descritores').select('descritor');
@@ -11491,7 +11493,7 @@ async function renderizarGabaritoProvas(el){
       <select id="gab-filtro-turma" style="max-width:260px;"><option value="">Todas as turmas</option>${opcoesTurma}</select>
       <button class="botao terracota" style="width:auto;" id="btn-criar-gabarito">+ Criar gabarito</button>
     </div>
-    <p style="font-size:12.5px;color:var(--texto-suave);margin:-6px 0 14px;">Monte o gabarito com a resposta certa e o descritor de cada questão, imprima a folha de respostas (5 alternativas, A a E), e depois corrija tirando uma foto — a IA identifica o que foi marcado, você confirma, e o sistema calcula acertos e o desempenho por descritor.</p>
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:-6px 0 14px;">Monte o gabarito com a resposta certa e o descritor de cada questão, imprima a folha de respostas (4 ou 5 alternativas, A a E), e depois corrija tirando uma foto — a IA identifica o que foi marcado, você confirma, e o sistema calcula acertos e o desempenho por descritor.</p>
     <div id="gab-lista">${cards}</div>`;
 
   document.getElementById('gab-filtro-turma').addEventListener('change', e => { ESTADO.gabaritoTurmaId = e.target.value; renderizarGabaritoProvas(el); });
@@ -11558,9 +11560,12 @@ async function abrirModalCriarGabarito(elPai){
         <button class="botao secundario pequeno" type="button" id="btn-importar-gab" style="width:auto;margin-top:6px;">Importar questões</button>
         <div id="msg-importar-gab" style="margin-top:6px;"></div>
       </details>
+      <div class="campo" style="max-width:260px;"><label>Alternativas por questão</label>
+        <select id="gab-num-alt"><option value="4">4 alternativas (A a D)</option><option value="5" selected>5 alternativas (A a E)</option></select>
+      </div>
       <datalist id="datalist-descritores">${descritoresExistentes.map(d => `<option value="${esc(d)}"></option>`).join('')}</datalist>
       <div class="campo">
-        <label>Questões (5 alternativas: A a E)</label>
+        <label>Questões <span id="gab-rotulo-alt">(5 alternativas: A a E)</span></label>
         <div id="gab-questoes"></div>
         <button class="botao secundario pequeno" type="button" id="btn-add-questao-gab" style="width:auto;margin-top:6px;">+ Adicionar questão</button>
       </div>
@@ -11572,6 +11577,14 @@ async function abrirModalCriarGabarito(elPai){
 
   const listaQuestoesEl = document.getElementById('gab-questoes');
   let questoes = [];
+  let numAlt = 5;
+  const letrasAtuais = () => LETRAS_GABARITO.slice(0, numAlt);
+  document.getElementById('gab-num-alt').addEventListener('change', (e) => {
+    numAlt = Number(e.target.value) === 4 ? 4 : 5;
+    questoes.forEach(q => { if(!letrasAtuais().includes(q.resposta_correta)) q.resposta_correta = 'A'; });
+    document.getElementById('gab-rotulo-alt').textContent = numAlt === 4 ? '(4 alternativas: A a D)' : '(5 alternativas: A a E)';
+    renderizarQuestoesGab();
+  });
 
   function renderizarQuestoesGab(){
     listaQuestoesEl.innerHTML = questoes.map((q, i) => `
@@ -11579,7 +11592,7 @@ async function abrirModalCriarGabarito(elPai){
         <span style="font-weight:700;font-size:13px;min-width:22px;">${i+1}.</span>
         <input type="text" class="gab-questao-descritor" data-i="${i}" list="datalist-descritores" placeholder="Descritor (ex: D5 — Interpretar texto narrativo)" value="${esc(q.descritor)}" style="flex:1;min-width:220px;" />
         <select class="gab-questao-resposta" data-i="${i}" style="width:auto;">
-          ${LETRAS_GABARITO.map(l => `<option value="${l}" ${q.resposta_correta===l?'selected':''}>${l}</option>`).join('')}
+          ${letrasAtuais().map(l => `<option value="${l}" ${q.resposta_correta===l?'selected':''}>${l}</option>`).join('')}
         </select>
         <button type="button" class="btn-icone perigo" data-remover-questao="${i}" title="Remover">🗑️</button>
       </div>`).join('');
@@ -11598,6 +11611,9 @@ async function abrirModalCriarGabarito(elPai){
     const r = parsearGabaritoColado(document.getElementById('gab-colar-texto').value);
     if(!r.questoes.length){ msgImp.innerHTML = `<div class="msg-erro">Não encontrei questões. Use uma linha por questão, ex.: 1º A - D6 — Identificar o tema.</div>`; return; }
     questoes = r.questoes;
+    const fora = questoes.filter(q => !letrasAtuais().includes(q.resposta_correta));
+    if(fora.length && numAlt === 4){ numAlt = 5; document.getElementById('gab-num-alt').value = '5'; document.getElementById('gab-rotulo-alt').textContent = '(5 alternativas: A a E)'; }
+    else if(!fora.length && numAlt === 5 && questoes.every(q => q.resposta_correta !== 'E')){ numAlt = 4; document.getElementById('gab-num-alt').value = '4'; document.getElementById('gab-rotulo-alt').textContent = '(4 alternativas: A a D)'; }
     renderizarQuestoesGab();
     const campoDisc = document.getElementById('gab-disciplina');
     if(!campoDisc.value.trim() && r.secoes.length) campoDisc.value = r.secoes.join(' e ');
@@ -11618,6 +11634,7 @@ async function abrirModalCriarGabarito(elPai){
       descricao: document.getElementById('gab-descricao').value.trim() || null,
       turma_id: document.getElementById('gab-turma').value || null,
       questoes: questoesValidas,
+      num_alternativas: numAlt,
       criado_por: ESTADO.perfil.id,
     });
     if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar gabarito'; return; }
@@ -11680,9 +11697,9 @@ function montarQuadranteGabarito(gabarito, aluno){
   const fonteNumero = Math.max(10, Math.min(12.5, Math.round(alturaLinha * 0.42)));
   const circulo = `<span style="display:inline-block;width:${diametro}px;height:${diametro}px;border:1.6px solid #000;border-radius:50%;flex-shrink:0;"></span>`;
   const linhasQuestoes = gabarito.questoes.map(q => `
-    <div style="display:flex;align-items:center;gap:${Math.round(diametro*0.55)}px;height:${alturaLinha}px;">
-      <span style="font-weight:700;font-size:${fonteNumero}px;min-width:${Math.round(fonteNumero*2)}px;">${q.numero}.</span>
-      ${LETRAS_GABARITO.map(l => `<span style="display:flex;align-items:center;gap:4px;font-size:${fonteLetra}px;font-weight:700;">${circulo}${l}</span>`).join('')}
+    <div style="position:relative;display:flex;align-items:center;justify-content:center;gap:${Math.round(diametro*0.55)}px;height:${alturaLinha}px;">
+      <span style="position:absolute;left:0;font-weight:700;font-size:${fonteNumero}px;">${q.numero}.</span>
+      ${letrasDoGabarito(gabarito).map(l => `<span style="display:flex;align-items:center;gap:4px;font-size:${fonteLetra}px;font-weight:700;">${circulo}${l}</span>`).join('')}
     </div>`).join('');
   return `
       <div style="text-align:center;margin-bottom:4px;">
@@ -11802,7 +11819,7 @@ function abrirModalCorrigirGabaritoCamera(gabarito, elPai){
     try{
       const { base64, mediaType } = await comprimirImagemParaBase64(arquivoFoto);
       const { data: resposta, error } = await supabase.functions.invoke('corrigir-gabarito-camera', {
-        body: { numeroQuestoes: gabarito.questoes.length, imagemBase64: base64, mediaType },
+        body: { numeroQuestoes: gabarito.questoes.length, numeroAlternativas: letrasDoGabarito(gabarito).length, imagemBase64: base64, mediaType },
       });
       if(error || !resposta || resposta.error){
         let detalhe = resposta && resposta.error;
@@ -11824,36 +11841,56 @@ function renderizarRevisaoGabcorr(gabarito, alunoId, resultadoIA, modal, elPai){
   const cores = { alta: '#2E7D5B', media: '#D98A1F', baixa: '#B4432E' };
   const revisao = document.getElementById('gabcorr-revisao');
   revisao.innerHTML = `
-    <h4 style="margin:0 0 8px;">Confira e ajuste antes de salvar</h4>
+    <h4 style="margin:0 0 4px;">Confira e ajuste antes de salvar</h4>
+    <p style="font-size:11.5px;color:var(--texto-suave);margin:0 0 8px;">Marque <b>uma</b> alternativa por questão. Questões <b>em branco</b> ou com <b>duas ou mais</b> alternativas marcadas serão <b>anuladas</b> (não pontuam).</p>
     ${gabarito.questoes.map(q => {
       const sugestao = resultadoIA.find(r => r.numero === q.numero) || {};
+      const marcadasIA = Array.isArray(sugestao.marcadas) ? sugestao.marcadas : (sugestao.alternativa ? [sugestao.alternativa] : []);
       const cor = cores[sugestao.confianca] || '#999';
       return `
-      <div style="border:1px solid var(--borda);border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div class="gabcorr-linha" data-q="${q.numero}" style="border:1px solid var(--borda);border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:12.5px;font-weight:600;min-width:26px;">${q.numero}.</span>
         <span style="font-size:11px;color:var(--texto-suave);flex:1;min-width:140px;">${esc(q.descritor)} <span style="color:${cor};">(IA: ${sugestao.confianca || 'baixa'})</span></span>
-        ${LETRAS_GABARITO.map(l => `
+        ${letrasDoGabarito(gabarito).map(l => `
           <label style="display:flex;align-items:center;gap:3px;font-size:12.5px;cursor:pointer;">
-            <input type="radio" name="gabcorr-q-${q.numero}" value="${l}" ${sugestao.alternativa === l ? 'checked' : ''} /> ${l}
+            <input type="checkbox" class="gabcorr-chk" data-q="${q.numero}" value="${l}" ${marcadasIA.includes(l) ? 'checked' : ''} style="width:auto;" /> ${l}
           </label>`).join('')}
+        <span class="gabcorr-aviso" data-q="${q.numero}" style="font-size:11px;font-weight:700;min-width:120px;text-align:right;"></span>
       </div>`;
     }).join('')}
+    <div id="gabcorr-contagem" style="font-size:12px;margin:8px 0;"></div>
     <button class="botao terracota" id="btn-salvar-gabcorr" style="width:100%;margin-top:6px;">✅ Salvar correção</button>
     <div id="msg-salvar-gabcorr"></div>`;
 
-  document.getElementById('btn-salvar-gabcorr').addEventListener('click', async () => {
-    const respostas = gabarito.questoes.map(q => {
-      const marcado = revisao.querySelector(`input[name="gabcorr-q-${q.numero}"]:checked`);
-      return { numero: q.numero, alternativa: marcado ? marcado.value : null };
+  const lerRespostas = () => gabarito.questoes.map(q => {
+    const marcadas = Array.from(revisao.querySelectorAll(`.gabcorr-chk[data-q="${q.numero}"]:checked`)).map(c => c.value);
+    return { numero: q.numero, marcadas, alternativa: marcadas.length === 1 ? marcadas[0] : null,
+      status: marcadas.length === 0 ? 'anulada_branco' : marcadas.length > 1 ? 'anulada_multipla' : (marcadas[0] === q.resposta_correta ? 'acerto' : 'erro') };
+  });
+  const atualizarAvisos = () => {
+    const rs = lerRespostas();
+    let branco = 0, multipla = 0;
+    rs.forEach(r => {
+      const aviso = revisao.querySelector(`.gabcorr-aviso[data-q="${r.numero}"]`);
+      const linha = revisao.querySelector(`.gabcorr-linha[data-q="${r.numero}"]`);
+      if(r.status === 'anulada_branco'){ aviso.textContent = 'Em branco — anulada'; aviso.style.color = '#B4432E'; linha.style.background = '#FBEFEA'; branco++; }
+      else if(r.status === 'anulada_multipla'){ aviso.textContent = 'Várias marcas — anulada'; aviso.style.color = '#B4432E'; linha.style.background = '#FBEFEA'; multipla++; }
+      else { aviso.textContent = ''; linha.style.background = ''; }
     });
-    const acertos = respostas.filter(r => {
-      const q = gabarito.questoes.find(x => x.numero === r.numero);
-      return q && r.alternativa === q.resposta_correta;
-    }).length;
+    document.getElementById('gabcorr-contagem').innerHTML = (branco || multipla)
+      ? `<b style="color:#B4432E;">${branco + multipla} questão(ões) será(ão) anulada(s):</b> ${branco} em branco · ${multipla} com mais de uma marca.`
+      : `<span style="color:#2E7D5B;">Todas as questões têm uma única alternativa marcada.</span>`;
+  };
+  revisao.querySelectorAll('.gabcorr-chk').forEach(c => c.addEventListener('change', atualizarAvisos));
+  atualizarAvisos();
+
+  document.getElementById('btn-salvar-gabcorr').addEventListener('click', async () => {
+    const respostas = lerRespostas();
+    const acertos = respostas.filter(r => r.status === 'acerto').length;
     const msgSalvar = document.getElementById('msg-salvar-gabcorr');
     const btnSalvar = document.getElementById('btn-salvar-gabcorr');
     btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando…';
-    const { error } = await supabase.from('gabaritos_provas_respostas').upsert({
+    const { data: salvo, error } = await supabase.from('gabaritos_provas_respostas').upsert({
       gabarito_id: gabarito.id,
       aluno_id: alunoId,
       respostas,
@@ -11861,11 +11898,187 @@ function renderizarRevisaoGabcorr(gabarito, alunoId, resultadoIA, modal, elPai){
       total: gabarito.questoes.length,
       origem: 'camera',
       corrigido_por: ESTADO.perfil.id,
-    }, { onConflict: 'gabarito_id,aluno_id' });
+    }, { onConflict: 'gabarito_id,aluno_id' }).select('*, alunos(nome)').single();
     if(error){ msgSalvar.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btnSalvar.disabled = false; btnSalvar.textContent = '✅ Salvar correção'; return; }
-    modal.remove();
-    renderizarGabaritoProvas(elPai);
+    const { data: todas } = await supabase.from('gabaritos_provas_respostas').select('*, alunos(nome)').eq('gabarito_id', gabarito.id);
+    renderizarResultadoAlunoGabarito(modal.querySelector('.modal'), gabarito, salvo, todas || [salvo], {
+      aoFechar: () => { modal.remove(); renderizarGabaritoProvas(elPai); },
+      aoProximo: () => { modal.remove(); renderizarGabaritoProvas(elPai); abrirModalCorrigirGabaritoCamera(gabarito, elPai); },
+    });
   });
+}
+
+const COR_SITUACAO_GAB = {
+  acerto:   { fundo: '#DDF0E6', borda: '#2E7D5B', texto: '#1F6B3A', rotulo: 'Acertou' },
+  erro:     { fundo: '#F8DDD6', borda: '#B4432E', texto: '#9A3322', rotulo: 'Errou' },
+  branco:   { fundo: '#ECECEC', borda: '#8A8A8A', texto: '#555555', rotulo: 'Em branco (anulada)' },
+  multipla: { fundo: '#FFF1D6', borda: '#D98A1F', texto: '#8A5A0B', rotulo: 'Várias marcas (anulada)' },
+};
+
+// Resumo visual: uma caixinha por questão (verde = acertou, vermelho = errou, cinza/laranja = anulada).
+function htmlResumoVisualAluno(gabarito, registro){
+  const mapa = {}; (registro.respostas || []).forEach(x => { mapa[x.numero] = x; });
+  const grupos = {};
+  gabarito.questoes.forEach(q => { (grupos[disciplinaDaQuestao(gabarito, q)] = grupos[disciplinaDaQuestao(gabarito, q)] || []).push(q); });
+  const chip = (q) => {
+    const st = situacaoResposta(mapa[q.numero], q);
+    const c = COR_SITUACAO_GAB[st];
+    const m = marcadasDaResposta(mapa[q.numero]);
+    const marcou = st === 'branco' ? '—' : m.join('+');
+    const simbolo = st === 'acerto' ? '✓' : st === 'erro' ? '✗' : '∅';
+    return `<div title="${esc(c.rotulo)}" style="width:62px;border:2px solid ${c.borda};background:${c.fundo};color:${c.texto};border-radius:8px;padding:4px 2px;text-align:center;font-family:Arial,sans-serif;">
+      <div style="font-size:11px;font-weight:700;">${q.numero}º ${simbolo}</div>
+      <div style="font-size:13px;font-weight:800;">${esc(marcou)}</div>
+      <div style="font-size:9.5px;">Gab.: ${esc(q.resposta_correta)}</div>
+    </div>`;
+  };
+  return Object.entries(grupos).map(([nome, qs]) => `
+    ${Object.keys(grupos).length > 1 ? `<div style="font-size:12px;font-weight:700;color:#15325C;margin:10px 0 5px;">${esc(nome)}</div>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">${qs.map(chip).join('')}</div>`).join('') + `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;font-family:Arial,sans-serif;">
+      ${Object.values(COR_SITUACAO_GAB).map(c => `<span><span style="display:inline-block;width:11px;height:11px;background:${c.fundo};border:2px solid ${c.borda};border-radius:3px;vertical-align:-2px;"></span> ${c.rotulo}</span>`).join('')}
+    </div>`;
+}
+
+// Relatório de análise das respostas de um estudante (texto gerado a partir dos dados, comparando com a turma).
+function analisarAlunoGabarito(gabarito, registro, todas){
+  const qs = gabarito.questoes;
+  const mapa = {}; (registro.respostas || []).forEach(x => { mapa[x.numero] = x; });
+  const itens = qs.map(q => ({ q, st: situacaoResposta(mapa[q.numero], q), marcadas: marcadasDaResposta(mapa[q.numero]), disc: disciplinaDaQuestao(gabarito, q) }));
+  const acertos = itens.filter(i => i.st === 'acerto').length;
+  const erros = itens.filter(i => i.st === 'erro');
+  const brancos = itens.filter(i => i.st === 'branco');
+  const multiplas = itens.filter(i => i.st === 'multipla');
+  const total = qs.length;
+  const nota = total ? acertos / total * 10 : 0;
+  const pct = total ? Math.round(acertos / total * 100) : 0;
+  const nomesDisc = []; itens.forEach(i => { if(!nomesDisc.includes(i.disc)) nomesDisc.push(i.disc); });
+  const disciplinas = nomesDisc.map(nome => {
+    const l = itens.filter(i => i.disc === nome); const a = l.filter(i => i.st === 'acerto').length;
+    return { nome, acertos: a, total: l.length, nota: l.length ? a / l.length * 10 : 0, pct: l.length ? Math.round(a / l.length * 100) : 0 };
+  });
+  const descr = {};
+  itens.forEach(i => { const d = descr[i.q.descritor] = descr[i.q.descritor] || { descritor: i.q.descritor, nums: [], acertos: 0, total: 0 }; d.nums.push(i.q.numero); d.total++; if(i.st === 'acerto') d.acertos++; });
+  const descritores = Object.values(descr);
+  // comparação com a turma
+  const analiseTurma = todas && todas.length > 1 ? analisarRespostasGabarito(gabarito, todas) : null;
+  const acertoTurma = {}; if(analiseTurma) analiseTurma.questoes.forEach(q => { acertoTurma[q.numero] = q.pct; });
+  const facilesErradas = analiseTurma && analiseTurma.alunos.length >= 3 ? itens.filter(i => i.st !== 'acerto' && acertoTurma[i.q.numero] >= 70) : [];
+  return { itens, acertos, erros, brancos, multiplas, total, nota, pct, disciplinas, descritores, analiseTurma, facilesErradas, faixa: faixaDesempenhoSimulado(pct) };
+}
+
+function htmlAnaliseAluno(gabarito, registro, a, nomeAluno){
+  const lista = (arr) => arr.map(i => `${i.q.numero}º`).join(', ');
+  const paras = [];
+  paras.push(`<b>Resultado geral:</b> ${esc(nomeAluno)} acertou <b>${a.acertos} de ${a.total}</b> questões (${a.pct}%) e obteve nota <b>${fmtNotaSimulado(a.nota)}</b>, no nível <b style="color:${a.faixa.cor};">${a.faixa.rotulo}</b>.`);
+  if(a.disciplinas.length > 1){
+    const ord = a.disciplinas.slice().sort((x, y) => y.pct - x.pct);
+    const det = a.disciplinas.map(d => `${esc(d.nome)}: ${d.acertos}/${d.total} (nota ${fmtNotaSimulado(d.nota)})`).join(' · ');
+    paras.push(ord[0].pct === ord[ord.length - 1].pct
+      ? `<b>Por disciplina:</b> desempenho equilibrado — ${det}.`
+      : `<b>Por disciplina:</b> ${det}. Melhor desempenho em <b>${esc(ord[0].nome)}</b>; maior dificuldade em <b>${esc(ord[ord.length - 1].nome)}</b>.`);
+  }
+  if(a.analiseTurma){
+    const mt = a.analiseTurma.mediaNota; const dif = a.nota - mt;
+    paras.push(`<b>Comparação com a turma:</b> média da turma ${fmtNotaSimulado(mt)} (${a.analiseTurma.alunos.length} estudantes corrigidos); o estudante está ${Math.abs(dif) < 0.5 ? 'na média' : dif > 0 ? `<b style="color:#2E7D5B;">${fmtNotaSimulado(Math.abs(dif))} ponto(s) acima</b> da média` : `<b style="color:#B4432E;">${fmtNotaSimulado(Math.abs(dif))} ponto(s) abaixo</b> da média`}.`);
+  }
+  const anuladas = a.brancos.length + a.multiplas.length;
+  if(anuladas){
+    const partes = [];
+    if(a.brancos.length) partes.push(`${a.brancos.length} em branco (${lista(a.brancos)})`);
+    if(a.multiplas.length) partes.push(`${a.multiplas.length} com mais de uma alternativa marcada (${lista(a.multiplas)})`);
+    const potencial = Math.min(10, a.nota + anuladas / a.total * 10);
+    paras.push(`<b style="color:#B4432E;">Questões anuladas (${anuladas}):</b> ${partes.join(' e ')}. Questões anuladas não pontuam. Se tivessem sido respondidas corretamente, a nota poderia chegar a <b>${fmtNotaSimulado(potencial)}</b>. Vale orientar o estudante a marcar <b>uma única alternativa</b> por questão e a não deixar questões sem resposta.`);
+  } else {
+    paras.push(`<b>Preenchimento:</b> todas as questões foram respondidas com uma única alternativa marcada.`);
+  }
+  const fortes = a.descritores.filter(d => d.acertos === d.total);
+  if(fortes.length) paras.push(`<b style="color:#2E7D5B;">Pontos fortes (descritores com todas as questões corretas):</b><ul style="margin:3px 0 0 18px;padding:0;">${fortes.map(d => `<li>${esc(d.descritor)} <span style="color:#777;">(${d.nums.map(n => n + 'º').join(', ')})</span></li>`).join('')}</ul>`);
+  const fracos = a.descritores.filter(d => d.acertos < d.total);
+  if(fracos.length) paras.push(`<b style="color:#B4432E;">Pontos que precisam de reforço:</b><ul style="margin:3px 0 0 18px;padding:0;">${fracos.map(d => {
+    const q = a.itens.filter(i => i.q.descritor === d.descritor && i.st !== 'acerto');
+    return `<li>${esc(d.descritor)} — ${q.map(i => i.st === 'erro' ? `${i.q.numero}º (marcou ${i.marcadas[0]}, correta ${i.q.resposta_correta})` : `${i.q.numero}º (${i.st === 'branco' ? 'em branco' : 'várias marcas'})`).join('; ')}</li>`;
+  }).join('')}</ul>`);
+  if(a.facilesErradas.length) paras.push(`<b>Atenção:</b> o estudante não acertou questões que a maioria da turma (70% ou mais) acertou: <b>${a.facilesErradas.map(i => i.q.numero + 'º').join(', ')}</b>. Pode indicar falta de atenção ou lacuna em conteúdo básico.`);
+  return paras.map(p => `<div style="font-size:12.5px;line-height:1.5;margin-bottom:9px;font-family:Arial,sans-serif;color:#222;">${p}</div>`).join('');
+}
+
+// Tela do estudante: primeiro o resumo visual (acertos/erros/anuladas), depois a análise das respostas.
+function renderizarResultadoAlunoGabarito(container, gabarito, registro, todas, acoes){
+  const nome = registro.alunos?.nome || (ESTADO.alunos.find(x => x.id === registro.aluno_id) || {}).nome || 'Estudante';
+  const a = analisarAlunoGabarito(gabarito, registro, todas);
+  const anuladas = a.brancos.length + a.multiplas.length;
+  container.innerHTML = `
+    <div class="modal-topo"><h3>${esc(nome)}</h3><button data-fechar-resultado>✕</button></div>
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:-4px 0 10px;">${esc(gabarito.titulo)}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+      <div style="flex:1;min-width:90px;border:2px solid #15325C;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#15325C;">${fmtNotaSimulado(a.nota)}</div><div style="font-size:11px;">nota (0–10)</div></div>
+      <div style="flex:1;min-width:80px;border:2px solid #2E7D5B;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#2E7D5B;">${a.acertos}</div><div style="font-size:11px;">acertos</div></div>
+      <div style="flex:1;min-width:80px;border:2px solid #B4432E;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#B4432E;">${a.erros.length}</div><div style="font-size:11px;">erros</div></div>
+      <div style="flex:1;min-width:80px;border:2px solid #8A8A8A;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#555;">${anuladas}</div><div style="font-size:11px;">anuladas</div></div>
+    </div>
+    <h4 style="margin:12px 0 4px;">1. Resumo visual das questões</h4>
+    ${htmlResumoVisualAluno(gabarito, registro)}
+    <h4 style="margin:16px 0 6px;">2. Relatório de análise das respostas</h4>
+    ${htmlAnaliseAluno(gabarito, registro, a, nome)}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+      <button class="botao terracota pequeno" id="btn-imprimir-aluno-gab" style="width:auto;">🖨️ Imprimir relatório do estudante</button>
+      ${acoes && acoes.aoProximo ? `<button class="botao secundario pequeno" id="btn-proximo-aluno-gab" style="width:auto;">📷 Corrigir próximo estudante</button>` : ''}
+      <button class="botao secundario pequeno" id="btn-concluir-aluno-gab" style="width:auto;">Concluir</button>
+    </div>`;
+  const fechar = () => { if(acoes && acoes.aoFechar) acoes.aoFechar(); };
+  container.querySelector('[data-fechar-resultado]').addEventListener('click', fechar);
+  document.getElementById('btn-concluir-aluno-gab').addEventListener('click', fechar);
+  const prox = document.getElementById('btn-proximo-aluno-gab'); if(prox) prox.addEventListener('click', acoes.aoProximo);
+  document.getElementById('btn-imprimir-aluno-gab').addEventListener('click', () => imprimirRelatorioAlunoGabarito(gabarito, registro, todas, nome));
+}
+
+// Abre o resultado individual a partir da lista de resultados.
+function abrirResultadoAlunoGabarito(gabarito, registro, todas){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `<div class="modal" style="max-width:680px;max-height:92vh;overflow-y:auto;"></div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  renderizarResultadoAlunoGabarito(modal.querySelector('.modal'), gabarito, registro, todas, { aoFechar: () => modal.remove() });
+}
+
+function imprimirRelatorioAlunoGabarito(gabarito, registro, todas, nome){
+  const a = analisarAlunoGabarito(gabarito, registro, todas);
+  const aluno = ESTADO.alunos.find(x => x.id === registro.aluno_id);
+  const turma = aluno ? ESTADO.turmas.find(t => t.id === aluno.turma_id) : null;
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>${esc(nome)} — ${esc(gabarito.titulo)}</title>
+    <style>
+      @page{ size: A4; margin: 10mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;}
+      h3{margin:14px 0 6px;font-size:12.5px;color:#15325C;border-bottom:2px solid #15325C;padding-bottom:2px;}
+      @media print{ body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
+    </style></head><body>
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
+      <td style="text-align:center;">
+        <div style="font-size:14px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+        <div style="font-size:13px;font-weight:800;margin-top:2px;">${esc(gabarito.titulo)}</div>
+        <div style="font-size:11.5px;font-weight:700;margin-top:3px;">${esc(nome)}${turma ? ' · ' + esc(turma.nome) : ''}</div>
+      </td>
+      <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td></tr></table>
+    <div style="display:flex;gap:8px;margin:10px 0 2px;">
+      <div style="flex:1;border:2px solid #15325C;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#15325C;">${fmtNotaSimulado(a.nota)}</div>nota (0–10)</div>
+      <div style="flex:1;border:2px solid #2E7D5B;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#2E7D5B;">${a.acertos}</div>acertos</div>
+      <div style="flex:1;border:2px solid #B4432E;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#B4432E;">${a.erros.length}</div>erros</div>
+      <div style="flex:1;border:2px solid #8A8A8A;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#555;">${a.brancos.length + a.multiplas.length}</div>anuladas</div>
+    </div>
+    <h3>1. Resumo visual das questões</h3>
+    ${htmlResumoVisualAluno(gabarito, registro)}
+    <h3>2. Relatório de análise das respostas</h3>
+    ${htmlAnaliseAluno(gabarito, registro, a, nome)}
+    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script>
+    </body></html>`);
+  janela.document.close();
+  janela.focus();
 }
 
 async function abrirModalResultadosGabarito(gabarito){
@@ -11896,20 +12109,26 @@ async function abrirModalResultadosGabarito(gabarito){
 
   const colsDisc = analise.disciplinas.map(d => `<th>${esc(d.nome)}</th>`).join('');
   const linhasAlunos = analise.alunos.map(a => `
-    <tr><td>${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total}</td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td></tr>`).join('');
+    <tr><td><a href="#" data-ver-aluno="${a.alunoId}" style="color:#1D5B8C;font-weight:600;text-decoration:underline;">${esc(a.nome)}</a></td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total}</td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td>${a.anuladas || '—'}</td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td></tr>`).join('');
 
   conteudo.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <button class="botao terracota pequeno" id="btn-gab-relatorio" style="width:auto;">🖨️ Relatório completo (PDF)</button>
       <button class="botao secundario pequeno" id="btn-gab-csv" style="width:auto;">⬇️ Exportar planilha (CSV)</button>
     </div>
+    <p style="font-size:12px;color:var(--texto-suave);margin:0 0 6px;">Clique no nome do estudante para ver o resumo visual e a análise das respostas dele.</p>
     <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 14px;"><b>${analise.alunos.length}</b> estudante(s) corrigido(s) · média da turma <b>${fmtNotaSimulado(analise.mediaNota)}</b> (${analise.mediaPct}% de acertos) · maior nota <b>${fmtNotaSimulado(analise.maior)}</b> · menor nota <b>${fmtNotaSimulado(analise.menor)}</b>.</p>
     <h4 style="margin:0 0 8px;">Desempenho por descritor</h4>
     ${linhasDescritor}
     <h4 style="margin:16px 0 8px;">Notas individuais (0 a 10)</h4>
-    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Nota</th><th>%</th><th>Data</th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
+    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Data</th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
   document.getElementById('btn-gab-relatorio').addEventListener('click', () => imprimirRelatorioGabarito(gabarito, analise));
   document.getElementById('btn-gab-csv').addEventListener('click', () => exportarCsvGabarito(gabarito, analise));
+  conteudo.querySelectorAll('[data-ver-aluno]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const reg = respostas.find(r => r.aluno_id === a.dataset.verAluno);
+    if(reg) abrirResultadoAlunoGabarito(gabarito, reg, respostas);
+  }));
 }
 
 function fmtNotaSimulado(n){
@@ -11923,32 +12142,51 @@ function faixaDesempenhoSimulado(pct){
   return { rotulo: 'Insuficiente', cor: '#B4432E' };
 }
 
+// Situação de cada resposta: marcar duas ou mais alternativas ou deixar em branco ANULA a questão (vale 0, não soma acerto).
+function marcadasDaResposta(resp){
+  if(!resp) return [];
+  if(Array.isArray(resp.marcadas)) return resp.marcadas.filter(l => LETRAS_GABARITO.includes(l));
+  return resp.alternativa && LETRAS_GABARITO.includes(resp.alternativa) ? [resp.alternativa] : [];
+}
+function situacaoResposta(resp, q){
+  const m = marcadasDaResposta(resp);
+  if(!m.length) return 'branco';
+  if(m.length > 1) return 'multipla';
+  return m[0] === q.resposta_correta ? 'acerto' : 'erro';
+}
+function disciplinaDaQuestao(gabarito, q){
+  const m = String(q.descritor || '').match(/^([^:]{2,30}):\s/);
+  return m ? m[1].trim() : (gabarito.disciplina || 'Geral');
+}
+
 // Consolida as folhas corrigidas: nota (0–10) por estudante e por disciplina, acerto por descritor e por questão.
 // A disciplina de cada questão vem do prefixo do descritor ("Português: D6 — …"); sem prefixo vale a disciplina do gabarito.
+// Questões em branco ou com mais de uma marca ficam ANULADAS: não pontuam e aparecem à parte.
 function analisarRespostasGabarito(gabarito, respostas){
   const qs = gabarito.questoes || [];
-  const discDe = (q) => { const m = String(q.descritor || '').match(/^([^:]{2,30}):\s/); return m ? m[1].trim() : (gabarito.disciplina || 'Geral'); };
-  const nomesDisc = []; qs.forEach(q => { const d = discDe(q); if(!nomesDisc.includes(d)) nomesDisc.push(d); });
-  const disciplinas = nomesDisc.map(nome => ({ nome, questoes: qs.filter(q => discDe(q) === nome) }));
+  const nomesDisc = []; qs.forEach(q => { const d = disciplinaDaQuestao(gabarito, q); if(!nomesDisc.includes(d)) nomesDisc.push(d); });
+  const disciplinas = nomesDisc.map(nome => ({ nome, questoes: qs.filter(q => disciplinaDaQuestao(gabarito, q) === nome) }));
   const descr = {}; qs.forEach(q => { descr[q.descritor] = descr[q.descritor] || { descritor: q.descritor, acertos: 0, total: 0 }; });
-  const porQuestao = {}; qs.forEach(q => { porQuestao[q.numero] = { numero: q.numero, correta: q.resposta_correta, descritor: q.descritor, acertos: 0, total: 0, marcadas: {} }; });
+  const porQuestao = {}; qs.forEach(q => { porQuestao[q.numero] = { numero: q.numero, correta: q.resposta_correta, descritor: q.descritor, acertos: 0, total: 0, anuladas: 0, marcadas: {} }; });
 
   const alunos = respostas.map(r => {
-    const mapa = {}; (r.respostas || []).forEach(x => { mapa[x.numero] = x.alternativa; });
+    const mapa = {}; (r.respostas || []).forEach(x => { mapa[x.numero] = x; });
+    const sit = (q) => situacaoResposta(mapa[q.numero], q);
     const porDisciplina = disciplinas.map(d => {
-      const acertos = d.questoes.filter(q => mapa[q.numero] === q.resposta_correta).length;
+      const acertos = d.questoes.filter(q => sit(q) === 'acerto').length;
       return { nome: d.nome, acertos, total: d.questoes.length, nota: d.questoes.length ? acertos / d.questoes.length * 10 : null };
     });
+    let acertos = 0, anuladas = 0;
     qs.forEach(q => {
-      const alt = mapa[q.numero];
-      const acertou = alt === q.resposta_correta;
-      descr[q.descritor].total++; if(acertou) descr[q.descritor].acertos++;
-      const pq = porQuestao[q.numero]; pq.total++; if(acertou) pq.acertos++;
-      if(alt && !acertou) pq.marcadas[alt] = (pq.marcadas[alt] || 0) + 1;
+      const st = sit(q);
+      descr[q.descritor].total++;
+      const pq = porQuestao[q.numero]; pq.total++;
+      if(st === 'acerto'){ acertos++; descr[q.descritor].acertos++; pq.acertos++; }
+      else if(st === 'branco' || st === 'multipla'){ anuladas++; pq.anuladas++; }
+      else { const alt = marcadasDaResposta(mapa[q.numero])[0]; pq.marcadas[alt] = (pq.marcadas[alt] || 0) + 1; }
     });
-    const acertos = qs.filter(q => mapa[q.numero] === q.resposta_correta).length;
     const total = qs.length;
-    return { alunoId: r.aluno_id, nome: r.alunos?.nome || 'Estudante removido', acertos, total, nota: total ? acertos / total * 10 : 0, pct: total ? Math.round(acertos / total * 100) : 0, porDisciplina, data: r.data_aplicacao };
+    return { alunoId: r.aluno_id, nome: r.alunos?.nome || 'Estudante removido', acertos, anuladas, total, nota: total ? acertos / total * 10 : 0, pct: total ? Math.round(acertos / total * 100) : 0, porDisciplina, data: r.data_aplicacao };
   }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const notas = alunos.map(a => a.nota);
@@ -11962,14 +12200,15 @@ function analisarRespostasGabarito(gabarito, respostas){
     alunos, disciplinas: disciplinas.map(d => ({ nome: d.nome, qtd: d.questoes.length })), discResumo,
     descritores: Object.values(descr).map(d => ({ ...d, pct: d.total ? Math.round(d.acertos / d.total * 100) : 0 })),
     questoes: Object.values(porQuestao).map(q => ({ ...q, pct: q.total ? Math.round(q.acertos / q.total * 100) : 0 })),
+    totalAnuladas: alunos.reduce((s, a) => s + a.anuladas, 0),
     mediaNota, mediaPct: Math.round(mediaNota * 10), maior: notas.length ? Math.max(...notas) : null, menor: notas.length ? Math.min(...notas) : null,
   };
 }
 
 function exportarCsvGabarito(gabarito, analise){
   const sep = ';';
-  const cab = ['Estudante'].concat(analise.discResumo.map(d => `${d.nome} (acertos)`), ['Acertos', 'Total', 'Nota (0-10)', '% acertos', 'Desempenho']);
-  const linhas = analise.alunos.map(a => [a.nome].concat(a.porDisciplina.map(d => `${d.acertos}/${d.total}`), [a.acertos, a.total, fmtNotaSimulado(a.nota), a.pct + '%', faixaDesempenhoSimulado(a.pct).rotulo]));
+  const cab = ['Estudante'].concat(analise.discResumo.map(d => `${d.nome} (acertos)`), ['Acertos', 'Anuladas (branco/2+ marcas)', 'Total', 'Nota (0-10)', '% acertos', 'Desempenho']);
+  const linhas = analise.alunos.map(a => [a.nome].concat(a.porDisciplina.map(d => `${d.acertos}/${d.total}`), [a.acertos, a.anuladas, a.total, fmtNotaSimulado(a.nota), a.pct + '%', faixaDesempenhoSimulado(a.pct).rotulo]));
   const csv = '﻿' + [cab].concat(linhas).map(l => l.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep)).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = `resultado-${String(gabarito.titulo).replace(/[^\w\-]+/g, '_')}.csv`;
@@ -11987,13 +12226,13 @@ async function imprimirRelatorioGabarito(gabarito, analise){
 
   const linhasAlunos = analise.alunos.slice().sort((a, b) => b.nota - a.nota || a.nome.localeCompare(b.nome, 'pt-BR')).map((a, i) => {
     const f = faixaDesempenhoSimulado(a.pct);
-    return `<tr><td style="text-align:center;">${i + 1}</td><td style="text-align:left;padding-left:6px;">${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total} <span style="color:#666;">(${fmtNotaSimulado(d.nota)})</span></td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td><b style="font-size:12px;color:${f.cor};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td style="color:${f.cor};font-weight:700;">${f.rotulo}</td></tr>`;
+    return `<tr><td style="text-align:center;">${i + 1}</td><td style="text-align:left;padding-left:6px;">${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total} <span style="color:#666;">(${fmtNotaSimulado(d.nota)})</span></td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td style="color:${a.anuladas?'#6B6B6B':'#aaa'};">${a.anuladas}</td><td><b style="font-size:12px;color:${f.cor};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td style="color:${f.cor};font-weight:700;">${f.rotulo}</td></tr>`;
   }).join('');
   const linhasDisc = analise.discResumo.map(d => `<tr><td style="text-align:left;padding-left:6px;">${esc(d.nome)}</td><td>${d.qtd}</td><td><b>${fmtNotaSimulado(d.media)}</b></td><td style="width:45%;">${barra(d.pct)}</td><td>${d.pct}%</td></tr>`).join('');
   const linhasDescr = analise.descritores.slice().sort((a, b) => a.pct - b.pct).map(d => `<tr><td style="text-align:left;padding-left:6px;">${esc(d.descritor)}</td><td>${d.acertos}/${d.total}</td><td style="width:30%;">${barra(d.pct)}</td><td><b>${d.pct}%</b></td></tr>`).join('');
   const linhasQuestoes = analise.questoes.map(q => {
     const errada = Object.entries(q.marcadas).sort((a, b) => b[1] - a[1])[0];
-    return `<tr><td style="text-align:center;">${q.numero}</td><td style="text-align:center;"><b>${esc(q.correta)}</b></td><td style="text-align:left;padding-left:6px;">${esc(q.descritor)}</td><td><b>${q.pct}%</b></td><td>${errada ? `${errada[0]} (${errada[1]})` : '—'}</td></tr>`;
+    return `<tr><td style="text-align:center;">${q.numero}</td><td style="text-align:center;"><b>${esc(q.correta)}</b></td><td style="text-align:left;padding-left:6px;">${esc(q.descritor)}</td><td><b>${q.pct}%</b></td><td>${q.anuladas || '—'}</td><td>${errada ? `${errada[0]} (${errada[1]})` : '—'}</td></tr>`;
   }).join('');
   const criticos = analise.descritores.filter(d => d.pct < 60).sort((a, b) => a.pct - b.pct);
   const anoLetivo = gabarito.criado_em ? new Date(gabarito.criado_em).getFullYear() : new Date().getFullYear();
@@ -12025,6 +12264,7 @@ async function imprimirRelatorioGabarito(gabarito, analise){
       <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td></tr></table>
 
     <div class="kpis">
+      <div class="kpi"><b>${analise.totalAnuladas}</b>questões anuladas</div>
       <div class="kpi"><b>${analise.alunos.length}</b>corrigidos${pendentes.length ? ` · ${pendentes.length} pendente(s)` : ''}</div>
       <div class="kpi"><b>${fmtNotaSimulado(analise.mediaNota)}</b>média da turma (0–10)</div>
       <div class="kpi"><b>${analise.mediaPct}%</b>de acertos</div>
@@ -12037,10 +12277,10 @@ async function imprimirRelatorioGabarito(gabarito, analise){
 
     <h3>Distribuição dos estudantes por nível</h3>
     <table class="t"><thead><tr>${dist.map(d => `<th style="background:${d.cor};border-color:${d.cor};">${d.rotulo}</th>`).join('')}</tr></thead><tbody><tr>${dist.map(d => `<td><b style="font-size:13px;">${d.qtd}</b> (${analise.alunos.length ? Math.round(d.qtd / analise.alunos.length * 100) : 0}%)</td>`).join('')}</tr></tbody></table>
-    <div style="font-size:9px;color:#555;margin-top:2px;">Níveis pelo % de acertos: Avançado ≥ 80% · Adequado 60–79% · Básico 40–59% · Insuficiente &lt; 40%. Nota = acertos ÷ questões × 10.</div>
+    <div style="font-size:9px;color:#555;margin-top:2px;">Níveis pelo % de acertos: Avançado ≥ 80% · Adequado 60–79% · Básico 40–59% · Insuficiente &lt; 40%. Nota = acertos ÷ questões × 10. Questões em branco ou com mais de uma alternativa marcada são <b>anuladas</b> (não pontuam).</div>
 
     <h3>Notas por estudante (ordem decrescente)</h3>
-    <table class="t"><thead><tr><th>Nº</th><th>Estudante</th>${colsDisc}<th>Total</th><th>Nota</th><th>%</th><th>Nível</th></tr></thead><tbody>${linhasAlunos}</tbody></table>
+    <table class="t"><thead><tr><th>Nº</th><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Nível</th></tr></thead><tbody>${linhasAlunos}</tbody></table>
     ${pendentes.length ? `<div style="font-size:9.5px;margin-top:6px;"><b>Sem folha corrigida (${pendentes.length}):</b> ${pendentes.map(a => esc(a.nome)).join(', ')}.</div>` : ''}
 
     <h3 style="page-break-before:always;">Desempenho por descritor (do menor para o maior)</h3>
@@ -12048,8 +12288,8 @@ async function imprimirRelatorioGabarito(gabarito, analise){
     ${criticos.length ? `<div style="font-size:10px;margin-top:6px;border:1.5px solid #B4432E;border-radius:6px;padding:6px 8px;"><b style="color:#B4432E;">Descritores que precisam de reforço (abaixo de 60%):</b> ${criticos.map(d => esc(d.descritor) + ' (' + d.pct + '%)').join(' · ')}</div>` : ''}
 
     <h3>Análise por questão</h3>
-    <table class="t"><thead><tr><th>Nº</th><th>Gabarito</th><th>Descritor</th><th>% acertos</th><th>Errada mais marcada</th></tr></thead><tbody>${linhasQuestoes}</tbody></table>
-    <div style="font-size:9px;color:#555;margin-top:2px;">"Errada mais marcada" = alternativa incorreta escolhida por mais estudantes (entre parênteses, quantos).</div>
+    <table class="t"><thead><tr><th>Nº</th><th>Gabarito</th><th>Descritor</th><th>% acertos</th><th>Anuladas</th><th>Errada mais marcada</th></tr></thead><tbody>${linhasQuestoes}</tbody></table>
+    <div style="font-size:9px;color:#555;margin-top:2px;">"Anuladas" = em branco ou com 2+ marcas. "Errada mais marcada" = alternativa incorreta escolhida por mais estudantes (entre parênteses, quantos).</div>
     <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script>
     </body></html>`);
   janela.document.close();
