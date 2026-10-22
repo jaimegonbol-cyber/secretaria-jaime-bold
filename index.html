@@ -11886,38 +11886,174 @@ async function abrirModalResultadosGabarito(gabarito){
   if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   if(!respostas || !respostas.length){ conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma folha corrigida ainda pra esse gabarito.</p>`; return; }
 
-  // desempenho por descritor: agrega acertos/total de todas as correções, por descritor de cada questão
-  const porDescritor = {};
-  gabarito.questoes.forEach(q => { porDescritor[q.descritor] = porDescritor[q.descritor] || { acertos: 0, total: 0 }; });
-  respostas.forEach(r => {
-    (r.respostas || []).forEach(resp => {
-      const q = gabarito.questoes.find(x => x.numero === resp.numero);
-      if(!q) return;
-      porDescritor[q.descritor].total++;
-      if(resp.alternativa === q.resposta_correta) porDescritor[q.descritor].acertos++;
-    });
-  });
+  const analise = analisarRespostasGabarito(gabarito, respostas);
+  const corPct = (pct) => pct < 60 ? '#B4432E' : pct < 80 ? '#D98A1F' : '#2E7D5B';
 
-  const linhasDescritor = Object.entries(porDescritor).map(([descritor, d]) => {
-    const pct = d.total ? Math.round(d.acertos/d.total*100) : 0;
-    return `<div style="margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>${esc(descritor)}</span><span style="color:var(--texto-suave);">${d.acertos}/${d.total} (${pct}%)</span></div>
-      <div style="background:var(--areia);border-radius:5px;height:14px;overflow:hidden;"><div style="width:${pct}%;background:${pct<60?'#B4432E':pct<80?'#D98A1F':'#2E7D5B'};height:100%;"></div></div>
-    </div>`;
-  }).join('');
+  const linhasDescritor = analise.descritores.map(d => `<div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;"><span>${esc(d.descritor)}</span><span style="color:var(--texto-suave);">${d.acertos}/${d.total} (${d.pct}%)</span></div>
+      <div style="background:var(--areia);border-radius:5px;height:14px;overflow:hidden;"><div style="width:${d.pct}%;background:${corPct(d.pct)};height:100%;"></div></div>
+    </div>`).join('');
 
-  const mediaGeral = respostas.length ? Math.round(respostas.reduce((s,r) => s + (r.acertos/r.total*100), 0) / respostas.length) : 0;
-
-  const linhasAlunos = respostas.sort((a,b) => (b.acertos/b.total) - (a.acertos/a.total)).map(r => `
-    <tr><td>${esc(r.alunos?.nome || 'Estudante removido')}</td><td>${r.acertos}/${r.total}</td><td>${Math.round(r.acertos/r.total*100)}%</td><td>${fmtData(r.data_aplicacao)}</td></tr>
-  `).join('');
+  const colsDisc = analise.disciplinas.map(d => `<th>${esc(d.nome)}</th>`).join('');
+  const linhasAlunos = analise.alunos.map(a => `
+    <tr><td>${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total}</td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td></tr>`).join('');
 
   conteudo.innerHTML = `
-    <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 14px;"><b>${respostas.length}</b> estudante(s) corrigido(s) · média geral <b>${mediaGeral}%</b> de acertos.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="botao terracota pequeno" id="btn-gab-relatorio" style="width:auto;">🖨️ Relatório completo (PDF)</button>
+      <button class="botao secundario pequeno" id="btn-gab-csv" style="width:auto;">⬇️ Exportar planilha (CSV)</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 14px;"><b>${analise.alunos.length}</b> estudante(s) corrigido(s) · média da turma <b>${fmtNotaSimulado(analise.mediaNota)}</b> (${analise.mediaPct}% de acertos) · maior nota <b>${fmtNotaSimulado(analise.maior)}</b> · menor nota <b>${fmtNotaSimulado(analise.menor)}</b>.</p>
     <h4 style="margin:0 0 8px;">Desempenho por descritor</h4>
     ${linhasDescritor}
-    <h4 style="margin:16px 0 8px;">Notas individuais</h4>
-    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th><th>Acertos</th><th>%</th><th>Data</th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
+    <h4 style="margin:16px 0 8px;">Notas individuais (0 a 10)</h4>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Nota</th><th>%</th><th>Data</th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
+  document.getElementById('btn-gab-relatorio').addEventListener('click', () => imprimirRelatorioGabarito(gabarito, analise));
+  document.getElementById('btn-gab-csv').addEventListener('click', () => exportarCsvGabarito(gabarito, analise));
+}
+
+function fmtNotaSimulado(n){
+  if(n === null || n === undefined || isNaN(n)) return '—';
+  return (Math.round(n * 10) / 10).toFixed(1).replace('.', ',');
+}
+function faixaDesempenhoSimulado(pct){
+  if(pct >= 80) return { rotulo: 'Avançado', cor: '#2E7D5B' };
+  if(pct >= 60) return { rotulo: 'Adequado', cor: '#1D5B8C' };
+  if(pct >= 40) return { rotulo: 'Básico', cor: '#D98A1F' };
+  return { rotulo: 'Insuficiente', cor: '#B4432E' };
+}
+
+// Consolida as folhas corrigidas: nota (0–10) por estudante e por disciplina, acerto por descritor e por questão.
+// A disciplina de cada questão vem do prefixo do descritor ("Português: D6 — …"); sem prefixo vale a disciplina do gabarito.
+function analisarRespostasGabarito(gabarito, respostas){
+  const qs = gabarito.questoes || [];
+  const discDe = (q) => { const m = String(q.descritor || '').match(/^([^:]{2,30}):\s/); return m ? m[1].trim() : (gabarito.disciplina || 'Geral'); };
+  const nomesDisc = []; qs.forEach(q => { const d = discDe(q); if(!nomesDisc.includes(d)) nomesDisc.push(d); });
+  const disciplinas = nomesDisc.map(nome => ({ nome, questoes: qs.filter(q => discDe(q) === nome) }));
+  const descr = {}; qs.forEach(q => { descr[q.descritor] = descr[q.descritor] || { descritor: q.descritor, acertos: 0, total: 0 }; });
+  const porQuestao = {}; qs.forEach(q => { porQuestao[q.numero] = { numero: q.numero, correta: q.resposta_correta, descritor: q.descritor, acertos: 0, total: 0, marcadas: {} }; });
+
+  const alunos = respostas.map(r => {
+    const mapa = {}; (r.respostas || []).forEach(x => { mapa[x.numero] = x.alternativa; });
+    const porDisciplina = disciplinas.map(d => {
+      const acertos = d.questoes.filter(q => mapa[q.numero] === q.resposta_correta).length;
+      return { nome: d.nome, acertos, total: d.questoes.length, nota: d.questoes.length ? acertos / d.questoes.length * 10 : null };
+    });
+    qs.forEach(q => {
+      const alt = mapa[q.numero];
+      const acertou = alt === q.resposta_correta;
+      descr[q.descritor].total++; if(acertou) descr[q.descritor].acertos++;
+      const pq = porQuestao[q.numero]; pq.total++; if(acertou) pq.acertos++;
+      if(alt && !acertou) pq.marcadas[alt] = (pq.marcadas[alt] || 0) + 1;
+    });
+    const acertos = qs.filter(q => mapa[q.numero] === q.resposta_correta).length;
+    const total = qs.length;
+    return { alunoId: r.aluno_id, nome: r.alunos?.nome || 'Estudante removido', acertos, total, nota: total ? acertos / total * 10 : 0, pct: total ? Math.round(acertos / total * 100) : 0, porDisciplina, data: r.data_aplicacao };
+  }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const notas = alunos.map(a => a.nota);
+  const mediaNota = notas.length ? notas.reduce((s, n) => s + n, 0) / notas.length : 0;
+  const discResumo = disciplinas.map((d, i) => {
+    const soma = alunos.reduce((s, a) => s + a.porDisciplina[i].acertos, 0);
+    const tot = alunos.length * d.questoes.length;
+    return { nome: d.nome, qtd: d.questoes.length, pct: tot ? Math.round(soma / tot * 100) : 0, media: tot ? soma / tot * 10 : 0 };
+  });
+  return {
+    alunos, disciplinas: disciplinas.map(d => ({ nome: d.nome, qtd: d.questoes.length })), discResumo,
+    descritores: Object.values(descr).map(d => ({ ...d, pct: d.total ? Math.round(d.acertos / d.total * 100) : 0 })),
+    questoes: Object.values(porQuestao).map(q => ({ ...q, pct: q.total ? Math.round(q.acertos / q.total * 100) : 0 })),
+    mediaNota, mediaPct: Math.round(mediaNota * 10), maior: notas.length ? Math.max(...notas) : null, menor: notas.length ? Math.min(...notas) : null,
+  };
+}
+
+function exportarCsvGabarito(gabarito, analise){
+  const sep = ';';
+  const cab = ['Estudante'].concat(analise.discResumo.map(d => `${d.nome} (acertos)`), ['Acertos', 'Total', 'Nota (0-10)', '% acertos', 'Desempenho']);
+  const linhas = analise.alunos.map(a => [a.nome].concat(a.porDisciplina.map(d => `${d.acertos}/${d.total}`), [a.acertos, a.total, fmtNotaSimulado(a.nota), a.pct + '%', faixaDesempenhoSimulado(a.pct).rotulo]));
+  const csv = '﻿' + [cab].concat(linhas).map(l => l.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep)).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a'); a.href = url; a.download = `resultado-${String(gabarito.titulo).replace(/[^\w\-]+/g, '_')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function imprimirRelatorioGabarito(gabarito, analise){
+  const turma = ESTADO.turmas.find(t => t.id === gabarito.turma_id);
+  const baseAlunos = ESTADO.alunos.filter(a => (!gabarito.turma_id || a.turma_id === gabarito.turma_id) && a.situacao !== 'transferido' && a.situacao !== 'cancelado');
+  const corrigidos = new Set(analise.alunos.map(a => a.alunoId));
+  const pendentes = baseAlunos.filter(a => !corrigidos.has(a.id)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const dist = ['Avançado', 'Adequado', 'Básico', 'Insuficiente'].map(r => ({ rotulo: r, qtd: analise.alunos.filter(a => faixaDesempenhoSimulado(a.pct).rotulo === r).length, cor: faixaDesempenhoSimulado(r === 'Avançado' ? 90 : r === 'Adequado' ? 70 : r === 'Básico' ? 50 : 10).cor }));
+  const barra = (pct) => `<div style="background:#E8E4DA;height:11px;border-radius:3px;overflow:hidden;"><div style="width:${pct}%;background:${pct<60?'#B4432E':pct<80?'#D98A1F':'#2E7D5B'};height:100%;"></div></div>`;
+  const colsDisc = analise.discResumo.map(d => `<th>${esc(d.nome)}<br/><span style="font-weight:400;">${d.qtd} questões</span></th>`).join('');
+
+  const linhasAlunos = analise.alunos.slice().sort((a, b) => b.nota - a.nota || a.nome.localeCompare(b.nome, 'pt-BR')).map((a, i) => {
+    const f = faixaDesempenhoSimulado(a.pct);
+    return `<tr><td style="text-align:center;">${i + 1}</td><td style="text-align:left;padding-left:6px;">${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total} <span style="color:#666;">(${fmtNotaSimulado(d.nota)})</span></td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td><b style="font-size:12px;color:${f.cor};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td style="color:${f.cor};font-weight:700;">${f.rotulo}</td></tr>`;
+  }).join('');
+  const linhasDisc = analise.discResumo.map(d => `<tr><td style="text-align:left;padding-left:6px;">${esc(d.nome)}</td><td>${d.qtd}</td><td><b>${fmtNotaSimulado(d.media)}</b></td><td style="width:45%;">${barra(d.pct)}</td><td>${d.pct}%</td></tr>`).join('');
+  const linhasDescr = analise.descritores.slice().sort((a, b) => a.pct - b.pct).map(d => `<tr><td style="text-align:left;padding-left:6px;">${esc(d.descritor)}</td><td>${d.acertos}/${d.total}</td><td style="width:30%;">${barra(d.pct)}</td><td><b>${d.pct}%</b></td></tr>`).join('');
+  const linhasQuestoes = analise.questoes.map(q => {
+    const errada = Object.entries(q.marcadas).sort((a, b) => b[1] - a[1])[0];
+    return `<tr><td style="text-align:center;">${q.numero}</td><td style="text-align:center;"><b>${esc(q.correta)}</b></td><td style="text-align:left;padding-left:6px;">${esc(q.descritor)}</td><td><b>${q.pct}%</b></td><td>${errada ? `${errada[0]} (${errada[1]})` : '—'}</td></tr>`;
+  }).join('');
+  const criticos = analise.descritores.filter(d => d.pct < 60).sort((a, b) => a.pct - b.pct);
+  const anoLetivo = gabarito.criado_em ? new Date(gabarito.criado_em).getFullYear() : new Date().getFullYear();
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Relatório — ${esc(gabarito.titulo)}</title>
+    <style>
+      @page{ size: A4; margin: 10mm; }
+      *{ box-sizing:border-box; }
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:10.5px;}
+      h3{margin:14px 0 5px;font-size:12.5px;color:#15325C;border-bottom:2px solid #15325C;padding-bottom:2px;}
+      table.t{width:100%;border-collapse:collapse;}
+      table.t th{background:#15325C;color:#fff;font-size:9.5px;text-transform:uppercase;padding:4px;border:1px solid #15325C;}
+      table.t td{padding:3px 4px;border:1px solid #888;text-align:center;}
+      .kpis{display:flex;gap:8px;margin:8px 0;}
+      .kpi{flex:1;border:1.5px solid #15325C;border-radius:6px;padding:6px 8px;text-align:center;}
+      .kpi b{display:block;font-size:17px;color:#15325C;}
+      tr{page-break-inside:avoid;}
+      @media print{ body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
+    </style></head><body>
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
+      <td style="text-align:center;">
+        <div style="font-size:14px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+        <div style="font-size:13.5px;font-weight:800;margin-top:2px;">RELATÓRIO DE DESEMPENHO — ${esc(gabarito.titulo)}</div>
+        <div style="font-size:11px;color:#B4432E;font-weight:700;margin-top:2px;">${turma ? esc(turma.nome) + ' · ' + esc(turma.turno) : 'Todas as turmas'}${gabarito.disciplina ? ' · ' + esc(gabarito.disciplina) : ''} · ${anoLetivo}</div>
+      </td>
+      <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td></tr></table>
+
+    <div class="kpis">
+      <div class="kpi"><b>${analise.alunos.length}</b>corrigidos${pendentes.length ? ` · ${pendentes.length} pendente(s)` : ''}</div>
+      <div class="kpi"><b>${fmtNotaSimulado(analise.mediaNota)}</b>média da turma (0–10)</div>
+      <div class="kpi"><b>${analise.mediaPct}%</b>de acertos</div>
+      <div class="kpi"><b>${fmtNotaSimulado(analise.maior)}</b>maior nota</div>
+      <div class="kpi"><b>${fmtNotaSimulado(analise.menor)}</b>menor nota</div>
+    </div>
+
+    <h3>Desempenho por disciplina</h3>
+    <table class="t"><thead><tr><th>Disciplina</th><th>Questões</th><th>Média (0–10)</th><th>Acertos</th><th>%</th></tr></thead><tbody>${linhasDisc}</tbody></table>
+
+    <h3>Distribuição dos estudantes por nível</h3>
+    <table class="t"><thead><tr>${dist.map(d => `<th style="background:${d.cor};border-color:${d.cor};">${d.rotulo}</th>`).join('')}</tr></thead><tbody><tr>${dist.map(d => `<td><b style="font-size:13px;">${d.qtd}</b> (${analise.alunos.length ? Math.round(d.qtd / analise.alunos.length * 100) : 0}%)</td>`).join('')}</tr></tbody></table>
+    <div style="font-size:9px;color:#555;margin-top:2px;">Níveis pelo % de acertos: Avançado ≥ 80% · Adequado 60–79% · Básico 40–59% · Insuficiente &lt; 40%. Nota = acertos ÷ questões × 10.</div>
+
+    <h3>Notas por estudante (ordem decrescente)</h3>
+    <table class="t"><thead><tr><th>Nº</th><th>Estudante</th>${colsDisc}<th>Total</th><th>Nota</th><th>%</th><th>Nível</th></tr></thead><tbody>${linhasAlunos}</tbody></table>
+    ${pendentes.length ? `<div style="font-size:9.5px;margin-top:6px;"><b>Sem folha corrigida (${pendentes.length}):</b> ${pendentes.map(a => esc(a.nome)).join(', ')}.</div>` : ''}
+
+    <h3 style="page-break-before:always;">Desempenho por descritor (do menor para o maior)</h3>
+    <table class="t"><thead><tr><th>Descritor</th><th>Acertos</th><th>Aproveitamento</th><th>%</th></tr></thead><tbody>${linhasDescr}</tbody></table>
+    ${criticos.length ? `<div style="font-size:10px;margin-top:6px;border:1.5px solid #B4432E;border-radius:6px;padding:6px 8px;"><b style="color:#B4432E;">Descritores que precisam de reforço (abaixo de 60%):</b> ${criticos.map(d => esc(d.descritor) + ' (' + d.pct + '%)').join(' · ')}</div>` : ''}
+
+    <h3>Análise por questão</h3>
+    <table class="t"><thead><tr><th>Nº</th><th>Gabarito</th><th>Descritor</th><th>% acertos</th><th>Errada mais marcada</th></tr></thead><tbody>${linhasQuestoes}</tbody></table>
+    <div style="font-size:9px;color:#555;margin-top:2px;">"Errada mais marcada" = alternativa incorreta escolhida por mais estudantes (entre parênteses, quantos).</div>
+    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script>
+    </body></html>`);
+  janela.document.close();
+  janela.focus();
 }
 
 // ---------------------------------------------------------------
