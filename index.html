@@ -11903,6 +11903,7 @@ function renderizarRevisaoGabcorr(gabarito, alunoId, resultadoIA, modal, elPai){
     const { data: todas } = await supabase.from('gabaritos_provas_respostas').select('*, alunos(nome)').eq('gabarito_id', gabarito.id);
     renderizarResultadoAlunoGabarito(modal.querySelector('.modal'), gabarito, salvo, todas || [salvo], {
       aoFechar: () => { modal.remove(); renderizarGabaritoProvas(elPai); },
+      aoExcluido: () => { modal.remove(); },
       aoProximo: () => { modal.remove(); renderizarGabaritoProvas(elPai); abrirModalCorrigirGabaritoCamera(gabarito, elPai); },
     });
   });
@@ -12025,22 +12026,39 @@ function renderizarResultadoAlunoGabarito(container, gabarito, registro, todas, 
       <button class="botao terracota pequeno" id="btn-imprimir-aluno-gab" style="width:auto;">🖨️ Imprimir relatório do estudante</button>
       ${acoes && acoes.aoProximo ? `<button class="botao secundario pequeno" id="btn-proximo-aluno-gab" style="width:auto;">📷 Corrigir próximo estudante</button>` : ''}
       <button class="botao secundario pequeno" id="btn-concluir-aluno-gab" style="width:auto;">Concluir</button>
+      <button class="botao secundario pequeno" id="btn-excluir-aluno-gab" style="width:auto;color:#B4432E;border-color:#B4432E;">🗑️ Excluir esta correção</button>
     </div>`;
   const fechar = () => { if(acoes && acoes.aoFechar) acoes.aoFechar(); };
   container.querySelector('[data-fechar-resultado]').addEventListener('click', fechar);
   document.getElementById('btn-concluir-aluno-gab').addEventListener('click', fechar);
   const prox = document.getElementById('btn-proximo-aluno-gab'); if(prox) prox.addEventListener('click', acoes.aoProximo);
   document.getElementById('btn-imprimir-aluno-gab').addEventListener('click', () => imprimirRelatorioAlunoGabarito(gabarito, registro, todas, nome));
+  document.getElementById('btn-excluir-aluno-gab').addEventListener('click', async () => {
+    if(await excluirCorrecaoGabarito(gabarito, registro, nome) && acoes && acoes.aoExcluido) acoes.aoExcluido();
+  });
+}
+
+// Exclui uma correção já feita (o estudante pode ser corrigido de novo depois).
+async function excluirCorrecaoGabarito(gabarito, registro, nome){
+  if(!confirm(`Excluir a correção de ${nome}?\n\nAs respostas dele(a) neste gabarito serão apagadas e saem dos relatórios. Depois você pode corrigir a folha novamente.`)) return false;
+  const { error } = await supabase.from('gabaritos_provas_respostas').delete().eq('id', registro.id);
+  if(error){ alert('Não foi possível excluir a correção: ' + error.message); return false; }
+  const lista = document.getElementById('gab-lista');
+  if(lista && lista.parentElement) renderizarGabaritoProvas(lista.parentElement);
+  return true;
 }
 
 // Abre o resultado individual a partir da lista de resultados.
-function abrirResultadoAlunoGabarito(gabarito, registro, todas){
+function abrirResultadoAlunoGabarito(gabarito, registro, todas, aoAtualizar){
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
   modal.innerHTML = `<div class="modal" style="max-width:680px;max-height:92vh;overflow-y:auto;"></div>`;
   document.body.appendChild(modal);
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
-  renderizarResultadoAlunoGabarito(modal.querySelector('.modal'), gabarito, registro, todas, { aoFechar: () => modal.remove() });
+  renderizarResultadoAlunoGabarito(modal.querySelector('.modal'), gabarito, registro, todas, {
+    aoFechar: () => modal.remove(),
+    aoExcluido: () => { modal.remove(); if(aoAtualizar) aoAtualizar(); },
+  });
 }
 
 function imprimirRelatorioAlunoGabarito(gabarito, registro, todas, nome){
@@ -12099,6 +12117,7 @@ async function abrirModalResultadosGabarito(gabarito){
   if(error){ conteudo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   if(!respostas || !respostas.length){ conteudo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhuma folha corrigida ainda pra esse gabarito.</p>`; return; }
 
+  const reabrirResultados = () => { const m = conteudo.closest('.fundo-modal'); if(m) m.remove(); abrirModalResultadosGabarito(gabarito); };
   const analise = analisarRespostasGabarito(gabarito, respostas);
   const corPct = (pct) => pct < 60 ? '#B4432E' : pct < 80 ? '#D98A1F' : '#2E7D5B';
 
@@ -12109,7 +12128,7 @@ async function abrirModalResultadosGabarito(gabarito){
 
   const colsDisc = analise.disciplinas.map(d => `<th>${esc(d.nome)}</th>`).join('');
   const linhasAlunos = analise.alunos.map(a => `
-    <tr><td><a href="#" data-ver-aluno="${a.alunoId}" style="color:#1D5B8C;font-weight:600;text-decoration:underline;">${esc(a.nome)}</a></td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total}</td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td>${a.anuladas || '—'}</td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td></tr>`).join('');
+    <tr><td><a href="#" data-ver-aluno="${a.alunoId}" style="color:#1D5B8C;font-weight:600;text-decoration:underline;">${esc(a.nome)}</a></td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total}</td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td>${a.anuladas || '—'}</td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td><td><button type="button" class="btn-icone perigo" data-excluir-correcao="${a.alunoId}" title="Excluir esta correção">🗑️</button></td></tr>`).join('');
 
   conteudo.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
@@ -12121,13 +12140,17 @@ async function abrirModalResultadosGabarito(gabarito){
     <h4 style="margin:0 0 8px;">Desempenho por descritor</h4>
     ${linhasDescritor}
     <h4 style="margin:16px 0 8px;">Notas individuais (0 a 10)</h4>
-    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Data</th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
+    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Data</th><th></th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
   document.getElementById('btn-gab-relatorio').addEventListener('click', () => imprimirRelatorioGabarito(gabarito, analise));
   document.getElementById('btn-gab-csv').addEventListener('click', () => exportarCsvGabarito(gabarito, analise));
   conteudo.querySelectorAll('[data-ver-aluno]').forEach(a => a.addEventListener('click', (e) => {
     e.preventDefault();
     const reg = respostas.find(r => r.aluno_id === a.dataset.verAluno);
-    if(reg) abrirResultadoAlunoGabarito(gabarito, reg, respostas);
+    if(reg) abrirResultadoAlunoGabarito(gabarito, reg, respostas, reabrirResultados);
+  }));
+  conteudo.querySelectorAll('[data-excluir-correcao]').forEach(b => b.addEventListener('click', async () => {
+    const reg = respostas.find(r => r.aluno_id === b.dataset.excluirCorrecao);
+    if(reg && await excluirCorrecaoGabarito(gabarito, reg, reg.alunos?.nome || 'estudante')) reabrirResultados();
   }));
 }
 
