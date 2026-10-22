@@ -11507,6 +11507,35 @@ async function renderizarGabaritoProvas(el){
   }));
 }
 
+// Lê um gabarito colado (uma questão por linha: número, letra e descritor) e devolve as questões.
+// Aceita "1º A - D6 — Identificar…", "11°) A - Descritor SAEPE: D11", separado por espaço ou tab.
+// Linhas curtas sem número (ex.: PORTUGUÊS, MATEMÁTICA) viram o prefixo do descritor, para que D11 de
+// Português e D11 de Matemática não se misturem no desempenho por descritor.
+function parsearGabaritoColado(texto){
+  const questoes = []; const secoes = new Set(); let secao = '';
+  String(texto || '').split(/\r?\n/).forEach(linha => {
+    const l = linha.replace(/\u00a0/g, ' ').trim();
+    if(!l) return;
+    const m = l.match(/^(\d{1,3})\s*[º°ª]?\s*[).\-–:]?\s*\(?([A-Ea-e])\)?(?=[\s\-–:.)]|$)[\s\-–:]*(.*)$/);
+    if(!m){
+      if(l.length <= 40 && !/\d/.test(l) && !/\t/.test(linha) && !/^gabarito$/i.test(l) && !/quest[aã]o/i.test(l)){ secao = l.replace(/[:\s]+$/, ''); secao = secao.charAt(0) + secao.slice(1).toLowerCase(); secoes.add(secao); }
+      return;
+    }
+    let desc = (m[3] || '').trim().replace(/\s+/g, ' ').replace(/\s+\.$/, '.');
+    const cod = desc.match(/^Descritor(?:\s+SAEPE)?\s*:\s*(.+)$/i);
+    if(cod) desc = cod[1].trim();
+    questoes.push({ secao, descritor: desc, resposta_correta: m[2].toUpperCase() });
+  });
+  const usarSecao = secoes.size > 0;
+  return {
+    questoes: questoes.map((q, i) => ({
+      descritor: q.descritor ? (usarSecao && q.secao ? `${q.secao}: ${q.descritor}` : q.descritor) : `Questão ${i+1}`,
+      resposta_correta: q.resposta_correta,
+    })),
+    secoes: Array.from(secoes),
+  };
+}
+
 async function abrirModalCriarGabarito(elPai){
   const descritoresExistentes = await buscarDescritoresSaevExistentes();
   const modal = document.createElement('div');
@@ -11522,6 +11551,13 @@ async function abrirModalCriarGabarito(elPai){
         <div class="campo"><label>Turma (opcional)</label><select id="gab-turma"><option value="">Todas as turmas</option>${opcoesTurma}</select></div>
       </div>
       <div class="campo"><label>Descrição (opcional)</label><input type="text" id="gab-descricao" placeholder="Ex: Prova bimestral, 10 questões objetivas" /></div>
+      <details style="margin-bottom:12px;border:1px dashed var(--borda);border-radius:8px;padding:8px 12px;">
+        <summary style="cursor:pointer;font-weight:700;font-size:13px;">📋 Colar gabarito pronto (importar todas as questões de uma vez)</summary>
+        <p style="font-size:12px;color:var(--texto-suave);margin:8px 0 6px;">Cole uma questão por linha, com número, letra e descritor. Ex.: <code>1º A - D6 — Identificar o tema de um texto.</code> ou <code>11°) A - Descritor SAEPE: D11</code>. Títulos como PORTUGUÊS e MATEMÁTICA são usados como prefixo do descritor.</p>
+        <textarea id="gab-colar-texto" rows="6" placeholder="Cole aqui o gabarito…" style="width:100%;"></textarea>
+        <button class="botao secundario pequeno" type="button" id="btn-importar-gab" style="width:auto;margin-top:6px;">Importar questões</button>
+        <div id="msg-importar-gab" style="margin-top:6px;"></div>
+      </details>
       <datalist id="datalist-descritores">${descritoresExistentes.map(d => `<option value="${esc(d)}"></option>`).join('')}</datalist>
       <div class="campo">
         <label>Questões (5 alternativas: A a E)</label>
@@ -11557,6 +11593,16 @@ async function abrirModalCriarGabarito(elPai){
   }
   document.getElementById('btn-add-questao-gab').addEventListener('click', adicionarQuestaoGab);
   for(let i=0;i<5;i++) adicionarQuestaoGab(); // começa com 5 questões de exemplo
+  document.getElementById('btn-importar-gab').addEventListener('click', () => {
+    const msgImp = document.getElementById('msg-importar-gab');
+    const r = parsearGabaritoColado(document.getElementById('gab-colar-texto').value);
+    if(!r.questoes.length){ msgImp.innerHTML = `<div class="msg-erro">Não encontrei questões. Use uma linha por questão, ex.: 1º A - D6 — Identificar o tema.</div>`; return; }
+    questoes = r.questoes;
+    renderizarQuestoesGab();
+    const campoDisc = document.getElementById('gab-disciplina');
+    if(!campoDisc.value.trim() && r.secoes.length) campoDisc.value = r.secoes.join(' e ');
+    msgImp.innerHTML = `<div class="msg-ok">${r.questoes.length} questões importadas. Confira abaixo, dê um título e salve.</div>`;
+  });
 
   document.getElementById('btn-salvar-gab').addEventListener('click', async () => {
     const msg = document.getElementById('msg-criar-gab');
