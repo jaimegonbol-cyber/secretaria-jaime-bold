@@ -11505,6 +11505,7 @@ async function renderizarGabaritoProvas(el){
         <button class="botao terracota pequeno" style="width:auto;" data-imprimir-gab="${g.id}">🖨️ Imprimir folha(s)</button>
         <button class="botao secundario pequeno" style="width:auto;" data-corrigir-gab="${g.id}">📷 Corrigir com a câmera</button>
         <button class="botao secundario pequeno" style="width:auto;" data-resultados-gab="${g.id}">📊 Ver resultados</button>
+        <button class="botao secundario pequeno" style="width:auto;" data-editar-gab="${g.id}">✏️ Editar</button>
         <button class="botao secundario pequeno" style="width:auto;" data-excluir-gab="${g.id}">🗑️ Excluir</button>
       </div>
     </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhum gabarito criado${ESTADO.gabaritoTurmaId ? ' para esta turma' : ''} ainda.</p>`;
@@ -11522,6 +11523,7 @@ async function renderizarGabaritoProvas(el){
   el.querySelectorAll('[data-imprimir-gab]').forEach(b => b.addEventListener('click', () => abrirModalImprimirGabarito(gabaritos.find(g => g.id === b.dataset.imprimirGab))));
   el.querySelectorAll('[data-corrigir-gab]').forEach(b => b.addEventListener('click', () => abrirModalCorrigirGabaritoCamera(gabaritos.find(g => g.id === b.dataset.corrigirGab), el)));
   el.querySelectorAll('[data-resultados-gab]').forEach(b => b.addEventListener('click', () => abrirModalResultadosGabarito(gabaritos.find(g => g.id === b.dataset.resultadosGab))));
+  el.querySelectorAll('[data-editar-gab]').forEach(b => b.addEventListener('click', () => abrirModalCriarGabarito(el, gabaritos.find(g => g.id === b.dataset.editarGab), contagens[b.dataset.editarGab] || 0)));
   el.querySelectorAll('[data-excluir-gab]').forEach(b => b.addEventListener('click', async () => {
     if(!confirm('Excluir este gabarito e todas as correções já feitas dele? Esta ação não pode ser desfeita.')) return;
     const { error: erroExcluir } = await supabase.from('gabaritos_provas').delete().eq('id', b.dataset.excluirGab);
@@ -11566,15 +11568,16 @@ function descritoresSaepeParaLista(){
   return lista;
 }
 
-async function abrirModalCriarGabarito(elPai){
+async function abrirModalCriarGabarito(elPai, gabEdit, qtdCorrigidas){
   const descritoresExistentes = await buscarDescritoresSaevExistentes();
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
   const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}">${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   modal.innerHTML = `
     <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;">
-      <div class="modal-topo"><h3>Criar gabarito</h3><button data-fechar>✕</button></div>
+      <div class="modal-topo"><h3>${gabEdit ? 'Editar gabarito' : 'Criar gabarito'}</h3><button data-fechar>✕</button></div>
       <div id="msg-criar-gab"></div>
+      ${gabEdit && qtdCorrigidas ? `<div class="msg-erro" style="background:#FFF6E0;color:#7A5300;border-color:#E6C16A;">Este gabarito já tem ${qtdCorrigidas} correção(ões). Ao salvar, o sistema <b>recalcula</b> as notas com as respostas novas. Evite mudar a ordem ou o número de questões.</div>` : ''}
       <div class="campo"><label>Título</label><input type="text" id="gab-titulo" placeholder="Ex: Avaliação de Matemática — 1º Bimestre" /></div>
       <div class="grade-2">
         <div class="campo"><label>Disciplina (opcional)</label><input type="text" id="gab-disciplina" placeholder="Ex: Matemática" /></div>
@@ -11633,7 +11636,20 @@ async function abrirModalCriarGabarito(elPai){
     renderizarQuestoesGab();
   }
   document.getElementById('btn-add-questao-gab').addEventListener('click', adicionarQuestaoGab);
-  for(let i=0;i<5;i++) adicionarQuestaoGab(); // começa com 5 questões de exemplo
+  if(gabEdit){
+    numAlt = gabEdit.num_alternativas === 4 ? 4 : 5;
+    document.getElementById('gab-num-alt').value = String(numAlt);
+    document.getElementById('gab-rotulo-alt').textContent = numAlt === 4 ? '(4 alternativas: A a D)' : '(5 alternativas: A a E)';
+    document.getElementById('gab-titulo').value = gabEdit.titulo || '';
+    document.getElementById('gab-disciplina').value = gabEdit.disciplina || '';
+    document.getElementById('gab-descricao').value = gabEdit.descricao || '';
+    document.getElementById('gab-turma').value = gabEdit.turma_id || '';
+    questoes = (gabEdit.questoes || []).map(q => ({ descritor: q.descritor || '', resposta_correta: q.resposta_correta || 'A' }));
+    renderizarQuestoesGab();
+    document.getElementById('btn-salvar-gab').textContent = 'Salvar alterações';
+  } else {
+    for(let i=0;i<5;i++) adicionarQuestaoGab(); // começa com 5 questões de exemplo
+  }
   document.getElementById('btn-importar-gab').addEventListener('click', () => {
     const msgImp = document.getElementById('msg-importar-gab');
     const r = parsearGabaritoColado(document.getElementById('gab-colar-texto').value);
@@ -11656,16 +11672,29 @@ async function abrirModalCriarGabarito(elPai){
     if(!questoesValidas.length){ msg.innerHTML = `<div class="msg-erro">Adicione ao menos uma questão.</div>`; return; }
     const btn = document.getElementById('btn-salvar-gab');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    const { error } = await supabase.from('gabaritos_provas').insert({
+    const dadosGab = {
       titulo,
       disciplina: document.getElementById('gab-disciplina').value.trim() || null,
       descricao: document.getElementById('gab-descricao').value.trim() || null,
       turma_id: document.getElementById('gab-turma').value || null,
       questoes: questoesValidas,
       num_alternativas: numAlt,
-      criado_por: ESTADO.perfil.id,
-    });
-    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = 'Salvar gabarito'; return; }
+    };
+    const { error } = gabEdit
+      ? await supabase.from('gabaritos_provas').update(dadosGab).eq('id', gabEdit.id)
+      : await supabase.from('gabaritos_provas').insert({ ...dadosGab, criado_por: ESTADO.perfil.id });
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = gabEdit ? 'Salvar alterações' : 'Salvar gabarito'; return; }
+    if(gabEdit){
+      // Recalcula as correções já feitas com as respostas corretas novas (por número da questão).
+      const { data: corrs } = await supabase.from('gabaritos_provas_respostas').select('*').eq('gabarito_id', gabEdit.id);
+      for(const c of (corrs || [])){
+        const novas = questoesValidas.map(q => {
+          const ant = (c.respostas || []).find(r => Number(r.numero) === q.numero) || { numero: q.numero };
+          return { ...ant, numero: q.numero, status: situacaoResposta(ant, q) };
+        });
+        await supabase.from('gabaritos_provas_respostas').update({ respostas: novas, acertos: novas.filter(r => r.status === 'acerto').length, total: questoesValidas.length }).eq('id', c.id);
+      }
+    }
     modal.remove();
     renderizarGabaritoProvas(elPai);
   });
