@@ -12105,6 +12105,21 @@ function htmlAnaliseAluno(gabarito, registro, a, nomeAluno){
 }
 
 // Tela do estudante: primeiro o resumo visual (acertos/erros/anuladas), depois a análise das respostas.
+// Cartões com a nota de cada disciplina (ex.: Português, Matemática) e a nota geral do estudante.
+function htmlNotasDisciplinaAluno(gabarito, registro, imprimir){
+  const an = analisarRespostasGabarito(gabarito, [registro]).alunos[0];
+  if(!an) return '';
+  const cor = (n) => n === null ? '#555' : n < 6 ? '#B4432E' : n < 8 ? '#D98A1F' : '#2E7D5B';
+  const cartao = (rot, nota, sub, destaque) => `<div style="flex:1;min-width:110px;border:2px solid ${destaque ? '#15325C' : '#C9C2B0'};border-radius:8px;padding:6px;text-align:center;${destaque ? 'background:#EEF3FA;' : ''}">
+      <div style="font-size:11px;font-weight:700;">${esc(rot)}</div>
+      <div style="font-size:${imprimir ? 20 : 22}px;font-weight:800;color:${cor(nota)};">${fmtNotaSimulado(nota)}</div>
+      <div style="font-size:10.5px;color:#555;">${sub}</div></div>`;
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px;">
+    ${an.porDisciplina.map(d => cartao('Nota de ' + d.nome, d.nota, `${d.acertos} de ${d.total} acertos`, false)).join('')}
+    ${cartao('NOTA GERAL', an.nota, `${an.acertos} de ${an.total} acertos`, true)}
+  </div>`;
+}
+
 function renderizarResultadoAlunoGabarito(container, gabarito, registro, todas, acoes){
   const nome = registro.alunos?.nome || (ESTADO.alunos.find(x => x.id === registro.aluno_id) || {}).nome || 'Estudante';
   const a = analisarAlunoGabarito(gabarito, registro, todas);
@@ -12113,11 +12128,12 @@ function renderizarResultadoAlunoGabarito(container, gabarito, registro, todas, 
     <div class="modal-topo"><h3>${esc(nome)}</h3><button data-fechar-resultado>✕</button></div>
     <p style="font-size:12.5px;color:var(--texto-suave);margin:-4px 0 10px;">${esc(gabarito.titulo)}</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-      <div style="flex:1;min-width:90px;border:2px solid #15325C;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#15325C;">${fmtNotaSimulado(a.nota)}</div><div style="font-size:11px;">nota (0–10)</div></div>
+      <div style="flex:1;min-width:90px;border:2px solid #15325C;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#15325C;">${fmtNotaSimulado(a.nota)}</div><div style="font-size:11px;">nota geral (0–10)</div></div>
       <div style="flex:1;min-width:80px;border:2px solid #2E7D5B;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#2E7D5B;">${a.acertos}</div><div style="font-size:11px;">acertos</div></div>
       <div style="flex:1;min-width:80px;border:2px solid #B4432E;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#B4432E;">${a.erros.length}</div><div style="font-size:11px;">erros</div></div>
       <div style="flex:1;min-width:80px;border:2px solid #8A8A8A;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:#555;">${anuladas}</div><div style="font-size:11px;">anuladas</div></div>
     </div>
+    ${htmlNotasDisciplinaAluno(gabarito, registro, false)}
     <h4 style="margin:12px 0 4px;">1. Resumo visual das questões</h4>
     ${htmlResumoVisualAluno(gabarito, registro)}
     <h4 style="margin:16px 0 6px;">2. Relatório de análise das respostas</h4>
@@ -12184,11 +12200,12 @@ function imprimirRelatorioAlunoGabarito(gabarito, registro, todas, nome){
       </td>
       <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td></tr></table>
     <div style="display:flex;gap:8px;margin:10px 0 2px;">
-      <div style="flex:1;border:2px solid #15325C;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#15325C;">${fmtNotaSimulado(a.nota)}</div>nota (0–10)</div>
+      <div style="flex:1;border:2px solid #15325C;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#15325C;">${fmtNotaSimulado(a.nota)}</div>nota geral (0–10)</div>
       <div style="flex:1;border:2px solid #2E7D5B;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#2E7D5B;">${a.acertos}</div>acertos</div>
       <div style="flex:1;border:2px solid #B4432E;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#B4432E;">${a.erros.length}</div>erros</div>
       <div style="flex:1;border:2px solid #8A8A8A;border-radius:8px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:#555;">${a.brancos.length + a.multiplas.length}</div>anuladas</div>
     </div>
+    ${htmlNotasDisciplinaAluno(gabarito, registro, true)}
     <h3>1. Resumo visual das questões</h3>
     ${htmlResumoVisualAluno(gabarito, registro)}
     <h3>2. Relatório de análise das respostas</h3>
@@ -12226,13 +12243,14 @@ async function abrirModalResultadosGabarito(gabarito){
       <div style="background:var(--areia);border-radius:5px;height:14px;overflow:hidden;"><div style="width:${d.pct}%;background:${corPct(d.pct)};height:100%;"></div></div>
     </div>`).join('');
 
-  const colsDisc = analise.disciplinas.map(d => `<th>${esc(d.nome)}</th>`).join('');
+  const colsDisc = analise.disciplinas.map(d => `<th>${esc(d.nome)}<br/><span style="font-weight:400;">acertos · nota</span></th>`).join('');
   const linhasAlunos = analise.alunos.map(a => `
-    <tr><td><a href="#" data-ver-aluno="${a.alunoId}" style="color:#1D5B8C;font-weight:600;text-decoration:underline;">${esc(a.nome)}</a></td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total}</td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td>${a.anuladas || '—'}</td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td><td><button type="button" class="btn-icone perigo" data-excluir-correcao="${a.alunoId}" title="Excluir esta correção">🗑️</button></td></tr>`).join('');
+    <tr><td><a href="#" data-ver-aluno="${a.alunoId}" style="color:#1D5B8C;font-weight:600;text-decoration:underline;">${esc(a.nome)}</a></td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total} · <b>${fmtNotaSimulado(d.nota)}</b></td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td>${a.anuladas || '—'}</td><td><b style="color:${corPct(a.pct)};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td>${fmtData(a.data)}</td><td><button type="button" class="btn-icone perigo" data-excluir-correcao="${a.alunoId}" title="Excluir esta correção">🗑️</button></td></tr>`).join('');
 
   conteudo.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <button class="botao terracota pequeno" id="btn-gab-relatorio" style="width:auto;">🖨️ Relatório completo (PDF)</button>
+      <button class="botao secundario pequeno" id="btn-gab-lista" style="width:auto;">📋 Lista de notas (1 folha)</button>
       <button class="botao secundario pequeno" id="btn-gab-csv" style="width:auto;">⬇️ Exportar planilha (CSV)</button>
     </div>
     <p style="font-size:12px;color:var(--texto-suave);margin:0 0 6px;">Clique no nome do estudante para ver o resumo visual e a análise das respostas dele.</p>
@@ -12240,9 +12258,10 @@ async function abrirModalResultadosGabarito(gabarito){
     <h4 style="margin:0 0 8px;">Desempenho por descritor</h4>
     ${linhasDescritor}
     <h4 style="margin:16px 0 8px;">Notas individuais (0 a 10)</h4>
-    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Data</th><th></th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
+    <div style="overflow-x:auto;"><table><thead><tr><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota geral</th><th>%</th><th>Data</th><th></th></tr></thead><tbody>${linhasAlunos}</tbody></table></div>`;
   document.getElementById('btn-gab-relatorio').addEventListener('click', () => imprimirRelatorioGabarito(gabarito, analise));
   document.getElementById('btn-gab-csv').addEventListener('click', () => exportarCsvGabarito(gabarito, analise));
+  document.getElementById('btn-gab-lista').addEventListener('click', () => imprimirListaNotasGabarito(gabarito, analise));
   conteudo.querySelectorAll('[data-ver-aluno]').forEach(a => a.addEventListener('click', (e) => {
     e.preventDefault();
     const reg = respostas.find(r => r.aluno_id === a.dataset.verAluno);
@@ -12330,12 +12349,70 @@ function analisarRespostasGabarito(gabarito, respostas){
 
 function exportarCsvGabarito(gabarito, analise){
   const sep = ';';
-  const cab = ['Estudante'].concat(analise.discResumo.map(d => `${d.nome} (acertos)`), ['Acertos', 'Anuladas (branco/2+ marcas)', 'Total', 'Nota (0-10)', '% acertos', 'Desempenho']);
-  const linhas = analise.alunos.map(a => [a.nome].concat(a.porDisciplina.map(d => `${d.acertos}/${d.total}`), [a.acertos, a.anuladas, a.total, fmtNotaSimulado(a.nota), a.pct + '%', faixaDesempenhoSimulado(a.pct).rotulo]));
+  const cab = ['Estudante'].concat(analise.discResumo.reduce((l, d) => l.concat([`${d.nome} (acertos)`, `${d.nome} (nota)`]), []), ['Acertos', 'Anuladas (branco/2+ marcas)', 'Total', 'Nota geral (0-10)', '% acertos', 'Desempenho']);
+  const linhas = analise.alunos.map(a => [a.nome].concat(a.porDisciplina.reduce((l, d) => l.concat([`${d.acertos}/${d.total}`, fmtNotaSimulado(d.nota)]), []), [a.acertos, a.anuladas, a.total, fmtNotaSimulado(a.nota), a.pct + '%', faixaDesempenhoSimulado(a.pct).rotulo]));
   const csv = '﻿' + [cab].concat(linhas).map(l => l.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep)).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = `resultado-${String(gabarito.titulo).replace(/[^\w\-]+/g, '_')}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// Lista única (uma folha A4) com acertos e notas por disciplina e nota geral de todos os estudantes da turma.
+function imprimirListaNotasGabarito(gabarito, analise){
+  const turma = ESTADO.turmas.find(t => t.id === gabarito.turma_id);
+  const base = ESTADO.alunos.filter(a => (!gabarito.turma_id || a.turma_id === gabarito.turma_id) && a.situacao !== 'transferido' && a.situacao !== 'cancelado');
+  const porId = new Map(analise.alunos.map(a => [a.alunoId, a]));
+  const linhas = base.map(a => ({ nome: a.nome, r: porId.get(a.id) || null }));
+  analise.alunos.forEach(a => { if(!base.some(b => b.id === a.alunoId)) linhas.push({ nome: a.nome, r: a }); });
+  linhas.sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR'));
+  const n = Math.max(1, linhas.length);
+  // Ajusta a altura/fonte das linhas para a lista caber em uma única folha.
+  const alt = Math.max(4.6, Math.min(8, 215 / (n + 3)));
+  const fonte = Math.max(8, Math.min(12, alt * 1.45));
+  const cor = (v) => v === null || v === undefined ? '#555' : v < 6 ? '#B4432E' : v < 8 ? '#D98A1F' : '#2E7D5B';
+  const colsDisc = analise.disciplinas.map(d => `<th colspan="2">${esc(d.nome)} (${d.qtd})</th>`).join('');
+  const subDisc = analise.disciplinas.map(() => '<th>Acertos</th><th>Nota</th>').join('');
+  const corpo = linhas.map((l, i) => {
+    const r = l.r;
+    return `<tr>
+      <td class="c">${i + 1}</td><td class="nome">${esc(l.nome)}</td>
+      ${r ? r.porDisciplina.map(d => `<td class="c">${d.acertos}/${d.total}</td><td class="c" style="font-weight:700;color:${cor(d.nota)};">${fmtNotaSimulado(d.nota)}</td>`).join('') : analise.disciplinas.map(() => '<td class="c" style="color:#999;">—</td><td class="c" style="color:#999;">—</td>').join('')}
+      ${r ? `<td class="c"><b>${r.acertos}/${r.total}</b></td><td class="c" style="font-weight:800;color:${cor(r.nota)};">${fmtNotaSimulado(r.nota)}</td>` : `<td class="c" colspan="2" style="color:#999;">não corrigido</td>`}
+    </tr>`;
+  }).join('');
+  const medias = analise.discResumo.map(d => `<td class="c"></td><td class="c"><b>${fmtNotaSimulado(d.media)}</b></td>`).join('');
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><title>Lista de notas — ${esc(gabarito.titulo)}</title>
+  <style>
+    @page{ size: A4 portrait; margin: 8mm; }
+    *{ box-sizing:border-box; }
+    body{ font-family:Arial,Helvetica,sans-serif; color:#000; margin:0; -webkit-print-color-adjust:exact; }
+    table{ border-collapse:collapse; width:100%; }
+    .lista th, .lista td{ border:1px solid #999; padding:0 4px; height:${alt}mm; font-size:${fonte}px; line-height:1; }
+    .lista th{ background:#E6ECF5; font-size:${Math.max(8, fonte - 1)}px; height:auto; padding:3px 4px; }
+    .lista td.c, .lista th{ text-align:center; }
+    .lista td.nome{ text-align:left; white-space:nowrap; }
+    .lista tbody tr:nth-child(even) td{ background:#F3F3F3; }
+    .lista tfoot td{ background:#E6ECF5; font-weight:700; }
+  </style></head><body>
+    <table style="margin-bottom:6px;"><tr>
+      <td style="width:60px;"><img src="${LOGO_PREFEITURA_URL}" style="width:50px;height:50px;object-fit:contain;" /></td>
+      <td style="text-align:center;">
+        <div style="font-size:13px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+        <div style="font-size:12px;font-weight:800;">${esc(gabarito.titulo)}${turma ? ' · ' + esc(turma.nome) : ''}</div>
+        <div style="font-size:10.5px;">Lista de acertos e notas (0 a 10) · ${analise.alunos.length} corrigido(s) de ${linhas.length}</div>
+      </td>
+      <td style="width:60px;text-align:right;"><img src="${LOGO_ESCOLA_URL}" style="width:50px;height:50px;object-fit:contain;" /></td></tr></table>
+    <table class="lista">
+      <thead><tr><th rowspan="2" style="width:22px;">Nº</th><th rowspan="2">Estudante</th>${colsDisc}<th colspan="2">GERAL (${analise.alunos[0] ? analise.alunos[0].total : ''})</th></tr>
+      <tr>${subDisc}<th>Acertos</th><th>Nota</th></tr></thead>
+      <tbody>${corpo}</tbody>
+      <tfoot><tr><td colspan="2" style="text-align:right;">Média da turma</td>${medias}<td class="c"></td><td class="c">${fmtNotaSimulado(analise.mediaNota)}</td></tr></tfoot>
+    </table>
+    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script>
+  </body></html>`);
+  janela.document.close();
+  janela.focus();
 }
 
 async function imprimirRelatorioGabarito(gabarito, analise){
