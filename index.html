@@ -2747,21 +2747,28 @@ function imprimirFichaFuncional(f){
   const ec = norm(f.estado_civil);
   const estados = ['Solteiro(a)','Casado(a)','Viúvo(a)','União Estável','Divorciado(a)'];
 
+  const MESES_EXT = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const agora = new Date();
+  const hojeExtenso = `${agora.getDate()} de ${MESES_EXT[agora.getMonth()]} de ${agora.getFullYear()}`;
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
   <title>Ficha Funcional - ${esc(f.nome)}</title>
   <style>
     @page { size: A4 portrait; margin: 10mm; }
     *{ box-sizing:border-box; }
-    body{ font-family:'Times New Roman',serif; font-size:10pt; color:#000; margin:0; }
+    html, body{ height:100%; }
+    body{ font-family:'Times New Roman',serif; font-size:10.5pt; color:#000; margin:0; }
+    .pagina{ height:277mm; display:flex; flex-direction:column; }
+    .miolo{ flex:1; min-height:0; }
+    .miolo table.f{ height:100%; }
     .topo{ text-align:center; line-height:1.25; }
-    .topo img{ width:58px; height:58px; }
+    .topo img{ width:64px; height:64px; }
     .topo .t1{ font-weight:700; font-size:9.5pt; }
     .topo h1{ font-size:15pt; margin:8px 0 6px; font-weight:700; }
     table.f{ width:100%; border-collapse:collapse; border:1px solid #000; table-layout:fixed; }
     table.f td{ border:1px solid #000; padding:0; vertical-align:top; }
-    .h{ background:#d9d9d9; font-weight:700; font-size:8.5pt; padding:1.5px 4px; border-bottom:1px solid #000; }
-    .val{ min-height:16px; padding:2px 5px; font-size:10pt; }
-    .opts{ padding:3px 5px; font-size:9pt; }
+    .h{ background:#d9d9d9; font-weight:700; font-size:9pt; padding:2px 4px; border-bottom:1px solid #000; }
+    .val{ min-height:18px; padding:3px 5px; font-size:10.5pt; }
+    .opts{ padding:4px 5px; font-size:9.5pt; }
     .op{ display:inline-block; margin-right:12px; white-space:nowrap; }
     .cx{ font-size:11pt; line-height:1; }
     .lin2 .op{ display:block; margin:2px 0; }
@@ -2772,15 +2779,16 @@ function imprimirFichaFuncional(f){
     .escL{ font-size:8pt; margin:2px 0 4px; white-space:nowrap; overflow:hidden; }
     .ln{ display:inline-block; border-bottom:1px solid #000; min-width:50%; max-width:62%; vertical-align:bottom; font-size:8.5pt; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; height:11px; }
     .cinza td{ background:#eee !important; }
-    .ass{ margin-top:30px; display:flex; justify-content:space-between; align-items:flex-end; font-size:10pt; padding:0 6px; }
+    .ass{ margin-top:14px; display:flex; justify-content:space-between; align-items:flex-end; font-size:10pt; padding:0 6px; }
     .ass .l{ border-top:1px solid #000; width:300px; text-align:center; padding-top:2px; font-size:9.5pt; }
   </style></head><body>
+  <div class="pagina">
   <div class="topo">
     <img src="${LOGO_ESCOLA_URL}" />
     <div class="t1">PREFEITURA DA CIDADE DO PAULISTA<br/>SECRETARIA DE EDUCAÇÃO<br/>GERÊNCIA DE PESSOAL</div>
     <h1>FICHA FUNCIONAL</h1>
   </div>
-  <table class="f">
+  <div class="miolo"><table class="f">
     <colgroup><col style="width:19%"><col style="width:17%"><col style="width:21%"><col style="width:21%"><col style="width:22%"></colgroup>
     <tr><td colspan="4"><div class="h">NOME COMPLETO:</div><div class="val">${v(f.nome)}</div></td>
         <td><div class="h">TELEFONE:</div><div class="val">${tel(f.telefone)}</div></td></tr>
@@ -2821,8 +2829,9 @@ function imprimirFichaFuncional(f){
     <tr><td colspan="5"><div class="h">INFORME SUA GRADUAÇÃO E PÓS-GRADUAÇÃO</div><div class="val" style="min-height:22px;">${listaFormacoes(f).map(x => `<div>${esc(textoFormacao(x))}</div>`).join('')}${v(f.formacao_detalhada)}</div></td></tr>
     <tr><td colspan="5"><div class="h">PORTADOR DE NECESSIDADES ESPECIAIS</div>
         <div class="opts" style="font-size:10pt;">${opc('Não', f.portador_necessidades_especiais === false || f.portador_necessidades_especiais == null)} &nbsp;&nbsp; ${opc('Sim, qual?', f.portador_necessidades_especiais === true)} <span class="ln" style="min-width:60%;max-width:70%;">${f.portador_necessidades_especiais ? v(f.necessidades_especiais_qual) : ''}</span></div></td></tr>
-  </table>
-  <div class="ass"><div>Paulista, _____ de ______________________ de 20____</div><div class="l">Assinatura do Servidor(a)</div></div>
+  </table></div>
+  <div class="ass"><div>Paulista, ${hojeExtenso}</div><div class="l">Assinatura do Servidor(a)</div></div>
+  </div>
   <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script>
   </body></html>`;
   const janela = window.open('', '_blank');
