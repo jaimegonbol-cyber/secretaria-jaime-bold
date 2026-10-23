@@ -11711,7 +11711,8 @@ function abrirModalImprimirGabarito(gabarito){
     <div class="modal" style="max-width:480px;">
       <div class="modal-topo"><h3>Imprimir — ${esc(gabarito.titulo)}</h3><button data-fechar>✕</button></div>
       <button class="botao secundario" id="btn-gab-imprimir-branco" style="width:100%;margin-bottom:10px;">🖨️ Imprimir folha em branco (sem nome)</button>
-      <div class="campo"><input type="text" id="gab-busca-imp" placeholder="Buscar estudante…" /></div>
+      <div class="campo" style="margin-bottom:6px;"><input type="text" id="gab-busca-imp" placeholder="Buscar estudante…" /></div>
+      <label style="display:flex;align-items:center;gap:8px;padding:2px 4px 8px;cursor:pointer;font-size:13px;font-weight:700;"><input type="checkbox" id="gab-sel-todos" /> <span id="gab-sel-todos-rot">Selecionar todos</span></label>
       <div id="gab-lista-imp" style="max-height:260px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:8px;"></div>
       <button class="botao terracota" id="btn-gab-imprimir-selecionados" style="width:100%;margin-top:10px;">🖨️ Imprimir selecionados</button>
     </div>`;
@@ -11723,7 +11724,7 @@ function abrirModalImprimirGabarito(gabarito){
   function renderizarListaImpGab(termo){
     const lista = document.getElementById('gab-lista-imp');
     const t = (termo||'').toLowerCase();
-    const filtrados = alunosTurma.filter(a => !t || a.nome.toLowerCase().includes(t)).slice(0, 100);
+    const filtrados = alunosTurma.filter(a => !t || a.nome.toLowerCase().includes(t));
     lista.innerHTML = filtrados.length ? filtrados.map(a => `
       <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:13px;">
         <input type="checkbox" class="chk-aluno-imp-gab" data-id="${a.id}" ${selecionados.has(a.id)?'checked':''} />
@@ -11731,10 +11732,28 @@ function abrirModalImprimirGabarito(gabarito){
       </label>`).join('') : `<p style="color:var(--texto-suave);margin:0;">Nenhum estudante encontrado.</p>`;
     lista.querySelectorAll('.chk-aluno-imp-gab').forEach(chk => chk.addEventListener('change', e => {
       if(e.target.checked) selecionados.add(e.target.dataset.id); else selecionados.delete(e.target.dataset.id);
+      atualizarSelTodosGab();
     }));
+    atualizarSelTodosGab();
+  }
+  // "Selecionar todos" vale para os estudantes que aparecem na lista (respeita a busca).
+  function visiveisImpGab(){
+    const t = (document.getElementById('gab-busca-imp').value || '').toLowerCase();
+    return alunosTurma.filter(a => !t || a.nome.toLowerCase().includes(t));
+  }
+  function atualizarSelTodosGab(){
+    const vis = visiveisImpGab(); const qtd = vis.filter(a => selecionados.has(a.id)).length;
+    const chk = document.getElementById('gab-sel-todos'); if(!chk) return;
+    chk.checked = vis.length > 0 && qtd === vis.length;
+    chk.indeterminate = qtd > 0 && qtd < vis.length;
+    document.getElementById('gab-sel-todos-rot').textContent = `Selecionar todos (${selecionados.size} de ${alunosTurma.length} selecionados)`;
   }
   renderizarListaImpGab('');
   document.getElementById('gab-busca-imp').addEventListener('input', e => renderizarListaImpGab(e.target.value));
+  document.getElementById('gab-sel-todos').addEventListener('change', e => {
+    visiveisImpGab().forEach(a => { if(e.target.checked) selecionados.add(a.id); else selecionados.delete(a.id); });
+    renderizarListaImpGab(document.getElementById('gab-busca-imp').value);
+  });
   document.getElementById('btn-gab-imprimir-branco').addEventListener('click', () => imprimirGabaritos(gabarito, [null, null, null, null]));
   document.getElementById('btn-gab-imprimir-selecionados').addEventListener('click', () => {
     if(!selecionados.size){ alert('Selecione ao menos um estudante, ou use "Imprimir folha em branco".'); return; }
