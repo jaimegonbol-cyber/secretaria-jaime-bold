@@ -672,7 +672,7 @@ function itensNav(){
     { id:'relatorios', label:'Relatórios', icone:'🖨️' },
   ];
   const itemDiario = { id:'diario', label:'Diário do Professor', icone:'📓' };
-  if(ESTADO.perfil.role === 'professor') return [itemDiario];
+  if(ESTADO.perfil.role === 'professor') return [itemDiario, { id:'avaliacoes', label:'Avaliações', icone:'📊' }];
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
     ? base.filter(item => ESTADO.perfil.permissoes.includes(item.id))
     : base;
@@ -10961,9 +10961,14 @@ function renderizarAvaliacoes(el){
     { id:'gabarito', label:'Gabarito de Provas' },
     { id:'conselho', label:'Conselho de Classe' },
   ];
+  if(ESTADO.perfil.role === 'professor'){
+    // Professor: só avaliação personalizada e gabarito de provas (das suas turmas).
+    for(let i = abasTopo.length - 1; i >= 0; i--) if(!['personalizada','gabarito'].includes(abasTopo[i].id)) abasTopo.splice(i, 1);
+    if(!['personalizada','gabarito'].includes(ESTADO.subAvaliacoes)) ESTADO.subAvaliacoes = 'gabarito';
+  }
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
-    <div class="cabecalho-pagina" style="margin-bottom:10px;"><div><h2>Avaliações</h2><p>Avaliações pedagógicas por turma</p></div></div>
+    <div class="cabecalho-pagina" style="margin-bottom:10px;"><div><h2>Avaliações</h2><p>${ESTADO.perfil.role === 'professor' ? 'Crie, corrija e acompanhe os resultados das avaliações das suas turmas' : 'Avaliações pedagógicas por turma'}</p></div></div>
     ${abasTopo.length > 1 ? `<div class="subtabs" style="margin-bottom:10px;">${barraTopo}</div>` : ''}
     <div id="conteudo-avaliacoes-topo"></div>`;
   el.querySelectorAll('[data-aba-aval]').forEach(b => b.addEventListener('click', () => {
@@ -11072,7 +11077,7 @@ function abrirModalCriarAvaliacaoPersonalizada(elPai){
       <div class="campo"><label>Título da avaliação</label><input type="text" id="avalpers-titulo" placeholder="Ex: Autoavaliação de Escrita — 2º ano" /></div>
       <div class="campo"><label>Descrição (opcional)</label><input type="text" id="avalpers-descricao" placeholder="Ex: Aplicar após a produção de texto" /></div>
       <div class="campo"><label>Gênero textual (opcional)</label><select id="avalpers-genero"><option value="">Não especificado</option>${GENEROS_TEXTUAIS.map(g => `<option value="${g.valor}">${esc(g.rotulo)}</option>`).join('')}</select></div>
-      <div class="campo"><label>Turma (opcional — deixe em branco pra usar em qualquer turma)</label><select id="avalpers-turma"><option value="">Todas as turmas</option>${opcoesTurma}</select></div>
+      <div class="campo"><label>${ESTADO.perfil.role === 'professor' ? 'Turma' : 'Turma (opcional — deixe em branco pra usar em qualquer turma)'}</label><select id="avalpers-turma">${ESTADO.perfil.role === 'professor' ? '<option value="">Selecione a turma…</option>' : '<option value="">Todas as turmas</option>'}${opcoesTurma}</select></div>
       <div class="campo">
         <label>Itens da ficha</label>
         <div id="avalpers-itens"></div>
@@ -11128,6 +11133,7 @@ function abrirModalCriarAvaliacaoPersonalizada(elPai){
     const msg = document.getElementById('msg-criar-avalpers');
     const titulo = document.getElementById('avalpers-titulo').value.trim();
     if(!titulo){ msg.innerHTML = `<div class="msg-erro">Dê um título pra avaliação.</div>`; return; }
+    if(ESTADO.perfil.role === 'professor' && !document.getElementById('avalpers-turma').value){ msg.innerHTML = `<div class="msg-erro">Selecione a turma.</div>`; return; }
     const itensValidos = itens.filter(it => it.pergunta.trim() && it.opcoes.length >= 2 && it.opcoes.every(o => o.rotulo.trim()));
     if(!itensValidos.length){ msg.innerHTML = `<div class="msg-erro">Adicione ao menos um item com pergunta preenchida e pelo menos 2 opções com rótulo.</div>`; return; }
     const btn = document.getElementById('btn-salvar-avalpers');
@@ -11581,7 +11587,7 @@ async function abrirModalCriarGabarito(elPai, gabEdit, qtdCorrigidas){
       <div class="campo"><label>Título</label><input type="text" id="gab-titulo" placeholder="Ex: Avaliação de Matemática — 1º Bimestre" /></div>
       <div class="grade-2">
         <div class="campo"><label>Disciplina (opcional)</label><input type="text" id="gab-disciplina" placeholder="Ex: Matemática" /></div>
-        <div class="campo"><label>Turma (opcional)</label><select id="gab-turma"><option value="">Todas as turmas</option>${opcoesTurma}</select></div>
+        <div class="campo"><label>${ESTADO.perfil.role === 'professor' ? 'Turma' : 'Turma (opcional)'}</label><select id="gab-turma">${ESTADO.perfil.role === 'professor' ? '<option value="">Selecione a turma…</option>' : '<option value="">Todas as turmas</option>'}${opcoesTurma}</select></div>
       </div>
       <div class="campo"><label>Descrição (opcional)</label><input type="text" id="gab-descricao" placeholder="Ex: Prova bimestral, 10 questões objetivas" /></div>
       <details style="margin-bottom:12px;border:1px dashed var(--borda);border-radius:8px;padding:8px 12px;">
@@ -11668,6 +11674,7 @@ async function abrirModalCriarGabarito(elPai, gabEdit, qtdCorrigidas){
     const msg = document.getElementById('msg-criar-gab');
     const titulo = document.getElementById('gab-titulo').value.trim();
     if(!titulo){ msg.innerHTML = `<div class="msg-erro">Dê um título pro gabarito.</div>`; return; }
+    if(ESTADO.perfil.role === 'professor' && !document.getElementById('gab-turma').value){ msg.innerHTML = `<div class="msg-erro">Selecione a turma.</div>`; return; }
     const questoesValidas = questoes.map((q,i) => ({ numero: i+1, descritor: q.descritor.trim() || `Questão ${i+1}`, resposta_correta: q.resposta_correta }));
     if(!questoesValidas.length){ msg.innerHTML = `<div class="msg-erro">Adicione ao menos uma questão.</div>`; return; }
     const btn = document.getElementById('btn-salvar-gab');
