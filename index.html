@@ -688,6 +688,10 @@ function rotuloPapel(role){
   return 'Secretaria';
 }
 
+const NIVEIS_FORMACAO = ['Graduação', 'Especialização', 'Mestrado', 'Doutorado'];
+function listaFormacoes(f){ return Array.isArray(f && f.formacoes) ? f.formacoes.filter(x => x && (x.curso || x.instituicao)) : []; }
+function textoFormacao(x){ return `${x.nivel || 'Formação'}${x.curso ? ' em ' + x.curso : ''}${x.instituicao ? ' — ' + x.instituicao : ''}${x.ano ? ' (' + x.ano + ')' : ''}`; }
+
 const VINCULOS_FUNCIONARIO = [
   ['efetivo_estatutario', 'Efetivo Estatutário'],
   ['efetivo_clt', 'Efetivo CLT'],
@@ -2814,7 +2818,7 @@ function imprimirFichaFuncional(f){
       <table class="e"><tr>${nivel('ensino_fundamental_completo','Ensino Fundamental completo')}${nivel('ensino_medio_incompleto','Ensino Médio Incompleto')}${nivel('ensino_medio_completo','Ensino Médio completo')}</tr>
       <tr class="cinza">${nivel('superior_cursando','Superior (Cursando)')}${nivel('superior_incompleto','Superior Incompleto')}${nivel('superior_completo','Superior completo')}</tr>
       <tr>${nivel('especializacao','Especialização')}${nivel('mestrado','Mestrado')}${nivel('doutorado','Doutorado')}</tr></table></td></tr>
-    <tr><td colspan="5"><div class="h">INFORME SUA GRADUAÇÃO E PÓS-GRADUAÇÃO</div><div class="val" style="min-height:22px;">${v(f.formacao_detalhada)}</div></td></tr>
+    <tr><td colspan="5"><div class="h">INFORME SUA GRADUAÇÃO E PÓS-GRADUAÇÃO</div><div class="val" style="min-height:22px;">${listaFormacoes(f).map(x => `<div>${esc(textoFormacao(x))}</div>`).join('')}${v(f.formacao_detalhada)}</div></td></tr>
     <tr><td colspan="5"><div class="h">PORTADOR DE NECESSIDADES ESPECIAIS</div>
         <div class="opts" style="font-size:10pt;">${opc('Não', f.portador_necessidades_especiais === false || f.portador_necessidades_especiais == null)} &nbsp;&nbsp; ${opc('Sim, qual?', f.portador_necessidades_especiais === true)} <span class="ln" style="min-width:60%;max-width:70%;">${f.portador_necessidades_especiais ? v(f.necessidades_especiais_qual) : ''}</span></div></td></tr>
   </table>
@@ -4554,7 +4558,7 @@ function abrirFichaFuncionario(f){
       <div class="ficha-linha"><span>Turno</span><span>${esc(f.turno||'—')}</span></div>
       <div class="ficha-linha"><span>Carga horária</span><span>${f.carga_horaria ? f.carga_horaria+'h' : '—'}</span></div>
       <div class="ficha-linha"><span>Escolaridade</span><span>${esc(f.escolaridade||'—')}${f.instituicao_ensino?' — '+esc(f.instituicao_ensino):''}${f.ano_conclusao?' ('+f.ano_conclusao+')':''}</span></div>
-      <div class="ficha-linha"><span>Graduação/pós-graduação</span><span>${esc(f.formacao_detalhada||'—')}</span></div>
+      <div class="ficha-linha"><span>Graduação/pós-graduação</span><span>${listaFormacoes(f).length ? listaFormacoes(f).map(x => `<div>${esc(textoFormacao(x))}</div>`).join('') + (f.formacao_detalhada ? `<div>${esc(f.formacao_detalhada)}</div>` : '') : esc(f.formacao_detalhada||'—')}</span></div>
       <div class="secao-titulo">Filiação</div>
       <div class="ficha-linha"><span>Mãe</span><span>${esc(f.mae||'—')}</span></div>
       <div class="ficha-linha"><span>Pai</span><span>${esc(f.pai||'—')}</span></div>
@@ -5142,7 +5146,11 @@ function abrirModalFuncionario(funcionario){
           <div class="campo"><label>Instituição</label><input type="text" id="func-instituicao" value="${v('instituicao_ensino')}" /></div>
           <div class="campo"><label>Ano de conclusão</label><input type="text" id="func-ano-conclusao" value="${v('ano_conclusao')}" /></div>
         </div>
-        <div class="campo"><label>Informe sua graduação e pós-graduação</label><input type="text" id="func-formacao-detalhada" value="${v('formacao_detalhada')}" placeholder="Ex: Pedagogia (UPE), Pós em Psicopedagogia…" /></div>
+        <div class="campo"><label>Formações (graduações, especializações, mestrados e doutorados)</label>
+          <div id="func-formacoes"></div>
+          <button type="button" class="botao secundario pequeno" id="btn-add-formacao" style="width:auto;margin-top:6px;">+ Adicionar formação</button>
+        </div>
+        <div class="campo"><label>Outras informações de formação (opcional)</label><input type="text" id="func-formacao-detalhada" value="${v('formacao_detalhada')}" placeholder="Ex: Pedagogia (UPE), Pós em Psicopedagogia…" /></div>
 
         <div class="secao-titulo">Atuação escolar</div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">
@@ -5159,6 +5167,24 @@ function abrirModalFuncionario(funcionario){
       </form>
     </div>`;
   document.body.appendChild(modal);
+  // Formações acadêmicas: várias linhas (graduação, especialização, mestrado, doutorado) ao mesmo tempo.
+  const formacoesEl = modal.querySelector('#func-formacoes');
+  function adicionarLinhaFormacao(x){
+    x = x || {};
+    const linha = document.createElement('div');
+    linha.className = 'func-formacao-linha';
+    linha.style.cssText = 'display:grid;grid-template-columns:140px 1.4fr 1.2fr 80px auto;gap:8px;margin-bottom:6px;align-items:center;';
+    linha.innerHTML = `
+      <select class="ff-nivel">${NIVEIS_FORMACAO.map(n => `<option value="${n}" ${x.nivel === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      <input type="text" class="ff-curso" placeholder="Curso (ex: Pedagogia)" value="${esc(x.curso || '')}" />
+      <input type="text" class="ff-inst" placeholder="Instituição" value="${esc(x.instituicao || '')}" />
+      <input type="text" class="ff-ano" placeholder="Ano" inputmode="numeric" maxlength="4" value="${esc(x.ano || '')}" />
+      <button type="button" class="btn-icone perigo" title="Remover formação">🗑️</button>`;
+    linha.querySelector('button').addEventListener('click', () => linha.remove());
+    formacoesEl.appendChild(linha);
+  }
+  listaFormacoes(editando ? funcionario : null).forEach(adicionarLinhaFormacao);
+  modal.querySelector('#btn-add-formacao').addEventListener('click', () => adicionarLinhaFormacao({ nivel: 'Graduação' }));
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
   const linkGerenciarFuncoes = document.getElementById('link-gerenciar-funcoes');
@@ -5291,6 +5317,12 @@ function abrirModalFuncionario(funcionario){
       instituicao_ensino: campo('func-instituicao'),
       ano_conclusao: campo('func-ano-conclusao') ? parseInt(campo('func-ano-conclusao'), 10) : null,
       formacao_detalhada: campo('func-formacao-detalhada'),
+      formacoes: Array.from(formacoesEl.querySelectorAll('.func-formacao-linha')).map(l => ({
+        nivel: l.querySelector('.ff-nivel').value,
+        curso: l.querySelector('.ff-curso').value.trim(),
+        instituicao: l.querySelector('.ff-inst').value.trim(),
+        ano: l.querySelector('.ff-ano').value.trim(),
+      })).filter(x => x.curso || x.instituicao),
       ensino: campo('func-ensino'),
       disciplinas: campo('func-disciplinas'),
       turno: campo('func-turno'),
