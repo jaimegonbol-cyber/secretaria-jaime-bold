@@ -13990,11 +13990,11 @@ function renderizarRelListaPasta(el){
       <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Lista de Pasta de Estudante</b></div>
       <div style="padding:14px 16px;">
         <button class="botao terracota pequeno" id="btn-rel-lista-pasta" style="width:auto;" ${temTurma?'':'disabled'}>🖨️ Gerar</button>
-        <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Nome, AEE, data de nascimento, idade e telefone, para arquivo da pasta da turma.</p>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Escolha quais informações vão na lista (data de nascimento, CPF, telefone, responsável…), para arquivo da pasta da turma.</p>
       </div>
     </div>`;
   document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelListaPasta(el); });
-  document.getElementById('btn-rel-lista-pasta').addEventListener('click', () => imprimirListaPastaEstudantes(ESTADO.relatorioTurmaId));
+  document.getElementById('btn-rel-lista-pasta').addEventListener('click', () => abrirModalColunasListaPasta(ESTADO.relatorioTurmaId));
 }
 
 function renderizarRelFreqPercentual(el){
@@ -14545,37 +14545,137 @@ function scriptAutoajusteLista(alturaUtilMm, minimoLinhasCalculo){
 }
 const JS_AUTOAJUSTE_LISTA_ESTUDANTES = scriptAutoajusteLista(281); // A4 retrato, margem 8mm
 
-function imprimirListaPastaEstudantes(turmaId){
+// Colunas que podem entrar na Relação de Estudantes. Nº e Nome sempre aparecem.
+const COLUNAS_LISTA_PASTA = [
+  { id:'aee', rotulo:'AEE', larg:7, padrao:true, valor: a => a.aee ? 'SIM' : 'NÃO' },
+  { id:'nasc', rotulo:'Data nasc.', larg:11, padrao:true, valor: a => a.data_nascimento ? formatarDataBR(a.data_nascimento) : '—' },
+  { id:'idade', rotulo:'Idade', larg:8, padrao:true, valor: a => calcularIdade(a.data_nascimento) },
+  { id:'fone', rotulo:'Fone', larg:13, padrao:true, valor: a => a.telefone || '—' },
+  { id:'cpf', rotulo:'CPF', larg:15, valor: a => a.cpf || '—' },
+  { id:'rg', rotulo:'RG', larg:11, valor: a => a.rg || '—' },
+  { id:'nis', rotulo:'NIS', larg:12, valor: a => a.nis || '—' },
+  { id:'sus', rotulo:'Cartão SUS', larg:14, valor: a => a.sus || '—' },
+  { id:'sexo', rotulo:'Sexo', larg:6, valor: a => a.sexo || '—' },
+  { id:'cor', rotulo:'Cor/raça', larg:9, valor: a => a.cor_raca || '—' },
+  { id:'mae', rotulo:'Mãe', larg:22, resp:'mae', valor: (a, r) => r.mae || '—' },
+  { id:'pai', rotulo:'Pai', larg:22, resp:'pai', valor: (a, r) => r.pai || '—' },
+  { id:'resp', rotulo:'Responsável (principal)', larg:22, resp:'principal', valor: (a, r) => r.principal || '—' },
+  { id:'fone_resp', rotulo:'Fone do responsável', larg:14, resp:'principal', valor: (a, r) => r.principalFone || '—' },
+  { id:'endereco', rotulo:'Endereço', larg:26, valor: a => [a.endereco, a.numero].filter(Boolean).join(', ') || '—' },
+  { id:'bairro', rotulo:'Bairro', larg:14, valor: a => a.bairro || '—' },
+  { id:'matricula', rotulo:'Data matrícula', larg:11, valor: a => a.data_matricula ? formatarDataBR(a.data_matricula) : '—' },
+  { id:'educacenso', rotulo:'Cód. Educacenso', larg:13, valor: a => a.codigo_educacenso || '—' },
+  { id:'bolsa', rotulo:'Bolsa Família', larg:9, valor: a => a.bolsa_familia ? 'SIM' : 'NÃO' },
+  { id:'transporte', rotulo:'Transporte escolar', larg:10, valor: a => a.transporte_escolar ? 'SIM' : 'NÃO' },
+  { id:'obs', rotulo:'Observações (em branco)', larg:20, valor: () => '' },
+];
+
+function lerColunasListaPasta(){
+  try{ const salvo = JSON.parse(localStorage.getItem('colunasListaPasta') || 'null'); if(Array.isArray(salvo)) return salvo.filter(id => COLUNAS_LISTA_PASTA.some(c => c.id === id)); }catch(e){}
+  return COLUNAS_LISTA_PASTA.filter(c => c.padrao).map(c => c.id);
+}
+
+function abrirModalColunasListaPasta(turmaId){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const marcadas = new Set(lerColunasListaPasta());
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px;max-height:92vh;overflow-y:auto;">
+      <div class="modal-topo"><h3>Lista de Pasta — escolher informações</h3><button data-fechar>✕</button></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">${esc(turma.nome)} · O número e o nome do estudante sempre aparecem. Marque o que mais deve sair na impressão.</p>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button type="button" class="botao secundario pequeno" id="cols-todas" style="width:auto;">Marcar todas</button>
+        <button type="button" class="botao secundario pequeno" id="cols-padrao" style="width:auto;">Padrão</button>
+        <button type="button" class="botao secundario pequeno" id="cols-nenhuma" style="width:auto;">Limpar</button>
+      </div>
+      <div id="cols-lista" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;border:1px solid var(--borda);border-radius:8px;padding:10px;">
+        ${COLUNAS_LISTA_PASTA.map(c => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" class="chk-col-lista" value="${c.id}" ${marcadas.has(c.id) ? 'checked' : ''} /> ${esc(c.rotulo)}</label>`).join('')}
+      </div>
+      <div id="cols-aviso" style="font-size:12px;color:#B4432E;margin-top:6px;min-height:16px;"></div>
+      <button class="botao terracota" id="btn-cols-imprimir" style="margin-top:8px;width:auto;">🖨️ Imprimir lista</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  const chks = () => Array.from(modal.querySelectorAll('.chk-col-lista'));
+  const definir = (fn) => { chks().forEach(c => { c.checked = fn(c.value); }); atualizarAviso(); };
+  // Soma das larguras: avisa se a lista ficar apertada demais para uma folha retrato.
+  function atualizarAviso(){
+    const soma = chks().filter(c => c.checked).reduce((t, c) => t + COLUNAS_LISTA_PASTA.find(x => x.id === c.value).larg, 0);
+    modal.querySelector('#cols-aviso').textContent = soma > 95 ? 'Muitas colunas: a lista pode ficar com letra pequena. Considere desmarcar algumas.' : '';
+  }
+  modal.querySelectorAll('.chk-col-lista').forEach(c => c.addEventListener('change', atualizarAviso));
+  modal.querySelector('#cols-todas').addEventListener('click', () => definir(() => true));
+  modal.querySelector('#cols-nenhuma').addEventListener('click', () => definir(() => false));
+  modal.querySelector('#cols-padrao').addEventListener('click', () => definir(id => COLUNAS_LISTA_PASTA.find(x => x.id === id).padrao));
+  atualizarAviso();
+  modal.querySelector('#btn-cols-imprimir').addEventListener('click', async () => {
+    const escolhidas = chks().filter(c => c.checked).map(c => c.value);
+    try{ localStorage.setItem('colunasListaPasta', JSON.stringify(escolhidas)); }catch(e){}
+    const btn = modal.querySelector('#btn-cols-imprimir'); btn.disabled = true; btn.textContent = 'Preparando…';
+    await imprimirListaPastaEstudantes(turmaId, escolhidas);
+    modal.remove();
+  });
+}
+
+async function imprimirListaPastaEstudantes(turmaId, colunasIds){
+
   const turma = ESTADO.turmas.find(t => t.id === turmaId);
   if(!turma) return;
   const alunosTurma = ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado').slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  const linhas = alunosTurma.map((a, i) => `
+  const cols = (colunasIds || COLUNAS_LISTA_PASTA.filter(c => c.padrao).map(c => c.id))
+    .map(id => COLUNAS_LISTA_PASTA.find(c => c.id === id)).filter(Boolean);
+
+  // Responsáveis só são buscados se alguma coluna pedir.
+  const respPorAluno = {};
+  if(cols.some(c => c.resp) && alunosTurma.length){
+    const { data: vincs } = await supabase.from('aluno_responsavel').select('aluno_id, tipo, principal, responsaveis(nome, telefone)').in('aluno_id', alunosTurma.map(a => a.id));
+    (vincs || []).forEach(v => {
+      const r = respPorAluno[v.aluno_id] = respPorAluno[v.aluno_id] || {};
+      const nome = v.responsaveis && v.responsaveis.nome; const fone = v.responsaveis && v.responsaveis.telefone;
+      if(v.tipo === 'mae' && !r.mae) r.mae = nome;
+      if(v.tipo === 'pai' && !r.pai) r.pai = nome;
+      if((v.principal || (!r.principal && v.tipo === 'mae')) ){ r.principal = nome; r.principalFone = fone; }
+    });
+    // Sem principal marcado: usa o primeiro vínculo encontrado.
+    (vincs || []).forEach(v => { const r = respPorAluno[v.aluno_id]; if(r && !r.principal && v.responsaveis){ r.principal = v.responsaveis.nome; r.principalFone = v.responsaveis.telefone; } });
+  }
+
+  // Larguras: Nº 5% e Nome com o espaço restante (mín. 28%); demais colunas proporcionais.
+  const somaOutras = cols.reduce((t, c) => t + c.larg, 0);
+  const larguraNome = Math.max(28, 95 - somaOutras);
+  const total = 5 + larguraNome + somaOutras;
+  const pct = (n) => (n / total * 100).toFixed(2) + '%';
+  const alinhar = (c) => ['mae','pai','resp','endereco','obs'].includes(c.id) ? 'text-align:left;padding-left:6px;' : 'text-align:center;white-space:nowrap;';
+  const linhas = alunosTurma.map((a, i) => {
+    const r = respPorAluno[a.id] || {};
+    return `
     <tr>
       <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
       <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}${anotacaoSituacaoAluno(a)}</td>
-      <td style="text-align:center;">${a.aee ? 'SIM' : 'NÃO'}</td>
-      <td style="text-align:center;">${a.data_nascimento ? formatarDataBR(a.data_nascimento) : '—'}</td>
-      <td style="text-align:center;">${calcularIdade(a.data_nascimento)}</td>
-      <td style="text-align:center;">${esc(a.telefone || '—')}</td>
-    </tr>`).join('');
+      ${cols.map(c => `<td style="${alinhar(c)}">${esc(c.valor(a, r))}</td>`).join('')}
+    </tr>`;
+  }).join('');
+  const nCols = 2 + cols.length;
 
   const janela = window.open('', '_blank');
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Relação de Estudantes - ${esc(turma.nome)}</title>
-    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}
+      ${cols.length > 6 ? 'table.lista thead th{font-size:9px;} table.lista tbody td{font-size:0.92em;}' : ''}
+      ${cols.some(c => c.id === 'endereco' || c.id === 'mae' || c.id === 'pai' || c.id === 'resp') ? 'table.lista tbody td{white-space:normal;}' : ''}</style>
     </head><body>
       ${cabecalhoImpressaoTurma('RELAÇÃO DE ESTUDANTES', turma)}
       <table class="lista">
         <thead><tr>
-          <th style="width:6%;">NUM</th>
-          <th style="width:42%;">NOME</th>
-          <th style="width:10%;">AEE</th>
-          <th style="width:14%;">DATA NASC.</th>
-          <th style="width:12%;">IDADE</th>
-          <th style="width:16%;">FONE</th>
+          <th style="width:${pct(5)};">NUM</th>
+          <th style="width:${pct(larguraNome)};">NOME</th>
+          ${cols.map(c => `<th style="width:${pct(c.larg)};">${esc(c.rotulo)}</th>`).join('')}
         </tr></thead>
-        <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
+        <tbody>${linhas || `<tr><td colspan="${nCols}" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
       </table>
     <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
     </body></html>
