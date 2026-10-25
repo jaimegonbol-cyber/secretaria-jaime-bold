@@ -4091,6 +4091,7 @@ function renderizarFrequenciaFuncionarios(el){
       <p style="margin:0;font-size:13px;color:var(--texto-suave);">${ativos} funcionários ativos</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="botao secundario pequeno" id="btn-bater-ponto-facial" style="width:auto;">📷 Bater Ponto (Facial)</button>
+        ${['admin','coordenacao'].includes(ESTADO.perfil.role) ? `<button class="botao secundario pequeno" id="btn-local-escola" style="width:auto;">📍 Local da escola</button>` : ''}
         <button class="botao secundario pequeno" id="btn-relatorio-freq-func" style="width:auto;">Relatório do dia</button>
         <button class="botao secundario pequeno" id="btn-relatorio-mensal-freq-func" style="width:auto;">Relatório mensal</button>
       </div>
@@ -4107,6 +4108,8 @@ function renderizarFrequenciaFuncionarios(el){
     </div>`;
 
   document.getElementById('btn-bater-ponto-facial').addEventListener('click', () => abrirModalBaterPonto());
+  const btnLocalEscola = document.getElementById('btn-local-escola');
+  if(btnLocalEscola) btnLocalEscola.addEventListener('click', () => abrirModalLocalEscola());
   document.getElementById('btn-relatorio-freq-func').addEventListener('click', () => gerarRelatorioFrequenciaFuncionarios());
   document.getElementById('btn-relatorio-mensal-freq-func').addEventListener('click', () => gerarRelatorioMensalFrequenciaFuncionarios());
   criarSeletorData('freq-func-data', ESTADO.freqFuncData, (novaData) => { ESTADO.freqFuncData = novaData; carregarFrequenciaFuncionariosDia(el); }, { statusDiasFn: statusDiasFuncionarios });
@@ -4180,6 +4183,7 @@ async function carregarFrequenciaFuncionariosDia(el){
       <div style="flex:1;min-width:190px;">
         <div style="font-weight:600;font-size:13.5px;">${esc(f.nome)}${convocado ? ' <span class="pill laranja" style="font-size:10.5px;">📋 Convocado(a)</span>' : ''}</div>
         <div style="font-size:11.5px;color:var(--texto-suave);">${esc(f.funcao)}${f.categoria?' · '+esc(rotuloCategoria(f.categoria)):''}</div>
+        ${seloLocalizacaoPonto(r)}
       </div>
       <div style="display:flex;gap:6px;">
         <button type="button" class="botao-status ${status==='presente'?'ativo verde':''}" data-status="presente" style="width:auto;padding:6px 12px;font-size:12.5px;">Presente</button>
@@ -4800,6 +4804,86 @@ function imprimirTermoConsentimentoFacial(funcionario){
   setTimeout(() => janela.print(), 400);
 }
 
+// ---------------------------------------------------------------
+// GEOLOCALIZAÇÃO DO PONTO — confere se o aparelho está dentro do raio da escola
+// ---------------------------------------------------------------
+function distanciaMetros(lat1, lon1, lat2, lon2){
+  const R = 6371000, rad = x => x * Math.PI / 180;
+  const dLat = rad(lat2 - lat1), dLon = rad(lon2 - lon1);
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon/2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function obterLocalizacaoAtual(){
+  return new Promise((resolve, reject) => {
+    if(!navigator.geolocation){ reject(new Error('Este aparelho/navegador não oferece localização.')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, precisao: Math.round(pos.coords.accuracy || 0) }),
+      err => reject(new Error(err.code === 1 ? 'Permissão de localização negada. Permita o acesso à localização no navegador para registrar o ponto.' : err.code === 3 ? 'Não foi possível obter a localização a tempo. Tente de novo, de preferência ao ar livre ou perto de uma janela.' : 'Não foi possível obter a localização do aparelho.')),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 });
+  });
+}
+async function buscarLocalEscola(){
+  const { data } = await supabase.from('escola_localizacao').select('*').eq('id', 1).maybeSingle();
+  return data || null;
+}
+// Compara a posição com a escola. A imprecisão do GPS (até 100 m) é descontada para não barrar quem está dentro.
+function avaliarLocalizacaoPonto(pos, escola){
+  if(!escola) return { verificado: false, dentro: null, distancia: null };
+  const distancia = Math.round(distanciaMetros(pos.latitude, pos.longitude, escola.latitude, escola.longitude));
+  const folga = Math.min(pos.precisao || 0, 100);
+  return { verificado: true, dentro: distancia - folga <= escola.raio_m, distancia };
+}
+function seloLocalizacaoPonto(r){
+  if(!r || r.ponto_hora == null || r.status !== 'presente') return '';
+  const hora = new Date(r.ponto_hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if(r.geo_dentro === true) return `<div style="font-size:11px;color:#2E7D32;margin-top:2px;">📍 Ponto às ${hora} · na escola (${r.geo_distancia_m} m)</div>`;
+  if(r.geo_dentro === false) return `<div style="font-size:11px;color:#B4432E;margin-top:2px;">⚠️ Ponto às ${hora} · fora da escola (${r.geo_distancia_m} m)</div>`;
+  return `<div style="font-size:11px;color:var(--texto-suave);margin-top:2px;">Ponto às ${hora} · local não verificado</div>`;
+}
+
+async function abrirModalLocalEscola(){
+  const atual = await buscarLocalEscola();
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-topo"><h3>📍 Local da escola</h3><button data-fechar>✕</button></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 10px;">O ponto facial só é aceito quando o aparelho está dentro do raio abaixo. Para definir, abra esta tela <b>dentro da escola</b> e use "Usar minha localização atual".</p>
+      <div id="msg-local-escola"></div>
+      <button class="botao secundario pequeno" type="button" id="btn-usar-local" style="width:auto;margin-bottom:10px;">📍 Usar minha localização atual</button>
+      <div class="grade-2">
+        <div class="campo"><label>Latitude</label><input type="text" id="le-lat" value="${atual ? atual.latitude : ''}" placeholder="-7.9400" /></div>
+        <div class="campo"><label>Longitude</label><input type="text" id="le-lng" value="${atual ? atual.longitude : ''}" placeholder="-34.8700" /></div>
+      </div>
+      <div class="campo" style="max-width:200px;"><label>Raio permitido (metros)</label><input type="number" id="le-raio" min="20" max="2000" value="${atual ? atual.raio_m : 150}" /></div>
+      <button class="botao terracota" id="btn-salvar-local" style="width:auto;margin-top:6px;">Salvar local</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  const msg = modal.querySelector('#msg-local-escola');
+  modal.querySelector('#btn-usar-local').addEventListener('click', async () => {
+    msg.innerHTML = '<p style="font-size:12.5px;">Obtendo localização…</p>';
+    try{
+      const pos = await obterLocalizacaoAtual();
+      modal.querySelector('#le-lat').value = pos.latitude.toFixed(6);
+      modal.querySelector('#le-lng').value = pos.longitude.toFixed(6);
+      msg.innerHTML = `<div class="msg-ok">Localização obtida (precisão de ${pos.precisao} m). Confira e salve.</div>`;
+    } catch(e){ msg.innerHTML = `<div class="msg-erro">${esc(e.message)}</div>`; }
+  });
+  modal.querySelector('#btn-salvar-local').addEventListener('click', async () => {
+    const lat = parseFloat(String(modal.querySelector('#le-lat').value).replace(',', '.'));
+    const lng = parseFloat(String(modal.querySelector('#le-lng').value).replace(',', '.'));
+    const raio = parseInt(modal.querySelector('#le-raio').value, 10);
+    if(isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180){ msg.innerHTML = '<div class="msg-erro">Informe latitude e longitude válidas.</div>'; return; }
+    if(isNaN(raio) || raio < 20 || raio > 2000){ msg.innerHTML = '<div class="msg-erro">O raio deve ficar entre 20 e 2000 metros.</div>'; return; }
+    const { error } = await supabase.from('escola_localizacao').upsert({ id: 1, latitude: lat, longitude: lng, raio_m: raio, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString() });
+    if(error){ msg.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    modal.remove();
+    alert('Local da escola salvo.');
+  });
+}
+
 function abrirModalBaterPonto(){
   const cadastrados = ESTADO.funcionarios.filter(f => f.ativo && f.face_descriptor);
   const modal = document.createElement('div');
@@ -4831,9 +4915,19 @@ function abrirModalBaterPonto(){
   const status = modal.querySelector('#face-status');
   let processando = false;
   let jaRegistrouAgora = null;
+  let escolaLocal = null, posAtual = null;
 
   (async () => {
     try{
+      status.textContent = 'Verificando sua localização…';
+      escolaLocal = await buscarLocalEscola();
+      try{ posAtual = await obterLocalizacaoAtual(); }
+      catch(e){ status.innerHTML = `<span style="color:var(--erro);">${esc(e.message)}</span>`; return; }
+      const aval = avaliarLocalizacaoPonto(posAtual, escolaLocal);
+      if(aval.verificado && !aval.dentro){
+        status.innerHTML = `<span style="color:var(--erro);">📍 Você está a cerca de ${aval.distancia} m da escola (limite de ${escolaLocal.raio_m} m). O ponto só pode ser registrado dentro da escola.</span>`;
+        return;
+      }
       status.textContent = 'Carregando reconhecimento facial…';
       const faceapi = await carregarFaceApi();
       status.textContent = 'Solicitando acesso à câmera…';
@@ -4855,7 +4949,9 @@ function abrirModalBaterPonto(){
           if(melhor && menorDistancia <= FACE_API_LIMIAR_DISTANCIA){
             jaRegistrouAgora = melhor;
             status.innerHTML = `Reconhecendo <b>${esc(melhor.nome)}</b>…`;
-            await registrarPresencaPorReconhecimento(melhor, status);
+            // Renova a posição no instante do registro (aceita a leitura de até 15 s atrás).
+            try{ posAtual = await obterLocalizacaoAtual(); } catch(e){ /* mantém a posição verificada na abertura */ }
+            await registrarPresencaPorReconhecimento(melhor, status, posAtual, escolaLocal);
           } else {
             status.textContent = 'Rosto não reconhecido. Cadastre-o antes ou tente novamente.';
           }
@@ -4868,10 +4964,18 @@ function abrirModalBaterPonto(){
   })();
 }
 
-async function registrarPresencaPorReconhecimento(funcionario, statusEl){
+async function registrarPresencaPorReconhecimento(funcionario, statusEl, pos, escola){
   const hoje = hojeISO();
+  const aval = pos ? avaliarLocalizacaoPonto(pos, escola) : { verificado: false, dentro: null, distancia: null };
+  if(aval.verificado && !aval.dentro){
+    statusEl.innerHTML = `<span style="color:var(--erro);">📍 Você está a cerca de ${aval.distancia} m da escola (limite de ${escola.raio_m} m). Presença não registrada.</span>`;
+    return;
+  }
   const { error } = await supabase.from('frequencia_funcionarios').upsert({
     funcionario_id: funcionario.id, data: hoje, status: 'presente', registrado_por: ESTADO.perfil.id,
+    ponto_hora: new Date().toISOString(), origem: 'facial',
+    geo_latitude: pos ? pos.latitude : null, geo_longitude: pos ? pos.longitude : null,
+    geo_precisao_m: pos ? pos.precisao : null, geo_distancia_m: aval.distancia, geo_dentro: aval.verificado ? aval.dentro : null,
   }, { onConflict: 'funcionario_id,data' });
   if(error){
     statusEl.innerHTML = `<span style="color:var(--erro);">Erro ao registrar: ${esc(error.message)}</span>`;
