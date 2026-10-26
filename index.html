@@ -11110,9 +11110,10 @@ function renderizarAvaliacoes(el){
     { id:'conselho', label:'Conselho de Classe' },
   ];
   if(ESTADO.perfil.role === 'professor'){
-    // Professor: só avaliação personalizada e gabarito de provas (das suas turmas).
-    for(let i = abasTopo.length - 1; i >= 0; i--) if(!['personalizada','gabarito'].includes(abasTopo[i].id)) abasTopo.splice(i, 1);
-    if(!['personalizada','gabarito'].includes(ESTADO.subAvaliacoes)) ESTADO.subAvaliacoes = 'gabarito';
+    // Professor: tudo, menos o Conselho de Classe — e só das suas turmas (o banco também restringe).
+    for(let i = abasTopo.length - 1; i >= 0; i--) if(abasTopo[i].id === 'conselho') abasTopo.splice(i, 1);
+    if(!ESTADO.profAvalInicial){ ESTADO.profAvalInicial = true; ESTADO.subAvaliacoes = 'gabarito'; }
+    if(ESTADO.subAvaliacoes === 'conselho') ESTADO.subAvaliacoes = 'gabarito';
   }
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
