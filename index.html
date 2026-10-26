@@ -5634,23 +5634,57 @@ async function abaNotasDiario(corpo, { alunos, podeEditar, ano, nomeComp, chaveB
     m.textContent = r.media === null ? '—' : fmtNotaDiario(r.media);
     m.style.cssText = 'text-align:center;' + corMediaDiario(r.media);
   };
+  // ATV1 + ATV2 + ATV3 não pode passar de 10: cada campo aceita no máximo o que sobra da soma dos outros.
+  const SLOTS_ATV = ['atv1', 'atv2', 'atv3'];
+  const limiteDoCampo = (tr, slot) => {
+    if(!SLOTS_ATV.includes(slot)) return 10;
+    const outros = SLOTS_ATV.filter(x => x !== slot).reduce((t, x) => t + (parseNotaDiario(tr.querySelector(`[data-slot="${x}"]`).value) || 0), 0);
+    return Math.max(0, Math.round((10 - outros) * 10) / 10);
+  };
+  const atualizarLimites = (tr) => {
+    SLOTS_ATV.forEach(sl => { const i = tr.querySelector(`[data-slot="${sl}"]`); if(i) i.title = `Máximo para esta nota: ${fmtNotaDiario(limiteDoCampo(tr, sl))}`; });
+  };
+  const avisoLimite = (txt) => {
+    const m = document.getElementById('dr-msg'); if(!m) return;
+    m.innerHTML = `<div class="msg-erro">${txt}</div>`;
+    clearTimeout(avisoLimite.t); avisoLimite.t = setTimeout(() => { const mm = document.getElementById('dr-msg'); if(mm) mm.innerHTML = ''; }, 4500);
+  };
+  const aplicarLimite = (inp) => {
+    const tr = inp.closest('tr'); const slot = inp.dataset.slot;
+    const v = parseNotaDiario(inp.value);
+    if(v === null) return;
+    const max = limiteDoCampo(tr, slot);
+    if(v > max){
+      inp.value = fmtNotaDiario(max);
+      avisoLimite(SLOTS_ATV.includes(slot)
+        ? `A soma de ATV 1 + ATV 2 + ATV 3 não pode passar de 10. Para este estudante, o máximo aqui é ${fmtNotaDiario(max)}.`
+        : 'A nota não pode passar de 10.');
+    }
+  };
   corpo.querySelectorAll('.dr-nota').forEach(inp => {
-    inp.addEventListener('input', () => recalcular(inp.closest('tr')));
-    inp.addEventListener('blur', () => { const v = parseNotaDiario(inp.value); inp.value = v === null ? '' : fmtNotaDiario(v); recalcular(inp.closest('tr')); });
+    inp.addEventListener('input', () => { aplicarLimite(inp); recalcular(inp.closest('tr')); atualizarLimites(inp.closest('tr')); });
+    inp.addEventListener('blur', () => { aplicarLimite(inp); const v = parseNotaDiario(inp.value); inp.value = v === null ? '' : fmtNotaDiario(v); recalcular(inp.closest('tr')); atualizarLimites(inp.closest('tr')); });
   });
+  corpo.querySelectorAll('tr[data-linha]').forEach(atualizarLimites);
   const btn = document.getElementById('dr-salvar-notas');
   if(btn) btn.addEventListener('click', async () => {
     btn.disabled = true; btn.textContent = 'Salvando…';
     const msg = document.getElementById('dr-msg');
-    const upserts = []; const apagar = [];
+    const upserts = []; const apagar = []; const somaExcedida = [];
     corpo.querySelectorAll('tr[data-linha]').forEach(tr => {
       const id = tr.dataset.linha;
       const g = (s) => parseNotaDiario(tr.querySelector(`[data-slot="${s}"]`).value);
       const v = { atv1: g('atv1'), atv2: g('atv2'), atv3: g('atv3'), n2: g('n2') };
+      if(Math.round(((v.atv1 || 0) + (v.atv2 || 0) + (v.atv3 || 0)) * 10) > 100) somaExcedida.push(tr.children[1].textContent);
       const vazio = Object.values(v).every(x => x === null);
       if(vazio){ if(porAluno[id]) apagar.push(porAluno[id].id); return; }
       upserts.push({ aluno_id: id, turma_id: chaveBase.turma_id, componente: chaveBase.componente, ano_letivo: ano, bimestre: DIARIO.bim, ...v, atualizado_por: ESTADO.perfil.id, atualizado_em: new Date().toISOString() });
     });
+    if(somaExcedida.length){
+      btn.disabled = false; btn.textContent = 'Salvar notas';
+      msg.innerHTML = `<div class="msg-erro">A soma de ATV 1 + ATV 2 + ATV 3 passa de 10 para: ${esc(somaExcedida.join(', '))}. Corrija antes de salvar.</div>`;
+      return;
+    }
     let erro = null;
     if(upserts.length){ const r = await supabase.from('diario_notas').upsert(upserts, { onConflict: 'aluno_id,ano_letivo,bimestre,componente' }); erro = r.error; }
     if(!erro && apagar.length){ const r = await supabase.from('diario_notas').delete().in('id', apagar); erro = r.error; }
