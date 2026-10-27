@@ -672,7 +672,7 @@ function itensNav(){
     { id:'relatorios', label:'Relatórios', icone:'🖨️' },
   ];
   const itemDiario = { id:'diario', label:'Diário do Professor', icone:'📓' };
-  if(ESTADO.perfil.role === 'professor') return [itemDiario, { id:'avaliacoes', label:'Avaliações', icone:'📊' }];
+  if(ESTADO.perfil.role === 'professor') return [itemDiario, { id:'avaliacoes', label:'Avaliações', icone:'📊' }, { id:'minhaficha', label:'Minha ficha', icone:'🪪' }];
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
     ? base.filter(item => ESTADO.perfil.permissoes.includes(item.id))
     : base;
@@ -775,6 +775,7 @@ function renderizarApp(){
   else if(ESTADO.pagina === 'ocorrencias') renderizarOcorrencias(conteudoPagina);
   else if(ESTADO.pagina === 'avaliacoes') renderizarAvaliacoes(conteudoPagina);
   else if(ESTADO.pagina === 'diario') renderizarDiario(conteudoPagina);
+  else if(ESTADO.pagina === 'minhaficha') renderizarMinhaFicha(conteudoPagina);
   else if(ESTADO.pagina === 'relatorios') renderizarRelatorios(conteudoPagina);
   else if(ESTADO.pagina === 'usuarios') renderizarUsuarios(conteudoPagina);
 }
@@ -4597,6 +4598,7 @@ function abrirFichaFuncionario(f){
         <button class="botao secundario pequeno" data-cadastrar-rosto>📷 ${f.face_descriptor ? 'Recadastrar rosto' : 'Cadastrar rosto'}</button>
         <button class="botao secundario pequeno" data-gerenciar-ferias>🏖️ Férias</button>
         <button class="botao secundario pequeno" data-imprimir-ficha-funcional>🖨️ Ficha funcional</button>
+        <button class="botao secundario pequeno" data-enviar-ficha-email>✉️ Enviar ficha por e-mail</button>
         <button class="botao terracota pequeno" data-editar>Editar</button>
       </div>
     </div>`;
@@ -4607,6 +4609,13 @@ function abrirFichaFuncionario(f){
   modal.querySelector('[data-cadastrar-rosto]').addEventListener('click', () => abrirModalCadastrarRosto(f));
   modal.querySelector('[data-gerenciar-ferias]').addEventListener('click', () => abrirModalFerias(f));
   modal.querySelector('[data-imprimir-ficha-funcional]').addEventListener('click', () => imprimirFichaFuncional(f));
+  modal.querySelector('[data-enviar-ficha-email]').addEventListener('click', () => {
+    if(!f.email){ alert('Este funcionário não tem e-mail cadastrado. Preencha o e-mail na ficha primeiro.'); return; }
+    const link = location.origin + location.pathname;
+    const assunto = 'Ficha funcional — Escola Municipal Jaime Gonçalves Bold';
+    const corpo = `Olá, ${f.nome}!\n\nSua ficha funcional está cadastrada no sistema da secretaria da Escola Municipal Jaime Gonçalves Bold.\n\nPara conferir e completar seus dados (documentos, endereço, formações e foto), acesse:\n${link}\n\nEntre com seu e-mail e senha e abra a opção "Minha ficha". Depois de preencher, você pode imprimir a ficha, assinar e entregar na secretaria.\n\nQualquer dúvida, procure a secretaria.\n\nAtenciosamente,\nSecretaria — E. M. Jaime Gonçalves Bold`;
+    window.location.href = `mailto:${encodeURIComponent(f.email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
+  });
   const btnExcluirFicha = modal.querySelector('[data-excluir-func-ficha]');
   if(btnExcluirFicha){
     btnExcluirFicha.addEventListener('click', async () => {
@@ -5114,7 +5123,35 @@ function abrirModalGerenciarFuncoes(aoFechar){
   });
 }
 
-function abrirModalFuncionario(funcionario){
+// Página "Minha ficha": o próprio professor completa e confere os dados da ficha funcional.
+function renderizarMinhaFicha(el){
+  const f = ESTADO.funcionarios.find(x => x.id === ESTADO.perfil.funcionario_id);
+  if(!f){
+    el.innerHTML = `<div class="cabecalho-pagina"><div><h2>Minha ficha</h2></div></div><div class="painel"><p style="color:var(--texto-suave);">Seu usuário ainda não está ligado a um cadastro de funcionário. Peça à secretaria/direção para vincular.</p></div>`;
+    return;
+  }
+  const obrigatorios = [['cpf','CPF'],['rg','RG'],['data_nascimento','Data de nascimento'],['telefone','Telefone'],['endereco','Endereço'],['cep','CEP'],['mae','Nome da mãe'],['pis_pasep','PIS/PASEP'],['escolaridade','Escolaridade']];
+  const faltando = obrigatorios.filter(([k]) => !f[k]).map(([, n]) => n);
+  if(!listaFormacoes(f).length && !f.formacao_detalhada) faltando.push('Formações');
+  el.innerHTML = `
+    <div class="cabecalho-pagina"><div><h2>Minha ficha funcional</h2><p>Confira e complete seus dados. Nome, função, vínculo, matrícula e carga horária são alterados pela secretaria.</p></div></div>
+    <div class="painel">
+      <div style="font-weight:700;font-size:16px;">${esc(f.nome)}</div>
+      <div style="font-size:13px;color:var(--texto-suave);margin-bottom:12px;">${esc(f.funcao || '')}${f.matricula ? ' · Matrícula ' + esc(f.matricula) : ''}</div>
+      ${faltando.length
+        ? `<div class="msg-erro" style="background:#FFF6E0;color:#7A5300;border-color:#E6C16A;">Falta preencher: <b>${faltando.map(esc).join(', ')}</b>.</div>`
+        : `<div class="msg-ok">Sua ficha está completa. Se algo mudar, atualize aqui.</div>`}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+        <button class="botao terracota" id="btn-editar-minha-ficha" style="width:auto;">✏️ Preencher / atualizar meus dados</button>
+        <button class="botao secundario" id="btn-imprimir-minha-ficha" style="width:auto;">🖨️ Imprimir minha ficha</button>
+      </div>
+    </div>`;
+  document.getElementById('btn-editar-minha-ficha').addEventListener('click', () => abrirModalFuncionario(f, { proprio: true }));
+  document.getElementById('btn-imprimir-minha-ficha').addEventListener('click', () => imprimirFichaFuncional(f));
+}
+
+function abrirModalFuncionario(funcionario, opcoes){
+  const proprio = !!(opcoes && opcoes.proprio);
   const editando = !!funcionario;
   const v = (campo) => editando ? esc(funcionario[campo]||'') : '';
   const vd = (campo) => editando ? (funcionario[campo]||'') : '';
@@ -5283,6 +5320,10 @@ function abrirModalFuncionario(funcionario){
       </form>
     </div>`;
   document.body.appendChild(modal);
+  if(proprio){
+    ['func-nome','func-funcao','func-vinculo','func-matricula','func-categoria','func-ensino','func-disciplinas','func-turno','func-carga-horaria'].forEach(id => { const c = document.getElementById(id); if(c){ c.disabled = true; c.title = 'Somente a secretaria altera este campo'; } });
+    const ativo = document.getElementById('func-ativo'); if(ativo && ativo.closest('.campo')) ativo.closest('.campo').style.display = 'none';
+  }
   // Formações acadêmicas: várias linhas (graduação, especialização, mestrado, doutorado) ao mesmo tempo.
   const formacoesEl = modal.querySelector('#func-formacoes');
   function adicionarLinhaFormacao(x){
@@ -5444,7 +5485,34 @@ function abrirModalFuncionario(funcionario){
       turno: campo('func-turno'),
       carga_horaria: campo('func-carga-horaria') ? parseInt(campo('func-carga-horaria'), 10) : null,
     };
-    if(editando) dados.ativo = document.getElementById('func-ativo').checked;
+    if(editando && !proprio) dados.ativo = document.getElementById('func-ativo').checked;
+    if(proprio){
+      const permitidos = ['email','telefone','data_nascimento','sexo','cor_raca','estado_civil','nacionalidade','telefone_emergencia','portador_necessidades_especiais','necessidades_especiais_qual','municipio_nascimento','uf_nascimento','cpf','rg','orgao_expedidor','rg_uf','mae','pai','pis_pasep','titulo_eleitor','zona','secao','endereco','complemento','bairro','cidade','uf','cep','fator_rh','escolaridade','instituicao_ensino','ano_conclusao','formacao_detalhada','formacoes'];
+      const carga = {}; permitidos.forEach(k => { carga[k] = dados[k]; });
+      const { error: erroRpc } = await supabase.rpc('atualizar_minha_ficha', { p: carga });
+      if(erroRpc){
+        document.getElementById('msg-novo-funcionario').innerHTML = `<div class="msg-erro">${esc(erroRpc.message)}</div>`;
+        btn.disabled = false; btn.textContent = 'Salvar alterações';
+        return;
+      }
+      const arquivoProprio = document.getElementById('func-foto').files[0];
+      if(arquivoProprio){
+        const ext = (arquivoProprio.name.split('.').pop() || 'jpg').toLowerCase();
+        const caminho = `${funcionario.id}/foto.${ext}`;
+        const { error: erroUp } = await supabase.storage.from('fotos-funcionarios').upload(caminho, arquivoProprio, { upsert: true });
+        if(erroUp){
+          document.getElementById('msg-novo-funcionario').innerHTML = `<div class="msg-erro">Dados salvos, mas a foto não foi enviada: ${esc(erroUp.message)}</div>`;
+          btn.disabled = false; btn.textContent = 'Salvar alterações';
+          return;
+        }
+        const { data: urlAss } = await supabase.storage.from('fotos-funcionarios').createSignedUrl(caminho, EXPIRACAO_LINK_STORAGE);
+        if(urlAss) await supabase.rpc('atualizar_minha_foto', { p_url: urlAss.signedUrl });
+      }
+      modal.remove();
+      await carregarDadosBase();
+      renderizarApp();
+      return;
+    }
     const { data: registroFunc, error } = editando
       ? await supabase.from('funcionarios').update(dados).eq('id', funcionario.id).select().single()
       : await supabase.from('funcionarios').insert(dados).select().single();
