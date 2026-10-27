@@ -672,13 +672,33 @@ function itensNav(){
     { id:'relatorios', label:'Relatórios', icone:'🖨️' },
   ];
   const itemDiario = { id:'diario', label:'Diário do Professor', icone:'📓' };
-  if(ESTADO.perfil.role === 'professor') return [itemDiario, { id:'avaliacoes', label:'Avaliações', icone:'📊' }, { id:'minhaficha', label:'Minha ficha', icone:'🪪' }];
+  if(ESTADO.perfil.role === 'professor'){
+    const itensProf = [];
+    if(professorPodeVer('diario')) itensProf.push(itemDiario);
+    if(['gabarito','personalizada','saev','fluencia'].some(professorPodeVer)) itensProf.push({ id:'avaliacoes', label:'Avaliações', icone:'📊' });
+    if(professorPodeVer('minhaficha')) itensProf.push({ id:'minhaficha', label:'Minha ficha', icone:'🪪' });
+    return itensProf;
+  }
   const permitidos = Array.isArray(ESTADO.perfil.permissoes)
     ? base.filter(item => ESTADO.perfil.permissoes.includes(item.id))
     : base;
   permitidos.push(itemDiario);
   if(ESTADO.perfil.role === 'admin') permitidos.push({ id:'usuarios', label:'Usuários', icone:'◈' });
   return permitidos;
+}
+
+// Telas que o administrador pode liberar/bloquear para cada professor (Usuários → Editar permissões).
+const ABAS_PROFESSOR = [
+  { id:'diario', label:'Diário do Professor (notas e registro de aula)' },
+  { id:'gabarito', label:'Avaliações › Gabarito de Provas (simulados)' },
+  { id:'personalizada', label:'Avaliações › Avaliação Personalizada' },
+  { id:'saev', label:'Avaliações › SAEV' },
+  { id:'fluencia', label:'Avaliações › Fluência' },
+  { id:'minhaficha', label:'Minha ficha' },
+];
+function professorPodeVer(chave){
+  const perm = ESTADO.perfil && ESTADO.perfil.permissoes;
+  return !Array.isArray(perm) || perm.includes(chave);
 }
 
 function rotuloPapel(role){
@@ -5884,8 +5904,8 @@ function renderizarUsuarios(el){
       <td style="white-space:nowrap;">
         <button class="botao secundario pequeno" data-editar-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar</button>
         <button class="botao secundario pequeno" data-resetar-senha="${p.id}" style="width:auto;padding:4px 10px;">Resetar senha</button>
-        ${p.role !== 'admin' && p.role !== 'professor' ? `<button class="botao secundario pequeno" data-permissoes-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar permissões</button>` : ''}
-        ${p.role !== 'admin' && p.role !== 'professor' && Array.isArray(p.permissoes) ? `<button class="botao secundario pequeno" data-excluir-permissoes="${p.id}" style="width:auto;padding:4px 10px;">Excluir permissões</button>` : ''}
+        ${p.role !== 'admin' ? `<button class="botao secundario pequeno" data-permissoes-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar permissões</button>` : ''}
+        ${p.role !== 'admin' && Array.isArray(p.permissoes) ? `<button class="botao secundario pequeno" data-excluir-permissoes="${p.id}" style="width:auto;padding:4px 10px;">Excluir permissões</button>` : ''}
         ${p.id !== ESTADO.perfil.id ? `<button class="botao ${p.status==='ativo'?'secundario':'terracota'} pequeno" data-bloquear-usuario="${p.id}" data-status-atual="${p.status}" style="width:auto;padding:4px 10px;">${p.status==='ativo'?'Bloquear':'Liberar'}</button>` : ''}
       </td>
     </tr>`).join('');
@@ -6073,14 +6093,15 @@ function abrirModalEditarUsuario(perfil, elPai){
 }
 
 function abrirModalPermissoes(perfil, elPai){
-  const permissoesAtuais = Array.isArray(perfil.permissoes) ? perfil.permissoes : ABAS_PERMISSIVEIS.map(a => a.id);
+  const listaAbas = perfil.role === 'professor' ? ABAS_PROFESSOR : ABAS_PERMISSIVEIS;
+  const permissoesAtuais = Array.isArray(perfil.permissoes) ? perfil.permissoes : listaAbas.map(a => a.id);
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
   modal.innerHTML = `
     <div class="modal" style="max-width:420px;">
       <div class="modal-topo"><h3>Permissões — ${esc(perfil.nome)}</h3><button data-fechar>✕</button></div>
-      <p style="color:var(--texto-suave);font-size:13px;margin:-6px 0 16px;">Escolha quais abas esse usuário pode ver e acessar.</p>
-      ${ABAS_PERMISSIVEIS.map(a => `
+      <p style="color:var(--texto-suave);font-size:13px;margin:-6px 0 16px;">Escolha quais abas esse usuário pode ver e acessar.${perfil.role === 'professor' ? ' Mesmo com a aba liberada, o professor só enxerga as turmas em que está vinculado.' : ''}</p>
+      ${listaAbas.map(a => `
         <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0;">
           <input type="checkbox" class="perm-check" value="${a.id}" ${permissoesAtuais.includes(a.id)?'checked':''} style="width:auto;" />
           ${a.label}
@@ -11213,9 +11234,9 @@ function renderizarAvaliacoes(el){
   ];
   if(ESTADO.perfil.role === 'professor'){
     // Professor: tudo, menos o Conselho de Classe — e só das suas turmas (o banco também restringe).
-    for(let i = abasTopo.length - 1; i >= 0; i--) if(abasTopo[i].id === 'conselho') abasTopo.splice(i, 1);
+    for(let i = abasTopo.length - 1; i >= 0; i--) if(abasTopo[i].id === 'conselho' || !professorPodeVer(abasTopo[i].id)) abasTopo.splice(i, 1);
     if(!ESTADO.profAvalInicial){ ESTADO.profAvalInicial = true; ESTADO.subAvaliacoes = 'gabarito'; }
-    if(ESTADO.subAvaliacoes === 'conselho') ESTADO.subAvaliacoes = 'gabarito';
+    if(!abasTopo.some(a => a.id === ESTADO.subAvaliacoes) && abasTopo[0]) ESTADO.subAvaliacoes = abasTopo[0].id;
   }
   const barraTopo = abasTopo.map(a => `<button class="aba-cadastro ${ESTADO.subAvaliacoes===a.id?'ativa':''}" data-aba-aval="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
