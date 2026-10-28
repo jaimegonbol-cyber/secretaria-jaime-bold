@@ -14331,7 +14331,79 @@ function htmlResumoTamanhos(alunos){
   return `<div style="display:flex;gap:24px;flex-wrap:wrap;padding:12px 16px;">${bloco('Camisa','tamanho_blusa')}${bloco('Bermuda / short','tamanho_short')}${bloco('Calçado','tamanho_calcado')}</div>`;
 }
 
+// Quantidade de cada tamanho na escola: linhas = turmas, colunas = tamanhos.
+function matrizFardamentoEscola(campo){
+  const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'));
+  const linhas = turmas.map(t => ({ turma: t, alunos: alunosFardamentoDaTurma(t.id) })).filter(l => l.alunos.length);
+  const todos = linhas.flatMap(l => l.alunos);
+  const tamanhos = resumoTamanhos(todos, campo).map(x => x.tam);
+  const dados = linhas.map(l => {
+    const cont = {}; let sem = 0;
+    l.alunos.forEach(a => { const v = (a[campo] || '').trim(); if(v) cont[v] = (cont[v] || 0) + 1; else sem++; });
+    return { turma: l.turma, cont, sem, total: l.alunos.length };
+  });
+  const totais = {}; tamanhos.forEach(t => { totais[t] = dados.reduce((n, d) => n + (d.cont[t] || 0), 0); });
+  return { tamanhos, dados, totais, semTotal: dados.reduce((n, d) => n + d.sem, 0), geral: todos.length };
+}
+function htmlMatrizFardamentoEscola(campo, titulo, impressao){
+  const m = matrizFardamentoEscola(campo);
+  const th = impressao ? 'padding:4px 6px;background:#D9D9D9;color:#111;font-size:11px;border:1px solid #333;'
+                       : 'padding:6px 10px;background:var(--areia-escura);border:1px solid var(--borda);';
+  const td = impressao ? 'padding:3px 6px;font-size:11px;border:1px solid #333;text-align:center;' : 'padding:4px 10px;border:1px solid var(--borda);text-align:center;';
+  const tdNome = td.replace('text-align:center;', 'text-align:left;white-space:nowrap;');
+  if(!m.tamanhos.length) return `<h3 style="margin:14px 0 6px;font-size:${impressao?13:15}px;">${titulo}</h3><p style="font-size:12.5px;color:#666;">Nenhum tamanho informado ainda (${m.semTotal} estudante(s) sem informação).</p>`;
+  return `<h3 style="margin:14px 0 6px;font-size:${impressao?13:15}px;">${titulo}</h3>
+  <div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;">
+    <thead><tr><th style="${th}text-align:left;">Turma</th>${m.tamanhos.map(t => `<th style="${th}">${esc(t)}</th>`).join('')}<th style="${th}">Sem info.</th><th style="${th}">Estudantes</th></tr></thead>
+    <tbody>${m.dados.map((d, i) => `<tr style="background:${i%2 ? '#EEEEEE' : '#FFFFFF'};"><td style="${tdNome}">${esc(d.turma.nome)} · ${esc(d.turma.turno||'')}</td>${m.tamanhos.map(t => `<td style="${td}">${d.cont[t] || ''}</td>`).join('')}<td style="${td}${d.sem?'color:#B4432E;':''}">${d.sem || ''}</td><td style="${td}">${d.total}</td></tr>`).join('')}
+    <tr style="font-weight:800;background:#DDE6F5;"><td style="${tdNome}">TOTAL DA ESCOLA</td>${m.tamanhos.map(t => `<td style="${td}">${m.totais[t]}</td>`).join('')}<td style="${td}">${m.semTotal}</td><td style="${td}">${m.geral}</td></tr></tbody>
+  </table></div>`;
+}
+function renderizarRelFardamentoEscola(el){
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+        <button class="botao secundario pequeno" id="btn-fard-voltar" style="width:auto;">← Voltar para as turmas</button>
+        <button class="botao terracota pequeno" id="btn-fard-imprimir-escola" style="width:auto;">🖨️ Imprimir resumo da escola</button>
+      </div>
+    </div>
+    <div class="painel"><div style="padding:6px 16px 16px;">
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:10px 0 0;">Quantidade de cada tamanho por turma e total da escola (estudantes matriculados no ano atual). "Sem info." = tamanho ainda não preenchido.</p>
+      ${htmlMatrizFardamentoEscola('tamanho_blusa', 'Camisa', false)}
+      ${htmlMatrizFardamentoEscola('tamanho_short', 'Bermuda / short', false)}
+      ${htmlMatrizFardamentoEscola('tamanho_calcado', 'Calçado', false)}
+    </div></div>`;
+  document.getElementById('btn-fard-voltar').addEventListener('click', () => { ESTADO.fardEscola = false; renderizarRelFardamento(el); });
+  document.getElementById('btn-fard-imprimir-escola').addEventListener('click', imprimirFardamentoEscola);
+}
+function imprimirFardamentoEscola(){
+  const ano = new Date().getFullYear();
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Resumo de Fardamentos - Escola</title>
+    <style>@page{size:A4 landscape;margin:8mm;} *{-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Arial,sans-serif;color:#111;margin:0;} h3{margin:14px 0 4px;} table{page-break-inside:auto;} tr{page-break-inside:avoid;}</style>
+    </head><body>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:6px;"><tr>
+        <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:52px;height:52px;" /></td>
+        <td style="text-align:center;">
+          <div style="font-size:15px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+          <div style="font-size:15px;font-weight:800;margin-top:2px;">QUANTIDADE DE FARDAMENTOS POR TAMANHO - ${ano}</div>
+        </td>
+        <td style="width:64px;text-align:right;"><img src="${LOGO_DATA_URL}" style="width:52px;height:52px;" /></td>
+      </tr></table>
+      ${htmlMatrizFardamentoEscola('tamanho_blusa', 'Camisa', true)}
+      ${htmlMatrizFardamentoEscola('tamanho_short', 'Bermuda / short', true)}
+      ${htmlMatrizFardamentoEscola('tamanho_calcado', 'Calçado', true)}
+      <script>setTimeout(function(){window.print();},400);<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
+}
+
 function renderizarRelFardamento(el){
+  if(ESTADO.fardEscola){ renderizarRelFardamentoEscola(el); return; }
   const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const opcoesTurmas = turmas.map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   const turma = turmas.find(t => t.id === ESTADO.relatorioTurmaId);
@@ -14351,6 +14423,7 @@ function renderizarRelFardamento(el){
       <div style="padding:14px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
         <div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div>
         <button class="botao terracota pequeno" id="btn-imprimir-fardamento" style="width:auto;" ${turma?'':'disabled'}>🖨️ Imprimir</button>
+        <button class="botao secundario pequeno" id="btn-fard-escola" style="width:auto;">📊 Resumo da escola (todos os tamanhos)</button>
         <span id="status-fardamento" style="font-size:12.5px;color:var(--texto-suave);"></span>
       </div>
     </div>
@@ -14382,6 +14455,7 @@ function renderizarRelFardamento(el){
       </table></div>
     </div>` : ''}`;
   document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelFardamento(el); });
+  document.getElementById('btn-fard-escola').addEventListener('click', () => { ESTADO.fardEscola = true; renderizarRelFardamento(el); });
   const btnImp = document.getElementById('btn-imprimir-fardamento');
   if(btnImp && turma) btnImp.addEventListener('click', () => imprimirFardamentoTurma(turma.id));
   el.querySelectorAll('[data-farda-campo]').forEach(sel => sel.addEventListener('change', async () => {
