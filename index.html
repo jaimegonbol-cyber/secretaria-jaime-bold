@@ -3477,6 +3477,41 @@ function montarSeletorEnturmacao(alvo, el, anoOrigem, anoDestino, turmasOrigem){
   }
 }
 
+// Grava renovações com verificação: depois de gravar, lê de volta do banco e confere se cada estudante
+// realmente ficou registrado. Devolve { gravados, faltaram, erro }.
+async function salvarRenovacoesVerificado(idsAlunos, anoDestino){
+  let erroFinal = null;
+  const lotes = [];
+  for(let i = 0; i < idsAlunos.length; i += 50) lotes.push(idsAlunos.slice(i, i + 50));
+  for(const lote of lotes){
+    const linhas = lote.map(id => ({ aluno_id: id, ano_letivo_destino: anoDestino, criado_por: ESTADO.perfil.id }));
+    let { error } = await supabase.from('renovacoes_matricula')
+      .upsert(linhas, { onConflict: 'aluno_id,ano_letivo_destino', ignoreDuplicates: true });
+    if(error){
+      // uma segunda tentativa, linha a linha, para isolar o problema
+      for(const l of linhas){
+        const r = await supabase.from('renovacoes_matricula')
+          .upsert(l, { onConflict: 'aluno_id,ano_letivo_destino', ignoreDuplicates: true });
+        if(r.error) erroFinal = r.error;
+      }
+    }
+  }
+  // Confere no banco o que realmente ficou gravado
+  const gravadosSet = new Set();
+  for(let i = 0; i < idsAlunos.length; i += 100){
+    const { data, error } = await supabase.from('renovacoes_matricula').select('aluno_id')
+      .eq('ano_letivo_destino', anoDestino).in('aluno_id', idsAlunos.slice(i, i + 100));
+    if(error){ erroFinal = erroFinal || error; continue; }
+    (data||[]).forEach(r => gravadosSet.add(r.aluno_id));
+  }
+  const faltaram = idsAlunos.filter(id => !gravadosSet.has(id));
+  return { gravados: idsAlunos.length - faltaram.length, faltaram, erro: erroFinal };
+}
+function mensagemErroRenovacao(r){
+  const detalhe = r.erro ? ` (${esc(r.erro.message || '')})` : '';
+  return `<div class="msg-erro" style="margin:10px 14px;"><b>⚠️ ${r.faltaram.length} renovação(ões) NÃO foram salvas.</b>${detalhe}<br/>Se a mensagem falar de login/permissão, saia e entre no sistema novamente. Depois clique em "Renovar" outra vez nos estudantes que continuarem como Pendente.</div>`;
+}
+
 async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem){
   alvo.innerHTML = `<p style="padding:16px;color:var(--texto-suave);font-size:13.5px;">Carregando…</p>`;
 
@@ -3623,25 +3658,32 @@ async function renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, tur
     if(!confirm(`Marcar ${pendentes.length} estudante(s) pendente(s) como renovados?`)) return;
     const btn = document.getElementById('btn-marcar-todos-renovacao');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    const { error } = await supabase.from('renovacoes_matricula').insert(
-      pendentes.map(a => ({ aluno_id: a.id, ano_letivo_destino: anoDestino, criado_por: ESTADO.perfil.id }))
-    );
-    if(error){ document.getElementById('msg-renovacao-estudante').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '✅ Marcar todos os pendentes'; return; }
-    renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
+    const resultado = await salvarRenovacoesVerificado(pendentes.map(a => a.id), anoDestino);
+    await renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
+    const msgEl = document.getElementById('msg-renovacao-estudante');
+    if(resultado.faltaram.length){
+      if(msgEl) msgEl.innerHTML = mensagemErroRenovacao(resultado);
+      alert(`Atenção: ${resultado.faltaram.length} de ${pendentes.length} renovações NÃO foram salvas. Elas continuam como Pendente na lista.`);
+    } else if(msgEl){
+      msgEl.innerHTML = `<div class="msg-ok" style="margin:10px 14px;">✅ ${resultado.gravados} renovação(ões) salva(s) e conferida(s) no banco.</div>`;
+    }
   });
 
   alvo.querySelectorAll('[data-marcar-renovacao]').forEach(btn => btn.addEventListener('click', async () => {
     btn.disabled = true; btn.textContent = 'Salvando…';
-    const { error } = await supabase.from('renovacoes_matricula').insert({
-      aluno_id: btn.dataset.marcarRenovacao, ano_letivo_destino: anoDestino, criado_por: ESTADO.perfil.id,
-    });
-    if(error){ document.getElementById('msg-renovacao-estudante').innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; btn.disabled = false; btn.textContent = '✅ Renovar'; return; }
+    const resultado = await salvarRenovacoesVerificado([btn.dataset.marcarRenovacao], anoDestino);
+    if(resultado.faltaram.length){
+      document.getElementById('msg-renovacao-estudante').innerHTML = mensagemErroRenovacao(resultado);
+      alert('Atenção: a renovação NÃO foi salva. Saia e entre no sistema novamente e tente de novo.');
+      btn.disabled = false; btn.textContent = '✅ Renovar'; return;
+    }
     renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
   }));
 
   alvo.querySelectorAll('[data-desfazer-renovacao]').forEach(btn => btn.addEventListener('click', async () => {
     if(!confirm('Desfazer a renovação de matrícula desse estudante?')) return;
-    await supabase.from('renovacoes_matricula').delete().eq('aluno_id', btn.dataset.desfazerRenovacao).eq('ano_letivo_destino', anoDestino);
+    const { error: erroDesfazer } = await supabase.from('renovacoes_matricula').delete().eq('aluno_id', btn.dataset.desfazerRenovacao).eq('ano_letivo_destino', anoDestino);
+    if(erroDesfazer){ alert('Não foi possível desfazer: ' + erroDesfazer.message); return; }
     renderizarRenovacaoEstudante(alvo, el, anoOrigem, anoDestino, turmasOrigem);
   }));
 }
