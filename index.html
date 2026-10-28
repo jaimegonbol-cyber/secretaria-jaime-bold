@@ -12735,8 +12735,8 @@ function imprimirListaNotasGabarito(gabarito, analise){
   linhas.sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR'));
   const n = Math.max(1, linhas.length);
   // Ajusta a altura/fonte das linhas para a lista caber em uma única folha.
-  const alt = Math.max(4.6, Math.min(8, 215 / (n + 3)));
-  const fonte = Math.max(8, Math.min(12, alt * 1.45));
+  const alt = Math.max(4.8, Math.min(8.8, 222 / (n + 3)));
+  const fonte = Math.max(10, Math.min(14, alt * 1.85));
   const cor = (v) => v === null || v === undefined ? '#555' : v < 6 ? '#B4432E' : v < 8 ? '#D98A1F' : '#2E7D5B';
   const colsDisc = analise.disciplinas.map(d => `<th colspan="2">${esc(d.nome)} (${d.qtd})</th>`).join('');
   const subDisc = analise.disciplinas.map(() => '<th>Acertos</th><th>Nota</th>').join('');
@@ -12756,11 +12756,11 @@ function imprimirListaNotasGabarito(gabarito, analise){
     *{ box-sizing:border-box; }
     body{ font-family:Arial,Helvetica,sans-serif; color:#000; margin:0; -webkit-print-color-adjust:exact; }
     table{ border-collapse:collapse; width:100%; }
-    .lista th, .lista td{ border:1px solid #999; padding:0 4px; height:${alt}mm; font-size:${fonte}px; line-height:1; }
-    .lista th{ background:#E6ECF5; font-size:${Math.max(8, fonte - 1)}px; height:auto; padding:3px 4px; }
+    .lista th, .lista td{ border:1px solid #444; padding:0 4px; height:${alt}mm; font-size:${fonte}px; line-height:1; color:#000; font-weight:700; }
+    .lista th{ background:#D0DAEA; font-size:${Math.max(9, fonte - 1.5)}px; height:auto; padding:3px 4px; border-color:#000; }
     .lista td.c, .lista th{ text-align:center; }
-    .lista td.nome{ text-align:left; white-space:nowrap; }
-    .lista tbody tr:nth-child(even) td{ background:#F3F3F3; }
+    .lista td.nome{ text-align:left; white-space:nowrap; font-size:${Math.max(9, fonte - 1.5)}px; }
+    .lista tbody tr:nth-child(even) td{ background:#D6D6D6; }
     .lista tfoot td{ background:#E6ECF5; font-weight:700; }
   </style></head><body>
     <table style="margin-bottom:6px;"><tr>
@@ -12803,6 +12803,10 @@ async function imprimirRelatorioGabarito(gabarito, analise){
     return `<tr><td style="text-align:center;">${q.numero}</td><td style="text-align:center;"><b>${esc(q.correta)}</b></td><td style="text-align:left;padding-left:6px;">${esc(q.descritor)}</td><td><b>${q.pct}%</b></td><td>${q.anuladas || '—'}</td><td>${errada ? `${errada[0]} (${errada[1]})` : '—'}</td></tr>`;
   }).join('');
   const criticos = analise.descritores.filter(d => d.pct < 60).sort((a, b) => a.pct - b.pct);
+  // Página 1 = só a lista de notas, ajustada para caber inteira em uma folha (as demais informações vão para a página 2).
+  const nLin = Math.max(1, analise.alunos.length);
+  const altNota = Math.max(4.6, Math.min(8.5, 212 / (nLin + 2)));
+  const fonteNota = Math.max(10, Math.min(13.5, altNota * 1.85));
   const anoLetivo = gabarito.criado_em ? new Date(gabarito.criado_em).getFullYear() : new Date().getFullYear();
 
   const janela = window.open('', '_blank');
@@ -12817,12 +12821,19 @@ async function imprimirRelatorioGabarito(gabarito, analise){
       table.t th{background:#15325C;color:#fff;font-size:9.5px;text-transform:uppercase;padding:4px;border:1px solid #15325C;}
       table.t td{padding:3px 4px;border:1px solid #888;text-align:center;}
       table.t tbody tr:nth-child(even) td{background:#E4E4E4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      table.notas td{padding:0 4px;height:${altNota}mm;font-size:${fonteNota}px;line-height:1;color:#000;font-weight:700;border:1px solid #444;}
+      table.notas td span{color:#111 !important;font-weight:700;}
+      table.notas td:nth-child(2){white-space:nowrap;text-align:left;font-size:${Math.max(9, fonteNota - 1.5)}px;}
+      table.notas th{font-size:${Math.max(9, fonteNota - 1.5)}px;padding:3px 4px;border:1px solid #000;}
+      table.notas tbody tr:nth-child(even) td{background:#D6D6D6;}
+      .pagina-notas{page-break-after:always;}
       .kpis{display:flex;gap:8px;margin:8px 0;}
       .kpi{flex:1;border:1.5px solid #15325C;border-radius:6px;padding:6px 8px;text-align:center;}
       .kpi b{display:block;font-size:17px;color:#15325C;}
       tr{page-break-inside:avoid;}
       @media print{ body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
     </style></head><body>
+    <div class="pagina-notas">
     <table style="width:100%;border-collapse:collapse;"><tr>
       <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
       <td style="text-align:center;">
@@ -12832,6 +12843,11 @@ async function imprimirRelatorioGabarito(gabarito, analise){
       </td>
       <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td></tr></table>
 
+    <h3>Notas por estudante (ordem decrescente)</h3>
+    <table class="t notas"><thead><tr><th>Nº</th><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Nível</th></tr></thead><tbody>${linhasAlunos}</tbody></table>
+    ${pendentes.length ? `<div style="font-size:9.5px;margin-top:6px;"><b>Sem folha corrigida (${pendentes.length}):</b> ${pendentes.map(a => esc(a.nome)).join(', ')}.</div>` : ''}
+
+    </div>
     <div class="kpis">
       <div class="kpi"><b>${analise.totalAnuladas}</b>questões anuladas</div>
       <div class="kpi"><b>${analise.alunos.length}</b>corrigidos${pendentes.length ? ` · ${pendentes.length} pendente(s)` : ''}</div>
@@ -12848,11 +12864,7 @@ async function imprimirRelatorioGabarito(gabarito, analise){
     <table class="t"><thead><tr>${dist.map(d => `<th style="background:${d.cor};border-color:${d.cor};">${d.rotulo}</th>`).join('')}</tr></thead><tbody><tr>${dist.map(d => `<td><b style="font-size:13px;">${d.qtd}</b> (${analise.alunos.length ? Math.round(d.qtd / analise.alunos.length * 100) : 0}%)</td>`).join('')}</tr></tbody></table>
     <div style="font-size:9px;color:#555;margin-top:2px;">Níveis pelo % de acertos: Avançado ≥ 80% · Adequado 60–79% · Básico 40–59% · Insuficiente &lt; 40%. Nota = acertos ÷ questões × 10. Questões em branco ou com mais de uma alternativa marcada são <b>anuladas</b> (não pontuam).</div>
 
-    <h3>Notas por estudante (ordem decrescente)</h3>
-    <table class="t"><thead><tr><th>Nº</th><th>Estudante</th>${colsDisc}<th>Total</th><th>Anuladas</th><th>Nota</th><th>%</th><th>Nível</th></tr></thead><tbody>${linhasAlunos}</tbody></table>
-    ${pendentes.length ? `<div style="font-size:9.5px;margin-top:6px;"><b>Sem folha corrigida (${pendentes.length}):</b> ${pendentes.map(a => esc(a.nome)).join(', ')}.</div>` : ''}
-
-    <h3 style="page-break-before:always;">Desempenho por descritor (do menor para o maior)</h3>
+    <h3>Desempenho por descritor (do menor para o maior)</h3>
     <table class="t"><thead><tr><th>Descritor</th><th>Acertos</th><th>Aproveitamento</th><th>%</th></tr></thead><tbody>${linhasDescr}</tbody></table>
     ${criticos.length ? `<div style="font-size:10px;margin-top:6px;border:1.5px solid #B4432E;border-radius:6px;padding:6px 8px;"><b style="color:#B4432E;">Descritores que precisam de reforço (abaixo de 60%):</b> ${criticos.map(d => esc(d.descritor) + ' (' + d.pct + '%)').join(' · ')}</div>` : ''}
 
