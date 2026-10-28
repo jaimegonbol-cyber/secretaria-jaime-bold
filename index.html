@@ -1512,12 +1512,13 @@ function selectTipoSanguineo(valorAtual){
   </select>`;
 }
 
+const TAMANHOS_FARDA = ['1','2','3','4','5','6','7','8','10','12','14','16','PP','P','M','G','GG','XG'];
 function selectTamanhoFarda(id, valorAtual){
-  const tamanhos = ['2','4','6','8','10','12','14','16','PP','P','M','G','GG','XG'];
   const atual = (valorAtual || '').trim();
-  const opcoes = tamanhos.map(t => `<option value="${t}" ${atual===t?'selected':''}>${t}</option>`).join('');
+  const tamanhos = (atual && !TAMANHOS_FARDA.includes(atual)) ? [...TAMANHOS_FARDA, atual] : TAMANHOS_FARDA;
+  const opcoes = tamanhos.map(t => `<option value="${esc(t)}" ${atual===t?'selected':''}>${esc(t)}</option>`).join('');
   return `<select id="${id}">
-    <option value="" ${!tamanhos.includes(atual)?'selected':''}>—</option>
+    <option value="" ${!atual?'selected':''}>—</option>
     ${opcoes}
   </select>`;
 }
@@ -14284,6 +14285,7 @@ function renderizarRelatorios(el){
     { id:'freq-baixa', label:'Baixa Frequência (≤ 75%)' },
     { id:'freq-mensal', label:'Frequência Mensal' },
     { id:'aee', label:'Estudantes com AEE' },
+    { id:'fardamento', label:'Fardamento' },
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subRelatorios===a.id?'ativa':''}" data-aba-rel="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -14301,7 +14303,145 @@ function renderizarRelatorios(el){
   else if(ESTADO.subRelatorios === 'freq-baixa') renderizarRelBaixaFrequencia(alvo);
   else if(ESTADO.subRelatorios === 'freq-mensal') renderizarRelFreqMensalDados(alvo);
   else if(ESTADO.subRelatorios === 'aee') renderizarRelAEE(alvo);
+  else if(ESTADO.subRelatorios === 'fardamento') renderizarRelFardamento(alvo);
   else renderizarRelListaPresenca(alvo);
+}
+
+// ---------------------------------------------------------------
+// FARDAMENTO — tamanhos por turma (camisa, bermuda/short, calçado)
+// ---------------------------------------------------------------
+function alunosFardamentoDaTurma(turmaId){
+  return ESTADO.alunos.filter(a => a.turma_id === turmaId && a.situacao !== 'transferido' && a.situacao !== 'cancelado')
+    .slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+function resumoTamanhos(alunos, campo){
+  const cont = {};
+  alunos.forEach(a => { const v = (a[campo] || '').trim(); if(v) cont[v] = (cont[v] || 0) + 1; });
+  const ordem = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 1000 + ['PP','P','M','G','GG','XG'].indexOf(v); };
+  return Object.keys(cont).sort((x,y) => ordem(x) - ordem(y)).map(k => ({ tam: k, qtd: cont[k] }));
+}
+function htmlResumoTamanhos(alunos){
+  const bloco = (titulo, campo) => {
+    const r = resumoTamanhos(alunos, campo);
+    const sem = alunos.filter(a => !(a[campo] || '').trim()).length;
+    return `<div style="min-width:170px;"><div style="font-weight:700;font-size:12.5px;margin-bottom:4px;">${titulo}</div>
+      ${r.length ? r.map(x => `<span style="display:inline-block;margin:0 6px 4px 0;padding:2px 8px;border-radius:99px;background:var(--areia-escura);font-size:12.5px;">${esc(x.tam)}: <b>${x.qtd}</b></span>`).join('') : '<span style="font-size:12.5px;color:var(--texto-suave);">nenhum informado</span>'}
+      <div style="font-size:11.5px;color:${sem?'#B4432E':'var(--texto-suave)'};">sem informação: ${sem}</div></div>`;
+  };
+  return `<div style="display:flex;gap:24px;flex-wrap:wrap;padding:12px 16px;">${bloco('Camisa','tamanho_blusa')}${bloco('Bermuda / short','tamanho_short')}${bloco('Calçado','tamanho_calcado')}</div>`;
+}
+
+function renderizarRelFardamento(el){
+  const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const opcoesTurmas = turmas.map(t => `<option value="${t.id}" ${ESTADO.relatorioTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
+  const turma = turmas.find(t => t.id === ESTADO.relatorioTurmaId);
+  const alunos = turma ? alunosFardamentoDaTurma(turma.id) : [];
+  const selTam = (a, campo) => {
+    const atual = (a[campo] || '').trim();
+    const lista = campo === 'tamanho_calcado'
+      ? Array.from({length:21}, (_, i) => String(26 + i))
+      : TAMANHOS_FARDA;
+    const todos = (atual && !lista.includes(atual)) ? [...lista, atual] : lista;
+    return `<select data-farda-campo="${campo}" data-farda-aluno="${a.id}" style="width:78px;padding:4px 6px;">
+      <option value="">—</option>${todos.map(t => `<option value="${esc(t)}" ${atual===t?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
+  };
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Turma</b></div>
+      <div style="padding:14px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+        <div class="campo" style="max-width:340px;margin:0;"><select id="rel-turma"><option value="">Selecione a turma</option>${opcoesTurmas}</select></div>
+        <button class="botao terracota pequeno" id="btn-imprimir-fardamento" style="width:auto;" ${turma?'':'disabled'}>🖨️ Imprimir</button>
+        <span id="status-fardamento" style="font-size:12.5px;color:var(--texto-suave);"></span>
+      </div>
+    </div>
+    ${turma ? `
+    <div class="painel" style="margin-bottom:14px;">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Resumo por tamanho — ${esc(turma.nome)}</b></div>
+      <div id="resumo-fardamento">${htmlResumoTamanhos(alunos)}</div>
+    </div>
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Tamanhos de fardamento — ${esc(turma.nome)}</b>
+        <span style="font-size:12px;color:var(--texto-suave);margin-left:8px;">Escolha o tamanho e ele é salvo na hora. O Bolsa Família é editado no cadastro do estudante.</span></div>
+      <div style="overflow-x:auto;"><table class="lista-zebra" style="border-collapse:collapse;width:100%;">
+        <thead><tr>
+          <th style="text-align:center;padding:6px 10px;background:var(--areia-escura);">NUM</th>
+          <th style="text-align:left;padding:6px 10px;background:var(--areia-escura);">NOME</th>
+          <th style="text-align:center;padding:6px 10px;background:var(--areia-escura);">B. FAMÍLIA</th>
+          <th style="text-align:center;padding:6px 10px;background:var(--areia-escura);">T_CAMISA</th>
+          <th style="text-align:center;padding:6px 10px;background:var(--areia-escura);">T_BERMUDA</th>
+          <th style="text-align:center;padding:6px 10px;background:var(--areia-escura);">T_CALÇADO</th>
+        </tr></thead>
+        <tbody>${alunos.map((a, i) => `<tr style="background:${i%2 ? '#EEEEEE' : '#FFFFFF'};">
+          <td style="text-align:center;padding:4px 10px;">${String(i+1).padStart(2,'0')}</td>
+          <td style="padding:4px 10px;">${esc(a.nome)}</td>
+          <td style="text-align:center;padding:4px 10px;">${a.bolsa_familia ? 'SIM' : 'NÃO'}</td>
+          <td style="text-align:center;padding:4px 10px;">${selTam(a, 'tamanho_blusa')}</td>
+          <td style="text-align:center;padding:4px 10px;">${selTam(a, 'tamanho_short')}</td>
+          <td style="text-align:center;padding:4px 10px;">${selTam(a, 'tamanho_calcado')}</td>
+        </tr>`).join('') || '<tr><td colspan="6" style="padding:14px;text-align:center;">Nenhum estudante nesta turma.</td></tr>'}</tbody>
+      </table></div>
+    </div>` : ''}`;
+  document.getElementById('rel-turma').addEventListener('change', (e) => { ESTADO.relatorioTurmaId = e.target.value; renderizarRelFardamento(el); });
+  const btnImp = document.getElementById('btn-imprimir-fardamento');
+  if(btnImp && turma) btnImp.addEventListener('click', () => imprimirFardamentoTurma(turma.id));
+  el.querySelectorAll('[data-farda-campo]').forEach(sel => sel.addEventListener('change', async () => {
+    const status = document.getElementById('status-fardamento');
+    const campo = sel.dataset.fardaCampo, id = sel.dataset.fardaAluno;
+    const valor = sel.value || null;
+    sel.disabled = true; status.style.color = 'var(--texto-suave)'; status.textContent = 'Salvando…';
+    const { data, error } = await supabase.from('alunos').update({ [campo]: valor }).eq('id', id).select('id, ' + campo);
+    sel.disabled = false;
+    if(error || !data || !data.length){
+      status.style.color = '#B4432E';
+      status.textContent = '⚠️ NÃO foi salvo' + (error ? ': ' + error.message : ' (sem permissão ou sessão expirada — entre novamente).');
+      const aluno = ESTADO.alunos.find(a => a.id === id);
+      sel.value = (aluno && aluno[campo]) || '';
+      return;
+    }
+    const aluno = ESTADO.alunos.find(a => a.id === id);
+    if(aluno) aluno[campo] = valor;
+    status.style.color = '#2E7D5B'; status.textContent = '✅ Salvo';
+    const r = document.getElementById('resumo-fardamento');
+    if(r) r.innerHTML = htmlResumoTamanhos(alunosFardamentoDaTurma(ESTADO.relatorioTurmaId));
+  }));
+}
+
+function imprimirFardamentoTurma(turmaId){
+  const turma = ESTADO.turmas.find(t => t.id === turmaId);
+  if(!turma) return;
+  const alunos = alunosFardamentoDaTurma(turmaId);
+  const linhas = alunos.map((a, i) => `<tr>
+      <td style="text-align:center;">${String(i+1).padStart(2,'0')}</td>
+      <td style="text-align:left;padding-left:8px;white-space:nowrap;">${esc(a.nome)}</td>
+      <td style="text-align:center;">${a.bolsa_familia ? 'SIM' : 'NÃO'}</td>
+      <td style="text-align:center;">${esc(a.tamanho_blusa || '')}</td>
+      <td style="text-align:center;">${esc(a.tamanho_short || '')}</td>
+      <td style="text-align:center;">${esc(a.tamanho_calcado || '')}</td>
+    </tr>`).join('');
+  const resumo = (titulo, campo) => {
+    const r = resumoTamanhos(alunos, campo);
+    return `<td style="vertical-align:top;padding:4px 10px;"><b>${titulo}:</b> ${r.length ? r.map(x => `${esc(x.tam)} (${x.qtd})`).join(' · ') : '—'}</td>`;
+  };
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
+    <title>Tamanhos de Fardamentos - ${esc(turma.nome)}</title>
+    <style>${CSS_LISTA_ESTUDANTES_PADRAO}</style>
+    </head><body>
+      ${cabecalhoImpressaoTurma('TAMANHOS DE FARDAMENTOS', turma)}
+      <table class="lista">
+        <thead><tr>
+          <th style="width:6%;">NUM</th><th style="width:44%;">NOME</th><th style="width:12%;">B FAMÍLIA</th>
+          <th style="width:12%;">T_CAMISA</th><th style="width:13%;">T_BERMUDA</th><th style="width:13%;">T_CALÇADO</th>
+        </tr></thead>
+        <tbody>${linhas || '<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>'}</tbody>
+      </table>
+      <table style="width:100%;margin-top:12px;font-size:12px;border-collapse:collapse;"><tr>${resumo('Camisa','tamanho_blusa')}${resumo('Bermuda','tamanho_short')}${resumo('Calçado','tamanho_calcado')}</tr></table>
+    <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
+    </body></html>
+  `);
+  janela.document.close();
+  janela.focus();
 }
 
 function renderizarRelListaPasta(el){
