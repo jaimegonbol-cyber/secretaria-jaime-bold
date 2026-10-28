@@ -209,6 +209,7 @@
     padding:8px 12px;border:1px solid var(--borda);border-radius:7px;font-size:13.5px;background:var(--areia);min-width:180px;
   }
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  table tbody tr:nth-child(even) td{background:rgba(0,0,0,0.035);}
   thead th{
     text-align:left;padding:7px 14px;background:var(--areia);color:var(--texto-suave);
     font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;border-bottom:1px solid var(--borda);
@@ -4413,6 +4414,7 @@ async function gerarRelatorioFrequenciaFuncionarios(){
       table{width:100%;border-collapse:collapse;margin-bottom:16px;}
       th, td{border:1px solid #333;padding:5px 4px;text-align:center;}
       th{background:#f2f2f2;font-size:9.6px;}
+      tbody tr:nth-child(even) td{background:#E4E4E4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       tfoot td{font-weight:700;background:#fafafa;}
       h2{font-size:12.5px;margin:14px 0 6px;text-transform:uppercase;}
     </style>
@@ -4545,6 +4547,7 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       table{width:100%;border-collapse:collapse;margin-bottom:16px;}
       th, td{border:1px solid #333;padding:5px 4px;text-align:center;}
       th{background:#f2f2f2;font-size:9.6px;}
+      tbody tr:nth-child(even) td{background:#E4E4E4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       tfoot td{font-weight:700;background:#fafafa;}
     </style>
     </head><body>
@@ -12720,6 +12723,7 @@ async function imprimirRelatorioGabarito(gabarito, analise){
       table.t{width:100%;border-collapse:collapse;}
       table.t th{background:#15325C;color:#fff;font-size:9.5px;text-transform:uppercase;padding:4px;border:1px solid #15325C;}
       table.t td{padding:3px 4px;border:1px solid #888;text-align:center;}
+      table.t tbody tr:nth-child(even) td{background:#E4E4E4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .kpis{display:flex;gap:8px;margin:8px 0;}
       .kpi{flex:1;border:1.5px solid #15325C;border-radius:6px;padding:6px 8px;text-align:center;}
       .kpi b{display:block;font-size:17px;color:#15325C;}
@@ -13005,6 +13009,7 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
       body{ font-size: 9.5px; }
       table.lista thead th{ font-size: 9.5px; padding: 3px 5px; }
       table.lista tbody td{ padding: 1.5px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     </style>
     </head><body>
       <table style="width:100%;border-collapse:collapse;margin-bottom:2px;">
@@ -13172,6 +13177,7 @@ function imprimirAtaConselhoClasse(ata){
       table.lista-presenca thead th{background:#D9D9D9;color:#000;text-align:center;font-weight:700;padding:8px;border:1px solid #000;}
       table.lista-presenca thead th:first-child{width:60%;}
       table.lista-presenca tbody td{border:1px solid #000;height:30px;}
+      table.lista-presenca tbody tr:nth-child(even) td{background:#E4E4E4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .assinatura-coordenacao{border-top:1.3px solid #000;width:220px;text-align:center;padding-top:4px;font-size:12px;font-weight:600;margin-top:24px;}
       .rodape-doc{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #999;padding-top:6px;text-align:center;font-size:10.5px;line-height:1.5;color:#333;background:#fff;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
@@ -14134,6 +14140,7 @@ function imprimirAvaliacaoFluencia(turmaId, ano, alunosTurma, porAluno){
       table.lista{width:100%;border-collapse:collapse;}
       table.lista thead th{background:#15325C;color:#fff;font-size:10.5px;text-transform:uppercase;padding:5px 4px;border:1px solid #15325C;}
       table.lista tbody td{padding:4px 4px;border-bottom:1px solid #ccc;border-left:1px solid #ccc;border-right:1px solid #ccc;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       .legenda{font-size:10px;margin:6px 0 8px;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
@@ -14406,6 +14413,7 @@ async function imprimirBaixaFrequencia(ano, mes1, turmaId, btn, msgEl){
         table.lista{width:100%;border-collapse:collapse;}
         table.lista thead th{background:#15325C;color:#fff;font-size:11px;text-transform:uppercase;padding:6px 4px;border:1px solid #15325C;}
         table.lista tbody td{padding:6px 4px;border:1px solid #000;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
         table.lista thead{display:table-header-group;}
         table.lista tr{page-break-inside:avoid;}
         @media print{ body{-webkit-print-color-adjust:exact;} }
@@ -14519,6 +14527,7 @@ async function imprimirFrequenciaMensalDiaADia(turmaId, ano, mes, btn){
       table.lista{width:100%;border-collapse:collapse;}
       table.lista thead th{background:#15325C;color:#fff;font-size:13.5px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;}
       table.lista tbody td{padding:6px 3px;border-bottom:1.3px solid #000;border-left:1.3px solid #000;border-right:1.3px solid #000;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       .legenda{font-size:12px;margin-top:8px;color:#222;font-weight:400;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
@@ -14610,6 +14619,7 @@ async function imprimirFrequenciaMensalEmBranco(turmaId, ano, mes, btn){
       table.lista{width:100%;border-collapse:collapse;}
       table.lista thead th{background:#15325C;color:#fff;font-size:13.5px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;}
       table.lista tbody td{padding:9px 3px;border-bottom:1.3px solid #000;border-left:1.3px solid #000;border-right:1.3px solid #000;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       .linha-professor{display:flex;gap:24px;margin:8px 0;font-size:15px;}
       .linha-professor span{display:flex;align-items:center;gap:6px;}
@@ -14722,6 +14732,7 @@ const CSS_LISTA_ESTUDANTES_PADRAO = `
       table.lista{width:100%;border-collapse:collapse;}
       table.lista thead th{background:#15325C;color:#fff;font-size:10.5px;text-transform:uppercase;padding:5px 4px;border:1px solid #15325C;}
       table.lista tbody td{padding:6px 4px;border-bottom:1.5px solid #000;border-left:1.5px solid #000;border-right:1.5px solid #000;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }`;
 
@@ -14944,6 +14955,7 @@ function imprimirAtaPresenca(turmaId){
       table.lista{width:100%;border-collapse:collapse;}
       table.lista thead th{background:#15325C;color:#fff;font-size:${fontBase-0.5}px;text-transform:uppercase;padding:4px 4px;border:1px solid #15325C;}
       table.lista tbody td{padding:${rowPad}px 4px;border-bottom:1.5px solid #000;border-left:1.5px solid #000;border-right:1.5px solid #000;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
@@ -15125,6 +15137,7 @@ async function imprimirFrequenciaEstudantes(turmaId){
       table.lista{width:100%;border-collapse:collapse;}
       table.lista thead th{background:#15325C;color:#fff;font-size:10px;text-transform:uppercase;padding:5px 3px;border:1px solid #15325C;white-space:nowrap;}
       table.lista tbody td{padding:6px 3px;border-bottom:1.5px solid #000;border-left:1.5px solid #000;border-right:1.5px solid #000;}
+      table.lista tbody tr:nth-child(even) td{background:#E4E4E4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.lista tbody tr:first-child td{border-top:2px solid #15325C;}
       @media print{ body{-webkit-print-color-adjust:exact;} }
     </style>
