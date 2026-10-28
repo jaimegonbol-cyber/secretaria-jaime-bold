@@ -12646,10 +12646,10 @@ function fmtNotaSimulado(n){
   return (Math.round(n * 10) / 10).toFixed(1).replace('.', ',');
 }
 function faixaDesempenhoSimulado(pct){
-  if(pct >= 80) return { rotulo: 'Avançado', cor: '#2E7D5B' };
-  if(pct >= 60) return { rotulo: 'Adequado', cor: '#1D5B8C' };
-  if(pct >= 40) return { rotulo: 'Básico', cor: '#D98A1F' };
-  return { rotulo: 'Insuficiente', cor: '#B4432E' };
+  if(pct >= 80) return { rotulo: 'Avançado', cor: '#1B5E3F' };
+  if(pct >= 60) return { rotulo: 'Adequado', cor: '#14466F' };
+  if(pct >= 40) return { rotulo: 'Básico', cor: '#A85F00' };
+  return { rotulo: 'Insuficiente', cor: '#9C2B18' };
 }
 
 // Situação de cada resposta: marcar duas ou mais alternativas ou deixar em branco ANULA a questão (vale 0, não soma acerto).
@@ -12737,15 +12737,15 @@ function imprimirListaNotasGabarito(gabarito, analise){
   // Ajusta a altura/fonte das linhas para a lista caber em uma única folha.
   const alt = Math.max(4.8, Math.min(8.8, 222 / (n + 3)));
   const fonte = Math.max(10, Math.min(14, alt * 1.85));
-  const cor = (v) => v === null || v === undefined ? '#555' : v < 6 ? '#B4432E' : v < 8 ? '#D98A1F' : '#2E7D5B';
+  const cor = (v) => v === null || v === undefined ? '#222' : v < 6 ? '#B4432E' : v < 8 ? '#A85F00' : '#2E7D5B';
   const colsDisc = analise.disciplinas.map(d => `<th colspan="2">${esc(d.nome)} (${d.qtd})</th>`).join('');
   const subDisc = analise.disciplinas.map(() => '<th>Acertos</th><th>Nota</th>').join('');
   const corpo = linhas.map((l, i) => {
     const r = l.r;
     return `<tr>
       <td class="c">${i + 1}</td><td class="nome">${esc(l.nome)}</td>
-      ${r ? r.porDisciplina.map(d => `<td class="c">${d.acertos}/${d.total}</td><td class="c" style="font-weight:700;color:${cor(d.nota)};">${fmtNotaSimulado(d.nota)}</td>`).join('') : analise.disciplinas.map(() => '<td class="c" style="color:#999;">—</td><td class="c" style="color:#999;">—</td>').join('')}
-      ${r ? `<td class="c"><b>${r.acertos}/${r.total}</b></td><td class="c" style="font-weight:800;color:${cor(r.nota)};">${fmtNotaSimulado(r.nota)}</td>` : `<td class="c" colspan="2" style="color:#999;">não corrigido</td>`}
+      ${r ? r.porDisciplina.map(d => `<td class="c">${d.acertos}/${d.total}</td><td class="c" style="font-weight:700;color:${cor(d.nota)};">${fmtNotaSimulado(d.nota)}</td>`).join('') : analise.disciplinas.map(() => '<td class="c" style="color:#222;">—</td><td class="c" style="color:#222;">—</td>').join('')}
+      ${r ? `<td class="c"><b>${r.acertos}/${r.total}</b></td><td class="c" style="font-weight:800;color:${cor(r.nota)};">${fmtNotaSimulado(r.nota)}</td>` : `<td class="c" colspan="2" style="color:#222;">não corrigido</td>`}
     </tr>`;
   }).join('');
   const medias = analise.discResumo.map(d => `<td class="c"></td><td class="c"><b>${fmtNotaSimulado(d.media)}</b></td>`).join('');
@@ -12794,7 +12794,7 @@ async function imprimirRelatorioGabarito(gabarito, analise){
 
   const linhasAlunos = analise.alunos.slice().sort((a, b) => b.nota - a.nota || a.nome.localeCompare(b.nome, 'pt-BR')).map((a, i) => {
     const f = faixaDesempenhoSimulado(a.pct);
-    return `<tr><td style="text-align:center;">${i + 1}</td><td style="text-align:left;padding-left:6px;">${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total} <span style="color:#666;">(${fmtNotaSimulado(d.nota)})</span></td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td style="color:${a.anuladas?'#6B6B6B':'#aaa'};">${a.anuladas}</td><td><b style="font-size:12px;color:${f.cor};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td style="color:${f.cor};font-weight:700;">${f.rotulo}</td></tr>`;
+    return `<tr><td style="text-align:center;">${i + 1}</td><td style="text-align:left;padding-left:6px;">${esc(a.nome)}</td>${a.porDisciplina.map(d => `<td>${d.acertos}/${d.total} <span style="color:#111;">(${fmtNotaSimulado(d.nota)})</span></td>`).join('')}<td><b>${a.acertos}/${a.total}</b></td><td style="color:#000;font-weight:700;">${a.anuladas}</td><td><b style="font-size:12px;color:${f.cor};">${fmtNotaSimulado(a.nota)}</b></td><td>${a.pct}%</td><td style="color:${f.cor};font-weight:700;">${f.rotulo}</td></tr>`;
   }).join('');
   const linhasDisc = analise.discResumo.map(d => `<tr><td style="text-align:left;padding-left:6px;">${esc(d.nome)}</td><td>${d.qtd}</td><td><b>${fmtNotaSimulado(d.media)}</b></td><td style="width:45%;">${barra(d.pct)}</td><td>${d.pct}%</td></tr>`).join('');
   const linhasDescr = analise.descritores.slice().sort((a, b) => a.pct - b.pct).map(d => `<tr><td style="text-align:left;padding-left:6px;">${esc(d.descritor)}</td><td>${d.acertos}/${d.total}</td><td style="width:30%;">${barra(d.pct)}</td><td><b>${d.pct}%</b></td></tr>`).join('');
@@ -12823,6 +12823,7 @@ async function imprimirRelatorioGabarito(gabarito, analise){
       table.t tbody tr:nth-child(even) td{background:#E4E4E4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table.notas td{padding:0 4px;height:${altNota}mm;font-size:${fonteNota}px;line-height:1;color:#000;font-weight:700;border:1px solid #444;}
       table.notas td span{color:#111 !important;font-weight:700;}
+      table.notas td b{font-size:${fonteNota + 1}px !important;}
       table.notas td:nth-child(2){white-space:nowrap;text-align:left;font-size:${Math.max(9, fonteNota - 1.5)}px;}
       table.notas th{font-size:${Math.max(9, fonteNota - 1.5)}px;padding:3px 4px;border:1px solid #000;}
       table.notas tbody tr:nth-child(even) td{background:#D6D6D6;}
