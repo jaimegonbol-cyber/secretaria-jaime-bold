@@ -5897,6 +5897,43 @@ const ABAS_PERMISSIVEIS = [
   { id:'relatorios', label:'Relatórios' },
 ];
 
+// Registra cada leitura de foto feita pela IA (para o painel de uso em Usuários). Nunca atrapalha a correção.
+function registrarUsoCorrecaoCamera(tipo, sucesso, erro){
+  try{
+    supabase.from('uso_correcao_camera').insert({ tipo, sucesso: !!sucesso, erro: sucesso ? null : String(erro || '').slice(0, 300), usuario_id: ESTADO.perfil.id }).then(() => {}, () => {});
+  }catch(e){ /* ignora */ }
+}
+
+async function renderizarUsoCorrecaoCamera(alvo){
+  const inicioAno = new Date(new Date().getFullYear(), 0, 1).toISOString();
+  const { data, error } = await supabase.from('uso_correcao_camera').select('criado_em, usuario_id, tipo, sucesso, erro').gte('criado_em', inicioAno).order('criado_em', { ascending: false }).limit(5000);
+  if(error){ alvo.innerHTML = `<p style="font-size:13px;color:var(--erro);">Não foi possível carregar o uso: ${esc(error.message)}</p>`; return; }
+  const linhas = data || [];
+  const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const agora = new Date();
+  const mesAtual = agora.getFullYear() * 12 + agora.getMonth();
+  const doMes = linhas.filter(l => { const d = new Date(l.criado_em); return d.getFullYear() * 12 + d.getMonth() === mesAtual; });
+  const hoje = linhas.filter(l => new Date(l.criado_em).toDateString() === agora.toDateString());
+  const falhas = doMes.filter(l => !l.sucesso);
+  const porMes = {}; linhas.forEach(l => { const d = new Date(l.criado_em); const k = d.getMonth(); porMes[k] = (porMes[k] || 0) + 1; });
+  const porUsuario = {}; doMes.forEach(l => { const nome = (ESTADO.perfis.find(p => p.id === l.usuario_id) || {}).nome || 'Desconhecido'; porUsuario[nome] = (porUsuario[nome] || 0) + 1; });
+  const ultimaFalhaCredito = linhas.find(l => !l.sucesso && /credit|billing|balance|402|401|403/i.test(l.erro || ''));
+  const cartao = (rot, val) => `<div style="flex:1;min-width:120px;border:1px solid var(--borda);border-radius:10px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:800;">${val}</div><div style="font-size:11.5px;color:var(--texto-suave);">${rot}</div></div>`;
+  alvo.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+      ${cartao('fotos lidas hoje', hoje.length)}
+      ${cartao('fotos lidas neste mês', doMes.length)}
+      ${cartao('com falha neste mês', falhas.length)}
+      ${cartao('fotos lidas no ano', linhas.length)}
+    </div>
+    ${ultimaFalhaCredito ? `<div class="msg-erro" style="background:#FFF6E0;color:#7A5300;border-color:#E6C16A;">Última falha que parece ligada a crédito/chave: ${fmtData(ultimaFalhaCredito.criado_em.slice(0,10))} — <i>${esc((ultimaFalhaCredito.erro || '').slice(0, 160))}</i>. Confira o saldo em console.anthropic.com → Billing.</div>` : ''}
+    <div style="font-size:12.5px;margin:10px 0 4px;"><b>Por mês (ano atual)</b></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px;">${MESES.map((m, i) => `<span class="pill ${porMes[i] ? 'azul' : 'cinza'}">${m}: ${porMes[i] || 0}</span>`).join('')}</div>
+    ${Object.keys(porUsuario).length ? `<div style="font-size:12.5px;margin:12px 0 4px;"><b>Quem mais usou neste mês</b></div>
+    <div style="font-size:12.5px;">${Object.entries(porUsuario).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, q]) => `${esc(n)}: <b>${q}</b>`).join(' · ')}</div>` : ''}
+    <p style="font-size:11.5px;color:var(--texto-suave);margin:10px 0 0;">Cada foto analisada pela IA consome crédito da conta da Anthropic. O saldo em si só aparece no painel da Anthropic; aqui você acompanha quantas leituras foram feitas desde a ativação deste painel.</p>`;
+}
+
 function renderizarUsuarios(el){
   const linhas = ESTADO.perfis.map(p => `
     <tr>
@@ -5928,7 +5965,12 @@ function renderizarUsuarios(el){
       <div id="msg-migracao-storage"></div>
       <button class="botao secundario" id="btn-migrar-storage" style="width:auto;">Migrar links do Storage</button>
     </div>` : ''}
+    <div class="painel" style="margin-top:16px;">
+      <h3 style="margin-top:0;">Uso da correção por câmera (IA)</h3>
+      <div id="uso-correcao-camera"><p style="font-size:13px;color:var(--texto-suave);">Carregando…</p></div>
+    </div>
     <div id="modal-permissoes-area"></div>`;
+  renderizarUsoCorrecaoCamera(el.querySelector('#uso-correcao-camera'));
   document.getElementById('btn-convidar').addEventListener('click', abrirModalConvite);
   const btnMigrarStorage = document.getElementById('btn-migrar-storage');
   if(btnMigrarStorage){
@@ -11595,6 +11637,7 @@ function abrirModalCorrigirAvaliacaoCamera(avaliacao, elPai){
       const { data: resposta, error } = await supabase.functions.invoke('corrigir-avaliacao-camera', {
         body: { itens: avaliacao.itens, imagemBase64: base64, mediaType },
       });
+      registrarUsoCorrecaoCamera('avaliacao', !(error || !resposta || resposta.error), (resposta && resposta.error) || (error && error.message));
       if(error || !resposta || resposta.error) throw new Error((resposta && resposta.error) || 'Falha ao analisar a foto.');
       renderizarRevisaoCamcorr(avaliacao, alunoId, resposta.resultado, modal, elPai);
     } catch(err){
@@ -12187,6 +12230,7 @@ function abrirModalCorrigirGabaritoCamera(gabarito, elPai){
       const { data: resposta, error } = await supabase.functions.invoke('corrigir-gabarito-camera', {
         body: { numeroQuestoes: gabarito.questoes.length, numeroAlternativas: letrasDoGabarito(gabarito).length, imagemBase64: base64, mediaType },
       });
+      registrarUsoCorrecaoCamera('gabarito', !(error || !resposta || resposta.error), (resposta && resposta.error) || (error && error.message));
       if(error || !resposta || resposta.error){
         let detalhe = resposta && resposta.error;
         if(!detalhe && error && error.context && typeof error.context.json === 'function'){
