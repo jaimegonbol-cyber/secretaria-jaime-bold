@@ -14299,6 +14299,7 @@ function renderizarRelatorios(el){
     { id:'freq-mensal', label:'Frequência Mensal' },
     { id:'aee', label:'Estudantes com AEE' },
     { id:'fardamento', label:'Fardamento' },
+    { id:'etiquetas', label:'Etiquetas' },
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subRelatorios===a.id?'ativa':''}" data-aba-rel="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -14317,6 +14318,7 @@ function renderizarRelatorios(el){
   else if(ESTADO.subRelatorios === 'freq-mensal') renderizarRelFreqMensalDados(alvo);
   else if(ESTADO.subRelatorios === 'aee') renderizarRelAEE(alvo);
   else if(ESTADO.subRelatorios === 'fardamento') renderizarRelFardamento(alvo);
+  else if(ESTADO.subRelatorios === 'etiquetas') renderizarRelEtiquetas(alvo);
   else renderizarRelListaPresenca(alvo);
 }
 
@@ -14527,6 +14529,86 @@ function imprimirFardamentoTurma(turmaId){
     <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
     </body></html>
   `);
+  janela.document.close();
+  janela.focus();
+}
+
+// ---------------------------------------------------------------
+// ETIQUETAS — nome completo, data de nascimento e turma (2 colunas × 5 linhas por folha A4)
+// ---------------------------------------------------------------
+function renderizarRelEtiquetas(el){
+  const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'));
+  if(!Array.isArray(ESTADO.etiquetaTurmas)) ESTADO.etiquetaTurmas = [];
+  ESTADO.etiquetaTurmas = ESTADO.etiquetaTurmas.filter(id => turmas.some(t => t.id === id));
+  const marcadas = new Set(ESTADO.etiquetaTurmas);
+  const pont = ESTADO.etiquetaPontilhado !== false;
+  const qtd = turmas.filter(t => marcadas.has(t.id)).reduce((n, t) => n + alunosFardamentoDaTurma(t.id).length, 0);
+  el.innerHTML = `
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Etiquetas de estudantes</b></div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+            <b style="font-size:13.5px;">Selecione as turmas</b>
+            <button class="botao secundario pequeno" id="etq-todas" style="width:auto;">Selecionar todas</button>
+            <button class="botao secundario pequeno" id="etq-nenhuma" style="width:auto;">Limpar</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;">
+            ${turmas.map(t => `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;padding:6px 10px;border:1px solid var(--borda);border-radius:8px;cursor:pointer;background:${marcadas.has(t.id)?'var(--areia-escura)':'transparent'};">
+              <input type="checkbox" data-etq-turma="${t.id}" ${marcadas.has(t.id)?'checked':''} style="width:auto;margin:0;" />
+              ${esc(t.nome)} · ${esc(t.turno)} <span style="color:var(--texto-suave);font-size:12px;">(${alunosFardamentoDaTurma(t.id).length})</span></label>`).join('')}
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;"><input type="checkbox" id="etq-pontilhado" ${pont?'checked':''} style="width:auto;" />
+          Linhas pontilhadas de corte (desmarque para imprimir em folha de etiquetas adesivas)</label>
+        <div><button class="botao terracota pequeno" id="btn-etq-gerar" style="width:auto;" ${qtd?'':'disabled'}>🖨️ Gerar etiquetas (${qtd})</button></div>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0;">Cada etiqueta traz o <b>nome completo</b> (em fonte grande), a <b>data de nascimento</b> e a <b>turma</b>. São 10 etiquetas por folha A4 (2 colunas × 5 linhas), em ordem alfabética dentro de cada turma. Estudantes transferidos ou cancelados não entram.</p>
+      </div>
+    </div>`;
+  el.querySelectorAll('[data-etq-turma]').forEach(c => c.addEventListener('change', () => {
+    const id = c.dataset.etqTurma;
+    ESTADO.etiquetaTurmas = c.checked ? [...new Set([...ESTADO.etiquetaTurmas, id])] : ESTADO.etiquetaTurmas.filter(x => x !== id);
+    renderizarRelEtiquetas(el);
+  }));
+  document.getElementById('etq-todas').addEventListener('click', () => { ESTADO.etiquetaTurmas = turmas.map(t => t.id); renderizarRelEtiquetas(el); });
+  document.getElementById('etq-nenhuma').addEventListener('click', () => { ESTADO.etiquetaTurmas = []; renderizarRelEtiquetas(el); });
+  document.getElementById('etq-pontilhado').addEventListener('change', (e) => { ESTADO.etiquetaPontilhado = e.target.checked; });
+  document.getElementById('btn-etq-gerar').addEventListener('click', () => imprimirEtiquetasEstudantes(ESTADO.etiquetaTurmas.slice(), document.getElementById('etq-pontilhado').checked));
+}
+
+function imprimirEtiquetasEstudantes(idsTurmas, pontilhado){
+  const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'))
+    .filter(t => (idsTurmas || []).includes(t.id));
+  const itens = turmas.flatMap(t => alunosFardamentoDaTurma(t.id).map(a => ({ a, t })));
+  if(!itens.length) return;
+  const tamNome = (nome) => nome.length > 48 ? 15 : nome.length > 38 ? 17 : nome.length > 28 ? 19 : 21;
+  const etiqueta = ({ a, t }) => `<div class="etq">
+      <div class="nome" style="font-size:${tamNome(a.nome)}px;">${esc(a.nome)}</div>
+      <div class="rot">DATA DE NASCIMENTO:</div>
+      <div class="dt">${a.data_nascimento ? formatarDataBR(a.data_nascimento) : '—'}</div>
+      <div class="turma">${esc(t.nome)}</div>
+    </div>`;
+  const paginas = [];
+  for(let i = 0; i < itens.length; i += 10) paginas.push(itens.slice(i, i + 10));
+  const corpo = paginas.map(pg => `<div class="pagina">${pg.map(etiqueta).join('')}</div>`).join('');
+  const linha = pontilhado ? '0.35mm dashed #000' : '0.35mm solid transparent';
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><title>Etiquetas de estudantes</title>
+  <style>
+    @page{ size:A4 portrait; margin:8mm; }
+    *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body{ margin:0; font-family:Arial,Helvetica,sans-serif; color:#000; }
+    .pagina{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:repeat(5, 1fr); width:194mm; height:280mm; page-break-after:always; ${pontilhado ? 'outline:0.35mm dashed #000;' : ''} }
+    .pagina:last-child{ page-break-after:auto; }
+    .etq{ border-right:${linha}; border-bottom:${linha}; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:4mm 6mm; overflow:hidden; }
+    .etq:nth-child(2n){ border-right:none; }
+    .etq:nth-child(n+9){ border-bottom:none; }
+    .nome{ font-weight:800; text-transform:uppercase; line-height:1.2; margin-bottom:3.5mm; }
+    .rot{ font-size:9.5px; }
+    .dt{ font-size:14px; font-weight:800; margin-top:1mm; }
+    .turma{ font-size:15px; font-weight:800; color:#0B5CAD; margin-top:4mm; }
+  </style></head><body>${corpo}
+  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script></body></html>`);
   janela.document.close();
   janela.focus();
 }
