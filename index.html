@@ -14562,7 +14562,7 @@ function renderizarRelEtiquetas(el){
         <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;"><input type="checkbox" id="etq-pontilhado" ${pont?'checked':''} style="width:auto;" />
           Linhas pontilhadas de corte (desmarque para imprimir em folha de etiquetas adesivas)</label>
         <div><button class="botao terracota pequeno" id="btn-etq-gerar" style="width:auto;" ${qtd?'':'disabled'}>🖨️ Gerar etiquetas (${qtd})</button></div>
-        <p style="font-size:12.5px;color:var(--texto-suave);margin:0;">Cada etiqueta traz o <b>nome completo</b> (em fonte grande), a <b>data de nascimento</b> e a <b>turma</b>. São 10 etiquetas por folha A4 (2 colunas × 5 linhas), em ordem alfabética dentro de cada turma. Estudantes transferidos ou cancelados não entram.</p>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0;">Cada etiqueta traz o <b>nome completo</b> (em fonte grande), a <b>data de nascimento</b> e a <b>turma</b>. Cada etiqueta tem 4,5 cm de altura: são 12 por folha A4 (2 colunas × 6 linhas), em ordem alfabética dentro de cada turma. Estudantes transferidos ou cancelados não entram.</p>
       </div>
     </div>`;
   el.querySelectorAll('[data-etq-turma]').forEach(c => c.addEventListener('change', () => {
@@ -14589,7 +14589,7 @@ function imprimirEtiquetasEstudantes(idsTurmas, pontilhado){
       <div class="turma">${esc(t.nome)}</div>
     </div>`;
   const paginas = [];
-  for(let i = 0; i < itens.length; i += 10) paginas.push(itens.slice(i, i + 10));
+  for(let i = 0; i < itens.length; i += 12) paginas.push(itens.slice(i, i + 12));
   const corpo = paginas.map(pg => `<div class="pagina">${pg.map(etiqueta).join('')}</div>`).join('');
   const linha = pontilhado ? '0.35mm dashed #000' : '0.35mm solid transparent';
   const janela = window.open('', '_blank');
@@ -14598,15 +14598,15 @@ function imprimirEtiquetasEstudantes(idsTurmas, pontilhado){
     @page{ size:A4 portrait; margin:8mm; }
     *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     body{ margin:0; font-family:Arial,Helvetica,sans-serif; color:#000; }
-    .pagina{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:repeat(5, 1fr); width:194mm; height:280mm; page-break-after:always; ${pontilhado ? 'outline:0.35mm dashed #000;' : ''} }
+    .pagina{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:repeat(6, 45mm); width:194mm; height:270mm; page-break-after:always; ${pontilhado ? 'outline:0.35mm dashed #000;' : ''} }
     .pagina:last-child{ page-break-after:auto; }
-    .etq{ border-right:${linha}; border-bottom:${linha}; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:4mm 6mm; overflow:hidden; }
+    .etq{ border-right:${linha}; border-bottom:${linha}; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2mm 6mm; overflow:hidden; }
     .etq:nth-child(2n){ border-right:none; }
-    .etq:nth-child(n+9){ border-bottom:none; }
-    .nome{ font-weight:800; text-transform:uppercase; line-height:1.2; margin-bottom:3.5mm; }
+    .etq:nth-child(n+11){ border-bottom:none; }
+    .nome{ font-weight:800; text-transform:uppercase; line-height:1.2; margin-bottom:2.5mm; }
     .rot{ font-size:9.5px; }
     .dt{ font-size:14px; font-weight:800; margin-top:1mm; }
-    .turma{ font-size:15px; font-weight:800; color:#0B5CAD; margin-top:4mm; }
+    .turma{ font-size:15px; font-weight:800; color:#0B5CAD; margin-top:2.5mm; }
   </style></head><body>${corpo}
   <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script></body></html>`);
   janela.document.close();
