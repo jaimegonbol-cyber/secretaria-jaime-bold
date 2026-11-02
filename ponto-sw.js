@@ -1,5 +1,5 @@
 // Service worker do Ponto da Cozinha: guarda a página e o reconhecimento facial para funcionar SEM internet.
-const VERSAO = 'ponto-v1';
+const VERSAO = 'ponto-v2';
 const ARQUIVOS = [
   './ponto.html',
   './ponto.webmanifest',

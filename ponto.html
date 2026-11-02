@@ -40,7 +40,7 @@
   #resultado.ok{ background:var(--ok); } #resultado.erro{ background:var(--erro); } #resultado.aviso{ background:var(--aviso); }
   #resultado .icone{ font-size:clamp(70px,16vw,150px); line-height:1; }
   #resultado .nome{ font-size:clamp(30px,8vw,76px); font-weight:800; margin:10px 0; }
-  #resultado .tipo{ font-size:clamp(34px,9vw,84px); font-weight:800; }
+  #resultado .tipo{ font-size:clamp(28px,7.5vw,72px); font-weight:800; }
   #resultado .hora{ font-size:clamp(26px,6vw,56px); margin-top:8px; }
   #resultado .detalhe{ font-size:clamp(16px,3vw,28px); margin-top:14px; opacity:.95; }
   /* Painéis */
@@ -122,6 +122,11 @@ const TEMPO_LEITURA_MS = 12000;
 const INTERVALO_SYNC_MS = 60000;
 const BLOQUEIO_REPETIR_S = 90;    // evita bater duas vezes sem querer
 const FUSO = 'America/Recife';
+// Sequência do dia: 1ª marcação = entrada, 2ª = saída para o almoço, 3ª = retorno do almoço, 4ª = saída.
+const SEQUENCIA = ['entrada', 'saida_almoco', 'retorno_almoco', 'saida'];
+const ROTULO = { entrada: 'ENTRADA', saida_almoco: 'SAÍDA PARA O ALMOÇO', retorno_almoco: 'RETORNO DO ALMOÇO', saida: 'SAÍDA' };
+const ICONE = { entrada: '✅', saida_almoco: '🍽️', retorno_almoco: '↩️', saida: '👋' };
+const rotuloTipo = (t) => ROTULO[t] || (t === 'entrada' ? 'ENTRADA' : 'SAÍDA');
 
 // ====================== BANCO LOCAL (IndexedDB) ======================
 const BD = {
@@ -322,7 +327,11 @@ async function proximoTipo(funcionarioId){
   const marcas = (await BD.todasMarcas()).filter(m => m.funcionario_id === funcionarioId && diaDe(new Date(m.registrado_em)) === hoje)
     .sort((a,b) => a.registrado_em.localeCompare(b.registrado_em));
   const ultima = marcas[marcas.length - 1] || null;
-  return { ultima, tipo: !ultima ? 'entrada' : (ultima.tipo === 'entrada' ? 'saida' : 'entrada') };
+  if(!ultima) return { ultima, tipo: 'entrada', completo: false };
+  const i = SEQUENCIA.indexOf(ultima.tipo);
+  // 'saida' (4ª) ou valor antigo = jornada completa
+  if(i < 0 || i >= SEQUENCIA.length - 1) return { ultima, tipo: null, completo: true };
+  return { ultima, tipo: SEQUENCIA[i + 1], completo: false };
 }
 async function baterPonto(){
   if(LENDO || !MODELOS_PRONTOS || !FUNCIONARIOS.length) return;
@@ -339,10 +348,15 @@ async function baterPonto(){
     if(cancelou) return;
     if(!m){ bip([220], 0.35); mostrarResultado('erro', '✖', 'Rosto não reconhecido', '', '', 'Tente de novo, de frente para a câmera, com boa luz. Se continuar, avise a secretaria.', 4000); return; }
     const agora = new Date();
-    const { ultima, tipo } = await proximoTipo(m.funcionario.id);
+    const { ultima, tipo, completo } = await proximoTipo(m.funcionario.id);
     if(ultima && (agora.getTime() - new Date(ultima.registrado_em).getTime()) / 1000 < BLOQUEIO_REPETIR_S){
       bip([440, 440], 0.12);
-      mostrarResultado('aviso', 'ℹ', m.funcionario.nome, 'JÁ REGISTRADO', horaDe(new Date(ultima.registrado_em)), `Seu ponto de ${ultima.tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA'} já foi marcado agora há pouco.`, 3500);
+      mostrarResultado('aviso', 'ℹ', m.funcionario.nome, 'JÁ REGISTRADO', horaDe(new Date(ultima.registrado_em)), `Seu ponto de ${rotuloTipo(ultima.tipo)} já foi marcado agora há pouco.`, 3500);
+      return;
+    }
+    if(completo){
+      bip([440, 440], 0.12);
+      mostrarResultado('aviso', '✔', m.funcionario.nome, 'PONTO DO DIA COMPLETO', horaDe(new Date(ultima.registrado_em)), 'As 4 marcações de hoje já foram feitas. Se algo estiver errado, avise a secretaria.', 4500);
       return;
     }
     const marca = {
@@ -352,7 +366,7 @@ async function baterPonto(){
     marca.client_id = marca.chave.slice(4);
     await BD.gravarMarca(marca);
     bip([660, 880], 0.14); if(navigator.vibrate) navigator.vibrate(120);
-    mostrarResultado('ok', tipo === 'entrada' ? '✅' : '👋', m.funcionario.nome, tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA', horaDe(agora),
+    mostrarResultado('ok', ICONE[tipo] || '✅', m.funcionario.nome, rotuloTipo(tipo), horaDe(agora),
       navigator.onLine ? 'Ponto registrado.' : 'Ponto guardado no aparelho. Será enviado quando voltar a internet.', 3800);
     sincronizar();
   } catch(e){
@@ -371,7 +385,7 @@ async function mostrarMarcasHoje(){
   const marcas = (await BD.todasMarcas()).filter(m => diaDe(new Date(m.registrado_em)) === hoje).sort((a,b) => a.registrado_em.localeCompare(b.registrado_em));
   const nome = (id) => (FUNCIONARIOS.find(f => f.id === id) || {}).nome || 'Funcionária';
   $('op-lista').innerHTML = marcas.length
-    ? `<table><thead><tr><th>Hora</th><th>Nome</th><th>Tipo</th><th>Envio</th></tr></thead><tbody>${marcas.map(m => `<tr><td>${horaDe(new Date(m.registrado_em))}</td><td>${esc(nome(m.funcionario_id))}</td><td>${m.tipo === 'entrada' ? 'Entrada' : 'Saída'}</td><td>${m.enviado ? '✓ enviado' : '⏳ aguardando'}</td></tr>`).join('')}</tbody></table>`
+    ? `<table><thead><tr><th>Hora</th><th>Nome</th><th>Tipo</th><th>Envio</th></tr></thead><tbody>${marcas.map(m => `<tr><td>${horaDe(new Date(m.registrado_em))}</td><td>${esc(nome(m.funcionario_id))}</td><td>${esc(rotuloTipo(m.tipo))}</td><td>${m.enviado ? '✓ enviado' : '⏳ aguardando'}</td></tr>`).join('')}</tbody></table>`
     : '<p>Nenhuma marcação hoje.</p>';
 }
 function abrirOpcoes(){
