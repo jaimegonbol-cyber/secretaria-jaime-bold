@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="robots" content="noindex, nofollow, noarchive, noai, noimageai" />
+<meta name="theme-color" content="#0F2A4A" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<link rel="manifest" href="ponto.webmanifest" />
+<link rel="icon" href="ponto-icone-192.png" />
+<title>Ponto da Cozinha</title>
+<style>
+  :root{ --fundo:#0F2A4A; --fundo2:#16396300; --card:#FFFFFF; --texto:#FFFFFF; --ok:#1E8E4E; --erro:#B3261E; --aviso:#C77700; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:var(--fundo); color:var(--texto); font-family:Arial,Helvetica,sans-serif; overflow:hidden; user-select:none; -webkit-user-select:none; }
+  #app{ height:100%; display:flex; flex-direction:column; align-items:center; justify-content:space-between; padding:18px 18px 14px; }
+  header{ text-align:center; }
+  header .escola{ font-size:clamp(13px,2.2vw,20px); letter-spacing:.04em; opacity:.85; }
+  header h1{ margin:4px 0 0; font-size:clamp(24px,5vw,44px); }
+  #relogio{ font-size:clamp(54px,14vw,140px); font-weight:800; letter-spacing:.02em; line-height:1; text-align:center; }
+  #data{ font-size:clamp(15px,3vw,26px); opacity:.85; text-align:center; margin-top:6px; }
+  #btn-ponto{ width:min(92vw,720px); min-height:clamp(120px,24vh,220px); border:none; border-radius:28px; background:#F2B01E; color:#1B1B1B; font-size:clamp(26px,6vw,54px); font-weight:800; cursor:pointer; box-shadow:0 8px 0 #A87500; }
+  #btn-ponto:active{ transform:translateY(5px); box-shadow:0 3px 0 #A87500; }
+  #btn-ponto[disabled]{ background:#7C8794; box-shadow:0 8px 0 #4F5963; color:#EEE; cursor:default; }
+  footer{ width:100%; display:flex; flex-wrap:wrap; gap:10px 18px; justify-content:center; align-items:center; font-size:clamp(12px,2vw,17px); opacity:.95; }
+  .chip{ padding:5px 12px; border-radius:99px; background:rgba(255,255,255,.12); white-space:nowrap; }
+  .chip.on{ background:#1E8E4E; } .chip.off{ background:#C77700; } .chip.erro{ background:#B3261E; }
+  #engrenagem{ position:fixed; right:8px; top:8px; width:46px; height:46px; border-radius:50%; border:none; background:rgba(255,255,255,.10); color:#fff; font-size:22px; }
+  /* Tela de leitura facial */
+  #leitura{ position:fixed; inset:0; background:#000; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:20; }
+  #leitura.ativa{ display:flex; }
+  #video{ width:100%; height:100%; object-fit:cover; transform:scaleX(-1); position:absolute; inset:0; }
+  #oval{ position:relative; width:min(60vw,46vh); height:min(78vw,60vh); border:6px solid rgba(255,255,255,.9); border-radius:50%; box-shadow:0 0 0 100vmax rgba(0,0,0,.45); }
+  #msg-leitura{ position:absolute; left:0; right:0; bottom:6vh; text-align:center; font-size:clamp(22px,5vw,40px); font-weight:800; text-shadow:0 2px 8px #000; padding:0 16px; }
+  #cancelar{ position:absolute; top:14px; left:14px; padding:12px 22px; font-size:20px; border:none; border-radius:12px; background:rgba(255,255,255,.85); color:#111; }
+  /* Resultado */
+  #resultado{ position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; z-index:30; padding:24px; }
+  #resultado.ativa{ display:flex; }
+  #resultado.ok{ background:var(--ok); } #resultado.erro{ background:var(--erro); } #resultado.aviso{ background:var(--aviso); }
+  #resultado .icone{ font-size:clamp(70px,16vw,150px); line-height:1; }
+  #resultado .nome{ font-size:clamp(30px,8vw,76px); font-weight:800; margin:10px 0; }
+  #resultado .tipo{ font-size:clamp(34px,9vw,84px); font-weight:800; }
+  #resultado .hora{ font-size:clamp(26px,6vw,56px); margin-top:8px; }
+  #resultado .detalhe{ font-size:clamp(16px,3vw,28px); margin-top:14px; opacity:.95; }
+  /* Painéis */
+  .painel-fundo{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:40; padding:14px; }
+  .painel-fundo.ativa{ display:flex; }
+  .painel{ background:#fff; color:#111; border-radius:16px; width:min(94vw,640px); max-height:90vh; overflow:auto; padding:18px; user-select:text; -webkit-user-select:text; }
+  .painel h2{ margin:0 0 10px; font-size:22px; }
+  .painel button, .painel input{ font-size:17px; padding:12px 16px; border-radius:10px; border:1px solid #888; }
+  .painel button{ background:#0F2A4A; color:#fff; border:none; cursor:pointer; margin:4px 6px 4px 0; }
+  .painel button.sec{ background:#E3E6EA; color:#111; } .painel button.perigo{ background:#B3261E; }
+  .painel table{ width:100%; border-collapse:collapse; font-size:16px; }
+  .painel td,.painel th{ border-bottom:1px solid #ddd; padding:8px 6px; text-align:left; }
+  #config-tela{ position:fixed; inset:0; background:var(--fundo); display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:26px; z-index:35; gap:14px; }
+  #config-tela.ativa{ display:flex; }
+  #config-tela h2{ font-size:clamp(24px,5vw,40px); margin:0; }
+  #config-tela p{ font-size:clamp(15px,2.6vw,22px); max-width:760px; margin:0; opacity:.92; }
+  #config-tela input{ font-size:20px; padding:14px; width:min(90vw,520px); border-radius:10px; border:none; }
+  #config-tela button{ font-size:20px; padding:14px 26px; border:none; border-radius:12px; background:#F2B01E; color:#111; font-weight:700; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="escola">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+    <h1>🍲 Ponto da Cozinha</h1>
+  </header>
+  <main style="text-align:center;">
+    <div id="relogio">--:--:--</div>
+    <div id="data"></div>
+  </main>
+  <button id="btn-ponto" disabled>Preparando…</button>
+  <footer>
+    <span class="chip" id="chip-rede">…</span>
+    <span class="chip" id="chip-fila">…</span>
+    <span class="chip" id="chip-sync">Sem sincronização ainda</span>
+    <span class="chip" id="chip-rostos">…</span>
+  </footer>
+</div>
+<button id="engrenagem" title="Opções (segure por 2 segundos)">⚙</button>
+
+<div id="leitura">
+  <video id="video" autoplay muted playsinline></video>
+  <div id="oval"></div>
+  <button id="cancelar">✕ Cancelar</button>
+  <div id="msg-leitura">Olhe para a câmera…</div>
+</div>
+
+<div id="resultado"><div class="icone" id="res-icone"></div><div class="nome" id="res-nome"></div><div class="tipo" id="res-tipo"></div><div class="hora" id="res-hora"></div><div class="detalhe" id="res-detalhe"></div></div>
+
+<div id="config-tela">
+  <h2>Aparelho ainda não configurado</h2>
+  <p>No sistema da secretaria, vá em <b>Frequência de funcionários → 📟 Tablet da cozinha</b>, gere o link de pareamento e abra esse link neste aparelho. Ou cole abaixo o código do aparelho.</p>
+  <input id="cfg-codigo" placeholder="Código do aparelho" autocomplete="off" />
+  <button id="cfg-salvar">Configurar</button>
+  <p id="cfg-msg" style="color:#FFD27A;"></p>
+</div>
+
+<div class="painel-fundo" id="painel-opcoes"><div class="painel">
+  <h2>Opções do aparelho</h2>
+  <p id="op-info" style="font-size:15px;color:#444;"></p>
+  <button id="op-sync">🔄 Sincronizar agora</button>
+  <button id="op-hoje" class="sec">📋 Marcações de hoje</button>
+  <button id="op-desparear" class="perigo">Desparear aparelho</button>
+  <button id="op-fechar" class="sec">Fechar</button>
+  <div id="op-lista" style="margin-top:12px;"></div>
+</div></div>
+
+<script src="vendor-face/face-api.js"></script>
+<script>
+'use strict';
+// ====================== CONFIGURAÇÃO ======================
+const SUPABASE_URL = 'https://gubmypyydtdvpvglwiuq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1Ym15cHl5ZHRkdnB2Z2x3aXVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NjI3OTQsImV4cCI6MjEwMDAzODc5NH0.vV0v8QiWzauOvMkgs8KHDYA2C6BXuoYgkSl8ndWjPqU';
+const MODELOS = './vendor-face/models';
+const LIMIAR_DISTANCIA = 0.5;     // quanto menor, mais rígido (igual ao ponto facial do sistema)
+const MARGEM_ENTRE_PESSOAS = 0.04;
+const LEITURAS_CONSECUTIVAS = 2;  // mesma pessoa reconhecida em 2 quadros seguidos
+const TEMPO_LEITURA_MS = 12000;
+const INTERVALO_SYNC_MS = 60000;
+const BLOQUEIO_REPETIR_S = 90;    // evita bater duas vezes sem querer
+const FUSO = 'America/Recife';
+
+// ====================== BANCO LOCAL (IndexedDB) ======================
+const BD = {
+  _db: null,
+  abrir(){
+    if(this._db) return Promise.resolve(this._db);
+    return new Promise((ok, falha) => {
+      const req = indexedDB.open('ponto-cozinha', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        db.createObjectStore('kv');
+        db.createObjectStore('marcas', { keyPath: 'chave' });
+      };
+      req.onsuccess = () => { this._db = req.result; ok(this._db); };
+      req.onerror = () => falha(req.error);
+    });
+  },
+  async _tx(loja, modo, fn){
+    const db = await this.abrir();
+    return new Promise((ok, falha) => {
+      const tx = db.transaction(loja, modo); const st = tx.objectStore(loja);
+      const r = fn(st); tx.oncomplete = () => ok(r && r.result !== undefined ? r.result : undefined); tx.onerror = () => falha(tx.error);
+    });
+  },
+  ler(k){ return this._tx('kv', 'readonly', st => st.get(k)); },
+  gravar(k, v){ return this._tx('kv', 'readwrite', st => st.put(v, k)); },
+  apagar(k){ return this._tx('kv', 'readwrite', st => st.delete(k)); },
+  todasMarcas(){ return this._tx('marcas', 'readonly', st => st.getAll()); },
+  gravarMarca(m){ return this._tx('marcas', 'readwrite', st => st.put(m)); },
+  apagarMarca(chave){ return this._tx('marcas', 'readwrite', st => st.delete(chave)); },
+};
+
+// ====================== UTILIDADES ======================
+const $ = (id) => document.getElementById(id);
+const dormir = (ms) => new Promise(r => setTimeout(r, ms));
+const diaDe = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: FUSO, year:'numeric', month:'2-digit', day:'2-digit' }).format(d);
+const horaDe = (d) => new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, hour:'2-digit', minute:'2-digit' }).format(d);
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); }));
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+let TOKEN = null;
+let FUNCIONARIOS = [];      // [{id, nome, descritor}]
+let MODELOS_PRONTOS = false;
+let LENDO = false;
+let ULTIMA_SYNC = null;
+let SYNC_EM_ANDAMENTO = false;
+let ERRO_AUTORIZACAO = false;
+
+// ====================== SOM ======================
+let audioCtx = null;
+function bip(freqs, dur){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    let t = audioCtx.currentTime;
+    freqs.forEach(f => {
+      const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+      o.frequency.value = f; o.type = 'sine'; g.gain.value = 0.25;
+      o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + dur); t += dur;
+    });
+  } catch(e){}
+}
+
+// ====================== RELÓGIO E STATUS ======================
+function atualizarRelogio(){
+  const agora = new Date();
+  $('relogio').textContent = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(agora);
+  const dt = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, weekday:'long', day:'numeric', month:'long', year:'numeric' }).format(agora); $('data').textContent = dt.charAt(0).toUpperCase() + dt.slice(1);
+}
+async function atualizarStatus(){
+  const online = navigator.onLine;
+  const r = $('chip-rede'); r.textContent = online ? '● Online' : '● Sem internet (funcionando offline)'; r.className = 'chip ' + (online ? 'on' : 'off');
+  const marcas = await BD.todasMarcas();
+  const pend = marcas.filter(m => m.origem === 'local' && !m.enviado).length;
+  const f = $('chip-fila'); f.textContent = pend ? `⏳ ${pend} marcação(ões) aguardando envio` : '✓ Tudo enviado'; f.className = 'chip ' + (pend ? 'off' : 'on');
+  $('chip-sync').textContent = ULTIMA_SYNC ? 'Última sincronização: ' + horaDe(new Date(ULTIMA_SYNC)) : 'Sem sincronização ainda';
+  const rs = $('chip-rostos');
+  if(ERRO_AUTORIZACAO){ rs.textContent = '⚠ Aparelho não autorizado — peça novo pareamento'; rs.className = 'chip erro'; }
+  else { rs.textContent = `👩‍🍳 ${FUNCIONARIOS.length} rosto(s) cadastrado(s)`; rs.className = 'chip ' + (FUNCIONARIOS.length ? 'on' : 'off'); }
+  const btn = $('btn-ponto');
+  if(!MODELOS_PRONTOS){ btn.disabled = true; btn.textContent = 'Preparando reconhecimento…'; }
+  else if(!FUNCIONARIOS.length){ btn.disabled = true; btn.textContent = 'Nenhum rosto cadastrado'; }
+  else { btn.disabled = LENDO; btn.textContent = '👆 TOQUE AQUI PARA BATER O PONTO'; }
+}
+
+// ====================== REDE / SINCRONIZAÇÃO ======================
+async function rpc(nome, corpo){
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 20000);
+  try{
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${nome}`, {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+      body: JSON.stringify(corpo),
+    });
+    const texto = await resp.text(); let json = null; try{ json = JSON.parse(texto); }catch(e){}
+    if(!resp.ok){
+      const msg = (json && (json.message || json.hint)) || texto || ('HTTP ' + resp.status);
+      const erro = new Error(msg); erro.autorizacao = /dispositivo_nao_autorizado/.test(msg) || (json && json.code === '28000'); throw erro;
+    }
+    return json;
+  } finally { clearTimeout(t); }
+}
+
+async function sincronizar(){
+  if(!TOKEN || SYNC_EM_ANDAMENTO || !navigator.onLine) return;
+  SYNC_EM_ANDAMENTO = true;
+  try{
+    // 1) envia as marcações que estão aguardando (reenviar é seguro: o servidor ignora duplicadas)
+    let marcas = await BD.todasMarcas();
+    let pend = marcas.filter(m => m.origem === 'local' && !m.enviado).sort((a,b) => a.registrado_em.localeCompare(b.registrado_em));
+    while(pend.length){
+      const lote = pend.slice(0, 100);
+      await rpc('quiosque_enviar', {
+        p_token: TOKEN, p_agora_dispositivo: new Date().toISOString(),
+        p_registros: lote.map(m => ({ client_id: m.client_id, funcionario_id: m.funcionario_id, registrado_em: m.registrado_em, tipo: m.tipo, confianca: m.confianca })),
+      });
+      for(const m of lote){ m.enviado = 1; await BD.gravarMarca(m); }
+      pend = pend.slice(100);
+    }
+    // 2) baixa rostos cadastrados e marcações do dia
+    const dados = await rpc('quiosque_dados', { p_token: TOKEN });
+    FUNCIONARIOS = (dados.funcionarios || []).filter(f => Array.isArray(f.descritor) && f.descritor.length === 128);
+    await BD.gravar('funcionarios', FUNCIONARIOS);
+    marcas = await BD.todasMarcas();
+    for(const m of marcas.filter(m => m.origem === 'servidor')) await BD.apagarMarca(m.chave);
+    for(const h of (dados.hoje || [])){
+      await BD.gravarMarca({ chave: 'srv:' + h.funcionario_id + ':' + h.registrado_em, origem: 'servidor', funcionario_id: h.funcionario_id, registrado_em: h.registrado_em, tipo: h.tipo, enviado: 1 });
+    }
+    // limpa marcas locais já enviadas e antigas (mais de 3 dias)
+    const corte = Date.now() - 3*86400000;
+    for(const m of (await BD.todasMarcas())) if(m.origem === 'local' && m.enviado && new Date(m.registrado_em).getTime() < corte) await BD.apagarMarca(m.chave);
+    ERRO_AUTORIZACAO = false;
+    ULTIMA_SYNC = new Date().toISOString(); await BD.gravar('ultima_sync', ULTIMA_SYNC);
+  } catch(e){
+    if(e && e.autorizacao) ERRO_AUTORIZACAO = true;
+    console.warn('Sincronização falhou:', e && e.message);
+  } finally {
+    SYNC_EM_ANDAMENTO = false; atualizarStatus();
+  }
+}
+
+// ====================== RECONHECIMENTO ======================
+async function prepararModelos(){
+  const fa = window.faceapi;
+  // Usa a placa de vídeo (rápido). Se o aparelho não suportar, cai para o processador (mais lento, mas funciona).
+  let ok = false;
+  try{ ok = await fa.tf.setBackend('webgl'); await fa.tf.ready(); }catch(e){ ok = false; }
+  if(!ok){ await fa.tf.setBackend('cpu'); await fa.tf.ready(); }
+  console.log('Reconhecimento facial usando:', fa.tf.getBackend());
+  await Promise.all([
+    fa.nets.tinyFaceDetector.loadFromUri(MODELOS),
+    fa.nets.faceLandmark68Net.loadFromUri(MODELOS),
+    fa.nets.faceRecognitionNet.loadFromUri(MODELOS),
+  ]);
+  // aquecimento: a primeira execução é a mais lenta
+  try{ const c = document.createElement('canvas'); c.width = c.height = 160; await fa.detectSingleFace(c, new fa.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor(); }catch(e){}
+  MODELOS_PRONTOS = true;
+}
+function distancia(a, b){ let s = 0; for(let i = 0; i < a.length; i++){ const d = a[i] - b[i]; s += d*d; } return Math.sqrt(s); }
+async function detectarDescritor(video){
+  const fa = window.faceapi;
+  const r = await fa.detectSingleFace(video, new fa.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })).withFaceLandmarks().withFaceDescriptor();
+  return r ? Array.from(r.descriptor) : null;
+}
+function melhorCorrespondencia(descritor){
+  let b1 = Infinity, b2 = Infinity, f1 = null;
+  for(const f of FUNCIONARIOS){
+    const d = distancia(descritor, f.descritor);
+    if(d < b1){ b2 = b1; b1 = d; f1 = f; } else if(d < b2){ b2 = d; }
+  }
+  const aceito = f1 && b1 <= LIMIAR_DISTANCIA && (b2 === Infinity || (b2 - b1) >= MARGEM_ENTRE_PESSOAS);
+  return { funcionario: aceito ? f1 : null, distancia: b1 };
+}
+async function reconhecer(video, cancelado, aoStatus){
+  const inicio = Date.now(); let ultimoId = null, seq = 0;
+  while(Date.now() - inicio < TEMPO_LEITURA_MS && !cancelado()){
+    let d = null;
+    try{ d = await detectarDescritor(video); }catch(e){}
+    if(!d){ seq = 0; ultimoId = null; aoStatus('Olhe para a câmera…'); await dormir(80); continue; }
+    const m = melhorCorrespondencia(d);
+    if(m.funcionario){
+      if(ultimoId === m.funcionario.id) seq++; else { ultimoId = m.funcionario.id; seq = 1; }
+      aoStatus('Reconhecendo…');
+      if(seq >= LEITURAS_CONSECUTIVAS) return m;
+    } else { seq = 0; ultimoId = null; aoStatus('Aproxime o rosto da câmera…'); }
+  }
+  return null;
+}
+
+// ====================== FLUXO DO TOQUE ======================
+function mostrarResultado(tipoCls, icone, nome, tipo, hora, detalhe, ms){
+  const r = $('resultado'); r.className = 'ativa ' + tipoCls;
+  $('res-icone').textContent = icone; $('res-nome').textContent = nome || ''; $('res-tipo').textContent = tipo || '';
+  $('res-hora').textContent = hora || ''; $('res-detalhe').textContent = detalhe || '';
+  setTimeout(() => { r.className = ''; }, ms);
+}
+async function proximoTipo(funcionarioId){
+  const hoje = diaDe(new Date());
+  const marcas = (await BD.todasMarcas()).filter(m => m.funcionario_id === funcionarioId && diaDe(new Date(m.registrado_em)) === hoje)
+    .sort((a,b) => a.registrado_em.localeCompare(b.registrado_em));
+  const ultima = marcas[marcas.length - 1] || null;
+  return { ultima, tipo: !ultima ? 'entrada' : (ultima.tipo === 'entrada' ? 'saida' : 'entrada') };
+}
+async function baterPonto(){
+  if(LENDO || !MODELOS_PRONTOS || !FUNCIONARIOS.length) return;
+  LENDO = true; atualizarStatus();
+  let stream = null, cancelou = false;
+  const video = $('video'), tela = $('leitura'), msg = $('msg-leitura');
+  $('cancelar').onclick = () => { cancelou = true; };
+  try{
+    msg.textContent = 'Abrindo a câmera…'; tela.classList.add('ativa');
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    video.srcObject = stream; await video.play().catch(() => {});
+    const m = await reconhecer(video, () => cancelou, (t) => { msg.textContent = t; });
+    tela.classList.remove('ativa');
+    if(cancelou) return;
+    if(!m){ bip([220], 0.35); mostrarResultado('erro', '✖', 'Rosto não reconhecido', '', '', 'Tente de novo, de frente para a câmera, com boa luz. Se continuar, avise a secretaria.', 4000); return; }
+    const agora = new Date();
+    const { ultima, tipo } = await proximoTipo(m.funcionario.id);
+    if(ultima && (agora.getTime() - new Date(ultima.registrado_em).getTime()) / 1000 < BLOQUEIO_REPETIR_S){
+      bip([440, 440], 0.12);
+      mostrarResultado('aviso', 'ℹ', m.funcionario.nome, 'JÁ REGISTRADO', horaDe(new Date(ultima.registrado_em)), `Seu ponto de ${ultima.tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA'} já foi marcado agora há pouco.`, 3500);
+      return;
+    }
+    const marca = {
+      chave: 'loc:' + uuid(), origem: 'local', enviado: 0, funcionario_id: m.funcionario.id,
+      registrado_em: agora.toISOString(), tipo, confianca: Math.max(0, Math.round((1 - m.distancia) * 1000) / 1000),
+    };
+    marca.client_id = marca.chave.slice(4);
+    await BD.gravarMarca(marca);
+    bip([660, 880], 0.14); if(navigator.vibrate) navigator.vibrate(120);
+    mostrarResultado('ok', tipo === 'entrada' ? '✅' : '👋', m.funcionario.nome, tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA', horaDe(agora),
+      navigator.onLine ? 'Ponto registrado.' : 'Ponto guardado no aparelho. Será enviado quando voltar a internet.', 3800);
+    sincronizar();
+  } catch(e){
+    tela.classList.remove('ativa');
+    const negou = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+    mostrarResultado('erro', '📷', 'Câmera indisponível', '', '', negou ? 'Permita o uso da câmera para este site nas configurações do navegador.' : (e && e.message) || 'Não foi possível abrir a câmera.', 5000);
+  } finally {
+    if(stream) stream.getTracks().forEach(t => t.stop());
+    tela.classList.remove('ativa'); LENDO = false; atualizarStatus();
+  }
+}
+
+// ====================== OPÇÕES / PAREAMENTO ======================
+async function mostrarMarcasHoje(){
+  const hoje = diaDe(new Date());
+  const marcas = (await BD.todasMarcas()).filter(m => diaDe(new Date(m.registrado_em)) === hoje).sort((a,b) => a.registrado_em.localeCompare(b.registrado_em));
+  const nome = (id) => (FUNCIONARIOS.find(f => f.id === id) || {}).nome || 'Funcionária';
+  $('op-lista').innerHTML = marcas.length
+    ? `<table><thead><tr><th>Hora</th><th>Nome</th><th>Tipo</th><th>Envio</th></tr></thead><tbody>${marcas.map(m => `<tr><td>${horaDe(new Date(m.registrado_em))}</td><td>${esc(nome(m.funcionario_id))}</td><td>${m.tipo === 'entrada' ? 'Entrada' : 'Saída'}</td><td>${m.enviado ? '✓ enviado' : '⏳ aguardando'}</td></tr>`).join('')}</tbody></table>`
+    : '<p>Nenhuma marcação hoje.</p>';
+}
+function abrirOpcoes(){
+  $('op-info').textContent = `Código do aparelho: ${TOKEN ? TOKEN.slice(0, 6) + '…' : '—'} · ${FUNCIONARIOS.length} rosto(s) · ${navigator.onLine ? 'online' : 'offline'}`;
+  $('op-lista').innerHTML = ''; $('painel-opcoes').classList.add('ativa');
+}
+async function configurar(token){
+  token = (token || '').trim();
+  if(!/^[0-9a-f]{40,128}$/i.test(token)){ $('cfg-msg').textContent = 'Código inválido. Confira o link ou o código gerado no sistema.'; return false; }
+  if(!navigator.onLine){ $('cfg-msg').textContent = 'Para configurar pela primeira vez é preciso estar conectado à internet.'; return false; }
+  $('cfg-msg').textContent = 'Verificando…';
+  try{
+    await rpc('quiosque_dados', { p_token: token });
+  } catch(e){ $('cfg-msg').textContent = e.autorizacao ? 'Este código não é válido ou foi desativado.' : 'Não consegui verificar agora: ' + (e.message || 'erro de conexão'); return false; }
+  TOKEN = token; await BD.gravar('token', token);
+  $('config-tela').classList.remove('ativa'); history.replaceState(null, '', location.pathname);
+  await sincronizar(); return true;
+}
+
+// ====================== INICIALIZAÇÃO ======================
+async function iniciar(){
+  atualizarRelogio(); setInterval(atualizarRelogio, 1000);
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('ponto-sw.js').catch(e => console.warn('SW', e)); }
+  if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  try{ if('wakeLock' in navigator){ const pedir = () => navigator.wakeLock.request('screen').catch(() => {}); pedir(); document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') pedir(); }); } }catch(e){}
+
+  const m = /[#&]t=([0-9a-fA-F]+)/.exec(location.hash || '');
+  TOKEN = await BD.ler('token');
+  FUNCIONARIOS = (await BD.ler('funcionarios')) || [];
+  ULTIMA_SYNC = (await BD.ler('ultima_sync')) || null;
+  if(m){ await configurar(m[1]); }
+  if(!TOKEN){ $('config-tela').classList.add('ativa'); }
+
+  $('btn-ponto').addEventListener('click', baterPonto);
+  $('cfg-salvar').addEventListener('click', () => configurar($('cfg-codigo').value));
+  let pressionado = null;
+  $('engrenagem').addEventListener('pointerdown', () => { pressionado = setTimeout(abrirOpcoes, 1800); });
+  ['pointerup','pointerleave','pointercancel'].forEach(ev => $('engrenagem').addEventListener(ev, () => clearTimeout(pressionado)));
+  $('op-fechar').addEventListener('click', () => $('painel-opcoes').classList.remove('ativa'));
+  $('op-sync').addEventListener('click', async () => { $('op-info').textContent = 'Sincronizando…'; await sincronizar(); abrirOpcoes(); });
+  $('op-hoje').addEventListener('click', mostrarMarcasHoje);
+  $('op-desparear').addEventListener('click', async () => {
+    const pend = (await BD.todasMarcas()).filter(x => x.origem === 'local' && !x.enviado).length;
+    const aviso = pend ? `ATENÇÃO: ${pend} marcação(ões) ainda NÃO foram enviadas e serão perdidas.\n\n` : '';
+    if(prompt(aviso + 'Para desparear este aparelho digite DESPAREAR:') !== 'DESPAREAR') return;
+    await BD.apagar('token'); await BD.apagar('funcionarios'); TOKEN = null; FUNCIONARIOS = [];
+    for(const x of (await BD.todasMarcas())) await BD.apagarMarca(x.chave);
+    $('painel-opcoes').classList.remove('ativa'); $('config-tela').classList.add('ativa'); atualizarStatus();
+  });
+  window.addEventListener('online', () => { atualizarStatus(); sincronizar(); });
+  window.addEventListener('offline', atualizarStatus);
+  setInterval(() => { atualizarStatus(); sincronizar(); }, INTERVALO_SYNC_MS);
+  atualizarStatus();
+  try{ await prepararModelos(); }catch(e){ console.error(e); $('btn-ponto').textContent = 'Erro ao preparar o reconhecimento (conecte à internet uma vez)'; }
+  atualizarStatus(); sincronizar();
+}
+iniciar();
+</script>
+</body>
+</html>
