@@ -4108,7 +4108,7 @@ async function statusDiasFuncionarios(primeiroDiaMes, ultimoDiaMes, feriadosMes)
     const ehSuspensao = ehDiaParcial(feriado);
     const aplicaveis = ativos.filter(f => {
       if(!funcionarioSegueDiaUtil(f) && ehRecesso && !funcionarioConvocadoNoDia(f, iso, convocacoesMes)) return false;
-      if(ehSuspensao && !turnoAfetaSuspensao(f.turno, feriado.turno_afetado)) return false;
+      if(ehSuspensao && !funcionarioAfetadoPorSuspensao(f, feriado.turno_afetado)) return false;
       if(funcionarioEmFerias(f.id, iso, feriasMes)) return false;
       return true;
     });
@@ -4140,7 +4140,7 @@ async function carregarStatusFrequenciaHoje(){
   const { data: convocacoesHoje } = await supabase.from('convocacoes_dia_nao_letivo').select('data, funcoes').eq('data', hoje);
   const aplicaveis = ativos.filter(f => {
     if(!funcionarioSegueDiaUtil(f) && ehRecesso && !funcionarioConvocadoNoDia(f, hoje, convocacoesHoje)) return false;
-    if(ehSuspensao && !turnoAfetaSuspensao(f.turno, feriadoHoje.turno_afetado)) return false;
+    if(ehSuspensao && !funcionarioAfetadoPorSuspensao(f, feriadoHoje.turno_afetado)) return false;
     if(funcionarioEmFerias(f.id, hoje, feriasHoje)) return false;
     return true;
   });
@@ -4238,7 +4238,7 @@ async function carregarFrequenciaFuncionariosDia(el){
     const status = r.status === 'licenca' ? 'falta_justificada' : (r.status || 'presente');
     const tipoAtual = r.tipo_justificativa || 'atestado_medico';
     const seguirDiaUtil = funcionarioSegueDiaUtil(f);
-    const bloqueadoPorSuspensao = ehSuspensao && turnoAfetaSuspensao(f.turno, feriadoData.turno_afetado);
+    const bloqueadoPorSuspensao = ehSuspensao && funcionarioAfetadoPorSuspensao(f, feriadoData.turno_afetado);
     const emFerias = funcionarioEmFerias(f.id, ESTADO.freqFuncData, feriasNoDia);
     const convocado = ehRecesso && !seguirDiaUtil && funcionarioConvocadoNoDia(f, ESTADO.freqFuncData, convocacoesNoDia);
     const diaValidoParaEste = ((seguirDiaUtil ? diaUtil : diaLetivo) || convocado) && !bloqueadoPorSuspensao && !emFerias;
@@ -4381,7 +4381,7 @@ async function gerarRelatorioFrequenciaFuncionarios(){
     const seguirDiaUtil = funcionarioSegueDiaUtil(f);
     const convocado = ehRecesso && !seguirDiaUtil && funcionarioConvocadoNoDia(f, ESTADO.freqFuncData, convocacoesNoDia);
     if(!((seguirDiaUtil ? diaUtil : diaLetivo) || convocado)) return false;
-    if(ehSuspensao && turnoAfetaSuspensao(f.turno, feriadoData.turno_afetado)) return false;
+    if(ehSuspensao && funcionarioAfetadoPorSuspensao(f, feriadoData.turno_afetado)) return false;
     if(funcionarioEmFerias(f.id, ESTADO.freqFuncData, feriasNoDia)) return false;
     return true;
   };
@@ -4545,7 +4545,7 @@ async function gerarRelatorioMensalFrequenciaFuncionarios(){
       const seguirDiaUtil = funcionarioSegueDiaUtil(f);
       const convocado = dia.ehRecesso && !seguirDiaUtil && funcionarioConvocadoNoDia(f, dia.iso, convocacoesMes);
       if(!((seguirDiaUtil ? dia.diaUtil : dia.diaLetivo) || convocado)) return false;
-      if(dia.ehSuspensao && turnoAfetaSuspensao(f.turno, dia.turnoAfetado)) return false;
+      if(dia.ehSuspensao && funcionarioAfetadoPorSuspensao(f, dia.turnoAfetado)) return false;
       if(funcionarioEmFerias(f.id, dia.iso, feriasMes)) return false;
       return true;
     };
@@ -4968,6 +4968,108 @@ async function abrirModalLocalEscola(){
   });
 }
 
+// Relatório mensal do ponto da cozinha: uma folha por funcionária, com os 4 horários por dia e as horas trabalhadas.
+async function imprimirRelatorioPontoCozinha(mesISO, funcionarioId){
+  const [ano, mes] = mesISO.split('-').map(Number);
+  const diasNoMes = new Date(ano, mes, 0).getDate();
+  const pad = (n) => String(n).padStart(2, '0');
+  const inicio = `${ano}-${pad(mes)}-01T00:00:00-03:00`;
+  const fim = `${ano}-${pad(mes)}-${pad(diasNoMes)}T23:59:59.999-03:00`;
+  let consulta = supabase.from('registros_ponto_quiosque').select('funcionario_id, registrado_em, tipo')
+    .gte('registrado_em', inicio).lte('registrado_em', fim).order('registrado_em').limit(5000);
+  if(funcionarioId) consulta = consulta.eq('funcionario_id', funcionarioId);
+  const { data, error } = await consulta;
+  if(error){ alert('Não foi possível carregar as marcações: ' + error.message); return; }
+
+  const fmtHora = (d) => d.toLocaleTimeString('pt-BR', { timeZone: 'America/Recife', hour: '2-digit', minute: '2-digit' });
+  const diaDe = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Recife', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const minutosParaHora = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+
+  let alvos = ESTADO.funcionarios.filter(f => funcionarioId ? f.id === funcionarioId : (f.ativo && /merendeir/i.test(f.funcao || '')));
+  // Quem tem marcações no mês mas não está na lista (ex.: inativado depois) também entra.
+  const comMarcas = [...new Set((data || []).map(r => r.funcionario_id))];
+  comMarcas.forEach(id => { if(!alvos.some(f => f.id === id)){ const f = ESTADO.funcionarios.find(x => x.id === id); if(f) alvos.push(f); } });
+  alvos = alvos.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  if(!alvos.length){ alert('Nenhuma merendeira encontrada para o relatório.'); return; }
+
+  const nomeMes = new Date(ano, mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase();
+  const semana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  const folha = (f) => {
+    const marcas = (data || []).filter(r => r.funcionario_id === f.id);
+    const porDia = {};
+    marcas.forEach(r => {
+      const d = new Date(r.registrado_em); const k = diaDe(d);
+      const reg = porDia[k] = porDia[k] || {};
+      if(!reg[r.tipo]) reg[r.tipo] = d; // primeira marcação de cada tipo no dia
+    });
+    let totalMin = 0, diasComPonto = 0;
+    const linhas = [];
+    for(let dia = 1; dia <= diasNoMes; dia++){
+      const k = `${ano}-${pad(mes)}-${pad(dia)}`;
+      const dow = new Date(ano, mes - 1, dia).getDay();
+      const fimDeSemana = dow === 0 || dow === 6;
+      const r = porDia[k] || {};
+      let min = 0, obs = '';
+      const seg = (a, b) => (a && b && b > a) ? Math.round((b - a) / 60000) : 0;
+      if(r.entrada && r.saida_almoco) min += seg(r.entrada, r.saida_almoco);
+      if(r.retorno_almoco && r.saida) min += seg(r.retorno_almoco, r.saida);
+      if(r.entrada && r.saida && !r.saida_almoco && !r.retorno_almoco) min += seg(r.entrada, r.saida);
+      const qtd = ['entrada', 'saida_almoco', 'retorno_almoco', 'saida'].filter(t => r[t]).length;
+      if(qtd){ diasComPonto++; if(qtd < 4) obs = (r.entrada && r.saida && qtd === 2) ? 'Sem almoço' : 'Incompleto'; totalMin += min; }
+      const cel = (t) => r[t] ? fmtHora(r[t]) : '';
+      linhas.push(`<tr class="${fimDeSemana ? 'fds' : ''}">
+        <td class="c">${pad(dia)}</td><td class="c">${semana[dow]}</td>
+        <td class="c">${cel('entrada')}</td><td class="c">${cel('saida_almoco')}</td><td class="c">${cel('retorno_almoco')}</td><td class="c">${cel('saida')}</td>
+        <td class="c b">${qtd && min ? minutosParaHora(min) : ''}</td><td class="obs">${obs}</td></tr>`);
+    }
+    return `<section class="folha">
+      <table class="cab"><tr>
+        <td style="width:62px;"><img src="${LOGO_PREFEITURA_URL}" style="width:52px;height:52px;object-fit:contain;" /></td>
+        <td style="text-align:center;">
+          <div class="esc">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+          <div class="tit">REGISTRO DE PONTO — COZINHA</div>
+          <div class="mes">${esc(nomeMes)}</div>
+        </td>
+        <td style="width:62px;text-align:right;"><img src="${LOGO_DATA_URL}" style="width:52px;height:52px;object-fit:contain;" /></td></tr></table>
+      <div class="func"><b>Funcionária:</b> ${esc(f.nome)}${f.matricula ? ` &nbsp;·&nbsp; <b>Matrícula:</b> ${esc(f.matricula)}` : ''} &nbsp;·&nbsp; <b>Função:</b> ${esc(f.funcao || '')}</div>
+      <table class="reg">
+        <thead><tr><th style="width:7%;">DIA</th><th style="width:8%;">SEMANA</th><th>ENTRADA</th><th>SAÍDA<br/>ALMOÇO</th><th>RETORNO<br/>ALMOÇO</th><th>SAÍDA</th><th style="width:12%;">HORAS<br/>TRABALHADAS</th><th style="width:14%;">OBSERVAÇÃO</th></tr></thead>
+        <tbody>${linhas.join('')}</tbody>
+        <tfoot><tr><td colspan="6" style="text-align:right;">TOTAL DO MÊS (${diasComPonto} dia(s) com ponto)</td><td class="c b">${minutosParaHora(totalMin)}</td><td></td></tr></tfoot>
+      </table>
+      <div class="ass"><div><span></span>Assinatura da funcionária</div><div><span></span>Gestão / Secretaria</div></div>
+      <div class="rod">Horários registrados por reconhecimento facial no tablet da cozinha (fuso de Recife). Horas = (saída p/ almoço − entrada) + (saída − retorno). Dias "Incompleto" têm marcação faltando; em "Sem almoço" o intervalo de almoço não foi marcado e entra nas horas.</div>
+    </section>`;
+  };
+
+  const janela = window.open('', '_blank');
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><title>Ponto da cozinha — ${esc(nomeMes)}</title>
+  <style>
+    @page{ size:A4 portrait; margin:8mm; }
+    *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body{ margin:0; font-family:Arial,Helvetica,sans-serif; color:#000; }
+    .folha{ page-break-after:always; }
+    .folha:last-child{ page-break-after:auto; }
+    .cab{ width:100%; border-collapse:collapse; margin-bottom:3px; }
+    .esc{ font-size:13px; font-weight:800; color:#1D4E9B; } .tit{ font-size:14px; font-weight:800; margin-top:2px; } .mes{ font-size:12px; font-weight:800; color:#9C2B18; margin-top:2px; }
+    .func{ font-size:11.5px; margin:5px 0 6px; padding:4px 6px; border:1px solid #000; }
+    table.reg{ width:100%; border-collapse:collapse; }
+    table.reg th{ background:#D0DAEA; border:1px solid #000; font-size:9.5px; padding:3px 2px; }
+    table.reg td{ border:1px solid #333; height:6.7mm; font-size:11.5px; font-weight:700; padding:0 4px; line-height:1; }
+    table.reg td.c{ text-align:center; } table.reg td.b{ font-size:12px; }
+    table.reg td.obs{ font-size:9.5px; color:#7A1F10; }
+    table.reg tr.fds td{ background:#D6D6D6; }
+    table.reg tbody tr:nth-child(even):not(.fds) td{ background:#F0F0F0; }
+    table.reg tfoot td{ background:#D0DAEA; font-size:11.5px; font-weight:800; height:7mm; border:1px solid #000; }
+    .ass{ display:flex; gap:40px; margin-top:20px; } .ass div{ flex:1; text-align:center; font-size:11px; } .ass span{ display:block; border-top:1px solid #000; margin-bottom:3px; margin-top:26px; }
+    .rod{ font-size:8.5px; color:#222; margin-top:10px; }
+  </style></head><body>${alvos.map(folha).join('')}
+  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script></body></html>`);
+  janela.document.close();
+  janela.focus();
+}
+
 // ---------------------------------------------------------------
 // TABLET DA COZINHA — pareamento do aparelho e consulta das marcações das merendeiras
 // ---------------------------------------------------------------
@@ -4991,6 +5093,13 @@ async function abrirModalTabletCozinha(){
         <div class="campo" style="margin:0;"><input type="date" id="tc-data" value="${hojeISO()}" /></div>
       </div>
       <div id="tc-marcas"></div>
+      <div style="border-top:1px solid var(--borda);padding-top:12px;margin:16px 0 6px;"><b>Relatório mensal impresso</b></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="campo" style="margin:0;"><label>Mês</label><input type="month" id="tc-rel-mes" value="${hojeISO().slice(0, 7)}" /></div>
+        <div class="campo" style="margin:0;min-width:220px;"><label>Funcionária</label><select id="tc-rel-func"><option value="">Todas as merendeiras</option></select></div>
+        <button class="botao terracota pequeno" id="tc-rel-imprimir" style="width:auto;">🖨️ Imprimir relatório do mês</button>
+      </div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:8px 0 0;">Uma folha por funcionária, com os 4 horários de cada dia (entrada, saída para o almoço, retorno e saída), as horas trabalhadas e o total do mês, com campo para assinatura.</p>
     </div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
@@ -5067,6 +5176,12 @@ async function abrirModalTabletCozinha(){
     carregarAparelhos();
   });
   modal.querySelector('#tc-data').addEventListener('change', carregarMarcas);
+  modal.querySelector('#tc-rel-func').innerHTML += merendeiras.map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('');
+  modal.querySelector('#tc-rel-imprimir').addEventListener('click', () => {
+    const mes = modal.querySelector('#tc-rel-mes').value;
+    if(!mes){ alert('Escolha o mês.'); return; }
+    imprimirRelatorioPontoCozinha(mes, modal.querySelector('#tc-rel-func').value);
+  });
   carregarAparelhos(); carregarMarcas();
 }
 
@@ -6659,6 +6774,15 @@ function rotuloTipoFeriado(f){
 
 // Retorna true se um dia com Suspensão de Aulas (turno_afetado) afeta o turno informado (texto livre, ex: "Manhã").
 // turnoAfetado null/undefined = dia todo, afeta qualquer turno.
+// Coordenação, administrativo, gestão, secretaria e merendeira não entram na suspensão parcial de expediente (ex.: ponto facultativo só de manhã):
+// o ponto desses cargos continua sendo cobrado normalmente.
+function funcionarioIsentoDeSuspensao(f){
+  return /coordena|administrativ|gest|secret|merendeir/i.test((f && f.funcao) || '');
+}
+function funcionarioAfetadoPorSuspensao(f, turnoAfetado){
+  if(funcionarioIsentoDeSuspensao(f)) return false;
+  return turnoAfetaSuspensao(f.turno, turnoAfetado);
+}
 function turnoAfetaSuspensao(turnoTexto, turnoAfetado){
   if(!turnoAfetado) return true;
   const t = (turnoTexto || '').toLowerCase();
