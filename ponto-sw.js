@@ -1,17 +1,17 @@
 // Service worker do Ponto da Cozinha: guarda a página e o reconhecimento facial para funcionar SEM internet.
-const VERSAO = 'ponto-v3';
+const VERSAO = 'ponto-v4';
 const ARQUIVOS = [
   './ponto.html',
   './ponto.webmanifest',
   './ponto-icone-192.png',
   './ponto-icone-512.png',
-  './vendor-face/face-api.js',
-  './vendor-face/models/tiny_face_detector_model-weights_manifest.json',
-  './vendor-face/models/tiny_face_detector_model.bin',
-  './vendor-face/models/face_landmark_68_model-weights_manifest.json',
-  './vendor-face/models/face_landmark_68_model.bin',
-  './vendor-face/models/face_recognition_model-weights_manifest.json',
-  './vendor-face/models/face_recognition_model.bin',
+  './face-api.js',
+  './tiny_face_detector_model-weights_manifest.json',
+  './tiny_face_detector_model.bin',
+  './face_landmark_68_model-weights_manifest.json',
+  './face_landmark_68_model.bin',
+  './face_recognition_model-weights_manifest.json',
+  './face_recognition_model.bin',
 ];
 
 self.addEventListener('install', (e) => {

@@ -108,13 +108,13 @@
   <div id="op-lista" style="margin-top:12px;"></div>
 </div></div>
 
-<script src="vendor-face/face-api.js"></script>
+<script src="face-api.js"></script>
 <script>
 'use strict';
 // ====================== CONFIGURAÇÃO ======================
 const SUPABASE_URL = 'https://gubmypyydtdvpvglwiuq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1Ym15cHl5ZHRkdnB2Z2x3aXVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NjI3OTQsImV4cCI6MjEwMDAzODc5NH0.vV0v8QiWzauOvMkgs8KHDYA2C6BXuoYgkSl8ndWjPqU';
-const MODELOS = './vendor-face/models';
+const MODELOS = '.';
 const LIMIAR_DISTANCIA = 0.5;     // quanto menor, mais rígido (igual ao ponto facial do sistema)
 const MARGEM_ENTRE_PESSOAS = 0.04;
 const LEITURAS_CONSECUTIVAS = 2;  // mesma pessoa reconhecida em 2 quadros seguidos
@@ -272,7 +272,7 @@ async function sincronizar(){
 // ====================== RECONHECIMENTO ======================
 async function prepararModelos(){
   const fa = window.faceapi;
-  if(!fa) throw new Error('arquivo vendor-face/face-api.js não encontrado');
+  if(!fa) throw new Error('arquivo face-api.js não encontrado');
   // Usa a placa de vídeo (rápido). Se o aparelho não suportar, cai para o processador (mais lento, mas funciona).
   let ok = false;
   try{ ok = await Promise.race([(async () => { const r = await fa.tf.setBackend('webgl'); await fa.tf.ready(); return r; })(), new Promise((_, rej) => setTimeout(() => rej(new Error('webgl lento')), 10000))]); }catch(e){ ok = false; }
