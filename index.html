@@ -4635,6 +4635,7 @@ function abrirFichaFuncionario(f){
       <div class="ficha-linha"><span>Matrícula</span><span>${esc(f.matricula||'—')}</span></div>
       <div class="ficha-linha"><span>Vínculo</span><span>${f.vinculo ? esc(rotuloVinculo(f.vinculo)) : '—'}</span></div>
       <div class="ficha-linha"><span>Categoria</span><span>${f.categoria ? esc(rotuloCategoria(f.categoria)) : '—'}</span></div>
+      <div class="ficha-linha"><span>Empresa contratante</span><span>${esc(f.empresa_contratante||'—')}</span></div>
       <div class="ficha-linha"><span>Data de nascimento</span><span>${fmtData(f.data_nascimento)}</span></div>
       <div class="ficha-linha"><span>CPF</span><span>${esc(f.cpf||'—')}</span></div>
       <div class="ficha-linha"><span>RG</span><span>${esc(f.rg||'—')}${f.orgao_expedidor?' / '+esc(f.orgao_expedidor):''}${f.rg_uf?' / '+esc(f.rg_uf):''}</span></div>
@@ -4985,12 +4986,12 @@ async function imprimirRelatorioPontoCozinha(mesISO, funcionarioId){
   const diaDe = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Recife', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
   const minutosParaHora = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 
-  let alvos = ESTADO.funcionarios.filter(f => funcionarioId ? f.id === funcionarioId : (f.ativo && /merendeir/i.test(f.funcao || '')));
+  let alvos = ESTADO.funcionarios.filter(f => funcionarioId ? f.id === funcionarioId : (f.ativo && f.ponto_quiosque));
   // Quem tem marcações no mês mas não está na lista (ex.: inativado depois) também entra.
   const comMarcas = [...new Set((data || []).map(r => r.funcionario_id))];
   comMarcas.forEach(id => { if(!alvos.some(f => f.id === id)){ const f = ESTADO.funcionarios.find(x => x.id === id); if(f) alvos.push(f); } });
   alvos = alvos.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  if(!alvos.length){ alert('Nenhuma merendeira encontrada para o relatório.'); return; }
+  if(!alvos.length){ alert('Nenhum funcionário habilitado no tablet da cozinha. Marque quem bate ponto na lista do tablet.'); return; }
 
   const nomeMes = new Date(ano, mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase();
   const semana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -5032,7 +5033,7 @@ async function imprimirRelatorioPontoCozinha(mesISO, funcionarioId){
           <div class="mes">${esc(nomeMes)}</div>
         </td>
         <td style="width:62px;text-align:right;"><img src="${LOGO_DATA_URL}" style="width:52px;height:52px;object-fit:contain;" /></td></tr></table>
-      <div class="func"><b>Funcionária:</b> ${esc(f.nome)}${f.matricula ? ` &nbsp;·&nbsp; <b>Matrícula:</b> ${esc(f.matricula)}` : ''} &nbsp;·&nbsp; <b>Função:</b> ${esc(f.funcao || '')}</div>
+      <div class="func"><b>Funcionária:</b> ${esc(f.nome)}${f.matricula ? ` &nbsp;·&nbsp; <b>Matrícula:</b> ${esc(f.matricula)}` : ''} &nbsp;·&nbsp; <b>Função:</b> ${esc(f.funcao || '')}${f.empresa_contratante ? ` &nbsp;·&nbsp; <b>Empresa:</b> ${esc(f.empresa_contratante)}` : ''}</div>
       <table class="reg">
         <thead><tr><th style="width:7%;">DIA</th><th style="width:8%;">SEMANA</th><th>ENTRADA</th><th>SAÍDA<br/>ALMOÇO</th><th>RETORNO<br/>ALMOÇO</th><th>SAÍDA</th><th style="width:12%;">HORAS<br/>TRABALHADAS</th><th style="width:14%;">OBSERVAÇÃO</th></tr></thead>
         <tbody>${linhas.join('')}</tbody>
@@ -5105,10 +5106,43 @@ async function abrirModalTabletCozinha(){
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
 
-  const merendeiras = ESTADO.funcionarios.filter(f => f.ativo && /merendeir/i.test(f.funcao || ''));
-  modal.querySelector('#tc-merendeiras').innerHTML = `<b style="font-size:13.5px;">Merendeiras no sistema</b>` + (merendeiras.length
-    ? `<div style="margin-top:6px;">${merendeiras.map(f => `<div style="font-size:13.5px;padding:3px 0;">${f.face_descriptor ? '✅' : '⚠️'} ${esc(f.nome)} — ${f.face_descriptor ? 'rosto cadastrado' : '<span style="color:#B4432E;">sem rosto cadastrado (cadastre na ficha do funcionário › Cadastrar rosto)</span>'}</div>`).join('')}</div>`
-    : `<p style="font-size:13px;color:#B4432E;margin:6px 0 0;">Nenhum funcionário ativo com a função "Merendeira". Só aparecem no tablet funcionários cuja função contém "Merendeira".</p>`);
+  // Candidatos: merendeiras ativas + quem já está habilitado. Só os marcados batem ponto no tablet.
+  const candidatas = () => ESTADO.funcionarios.filter(f => f.ativo && (/merendeir/i.test(f.funcao || '') || f.ponto_quiosque)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const habilitadas = () => ESTADO.funcionarios.filter(f => f.ativo && f.ponto_quiosque);
+  function desenharMerendeiras(){
+    const lista = candidatas();
+    modal.querySelector('#tc-merendeiras').innerHTML = `<b style="font-size:13.5px;">Quem bate ponto no tablet</b><div style="font-size:12.5px;color:var(--texto-suave);">Marque apenas as funcionárias que devem aparecer no tablet (ex.: contratadas da empresa AVANT).</div>` + (lista.length
+      ? `<div style="margin-top:6px;">${lista.map(f => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:4px 0;cursor:pointer;"><input type="checkbox" data-tc-hab="${f.id}" ${f.ponto_quiosque ? 'checked' : ''} /> <span><b>${esc(f.nome)}</b> — ${f.empresa_contratante ? 'Empresa ' + esc(f.empresa_contratante) : '<span style="color:var(--texto-suave);">sem empresa informada (' + esc(rotuloVinculo(f.vinculo)) + ')</span>'} — ${f.face_descriptor ? '✅ rosto cadastrado' : '<span style="color:#B4432E;">⚠️ sem rosto cadastrado</span>'}</span></label><div style="margin:0 0 6px 26px;"><button type="button" class="botao secundario pequeno" style="width:auto;" data-tc-rosto="${f.id}">📷 ${f.face_descriptor ? 'Recadastrar rosto' : 'Cadastrar rosto'}</button></div>`).join('')}</div>`
+      : `<p style="font-size:13px;color:#B4432E;margin:6px 0 0;">Nenhum funcionário com a função "Merendeira".</p>`);
+    modal.querySelectorAll('[data-tc-rosto]').forEach(b => b.addEventListener('click', () => { const f = ESTADO.funcionarios.find(x => x.id === b.dataset.tcRosto); if(f) abrirModalCadastrarRosto(f); }));
+    modal.querySelectorAll('[data-tc-hab]').forEach(c => c.addEventListener('change', async () => {
+      c.disabled = true;
+      const { error: e2 } = await supabase.from('funcionarios').update({ ponto_quiosque: c.checked }).eq('id', c.dataset.tcHab);
+      if(e2){ alert('Não foi possível alterar: ' + e2.message); c.checked = !c.checked; c.disabled = false; return; }
+      const f = ESTADO.funcionarios.find(x => x.id === c.dataset.tcHab); if(f) f.ponto_quiosque = c.checked;
+      desenharMerendeiras(); atualizarSelectRel();
+    }));
+  }
+  function atualizarSelectRel(){
+    modal.querySelector('#tc-rel-func').innerHTML = `<option value="">Todas as habilitadas</option>` + habilitadas().map(f => `<option value="${f.id}">${esc(f.nome)}${f.empresa_contratante ? ' (' + esc(f.empresa_contratante) + ')' : ''}</option>`).join('');
+  }
+  desenharMerendeiras();
+
+  function mostrarLink(nomeAparelho, token){
+    const link = location.origin + location.pathname.replace(/[^/]*$/, '') + 'ponto.html#t=' + token;
+    modal.querySelector('#tc-link').innerHTML = `
+      <div style="border:1.5px solid #D98A1F;border-radius:8px;padding:10px 12px;margin-top:8px;background:#FFF8E8;">
+        <div style="font-size:15px;margin-bottom:4px;">Link do aparelho: <b>${esc(nomeAparelho)}</b></div>
+        <b style="font-size:13px;">Use este link só nesse aparelho. Ele aparece apenas agora — para ver de novo, clique em "🔗 Link deste aparelho" na lista.</b>
+        <input type="text" id="tc-link-texto" readonly value="${esc(link)}" style="width:100%;margin:6px 0;font-size:12.5px;" />
+        <button class="botao terracota pequeno" id="tc-copiar" style="width:auto;">Copiar link</button>
+        <span style="font-size:12.5px;color:var(--texto-suave);margin-left:6px;">Abra no aparelho <b>${esc(nomeAparelho)}</b>, <b>com internet</b>, permita a câmera e use "Adicionar à tela inicial".</span>
+      </div>`;
+    modal.querySelector('#tc-copiar').addEventListener('click', async () => {
+      const inp = modal.querySelector('#tc-link-texto'); inp.select();
+      try{ await navigator.clipboard.writeText(inp.value); modal.querySelector('#tc-copiar').textContent = 'Copiado ✓'; }catch(e){ document.execCommand('copy'); }
+    });
+  }
 
   async function carregarAparelhos(){
     const { data, error } = await supabase.from('quiosques_ponto').select('id, nome, ativo, criado_em, ultimo_contato').order('criado_em');
@@ -5117,8 +5151,25 @@ async function abrirModalTabletCozinha(){
     const fmt = (t) => t ? new Date(t).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : 'nunca';
     alvo.innerHTML = (data||[]).length ? `<table style="width:100%;border-collapse:collapse;font-size:13.5px;"><thead><tr><th style="text-align:left;padding:4px 6px;">Aparelho</th><th style="text-align:left;padding:4px 6px;">Último contato</th><th style="text-align:left;padding:4px 6px;">Situação</th><th></th></tr></thead><tbody>
       ${data.map(a => `<tr style="border-top:1px solid var(--borda);"><td style="padding:5px 6px;">${esc(a.nome)}</td><td style="padding:5px 6px;">${fmt(a.ultimo_contato)}</td><td style="padding:5px 6px;">${a.ativo ? '<span class="pill verde">Ativo</span>' : '<span class="pill vermelho">Desativado</span>'}</td>
-      <td style="padding:5px 6px;text-align:right;"><button class="botao secundario pequeno" style="width:auto;" data-tc-alternar="${a.id}" data-ativo="${a.ativo}">${a.ativo ? 'Desativar' : 'Reativar'}</button></td></tr>`).join('')}</tbody></table>`
-      : `<p style="font-size:13px;color:var(--texto-suave);">Nenhum aparelho pareado ainda.</p>`;
+      <td style="padding:5px 6px;text-align:right;white-space:nowrap;"><button class="botao terracota pequeno" style="width:auto;margin-right:6px;" data-tc-link="${a.id}" data-nome="${esc(a.nome)}">🔗 Link deste aparelho</button><button class="botao secundario pequeno" style="width:auto;" data-tc-alternar="${a.id}" data-ativo="${a.ativo}">${a.ativo ? 'Desativar' : 'Reativar'}</button><button class="botao secundario pequeno" style="width:auto;margin-left:6px;color:var(--erro);border-color:var(--erro);" data-tc-apagar="${a.id}" data-nome="${esc(a.nome)}">🗑️ Apagar</button></td></tr>`).join('')}</tbody></table>`
+      : `<p style="font-size:13px;color:var(--texto-suave);">Nenhum aparelho cadastrado ainda. Digite um nome abaixo e clique em "Gerar link de pareamento".</p>`;
+    alvo.querySelectorAll('[data-tc-link]').forEach(b => b.addEventListener('click', async () => {
+      if(!confirm('Gerar um link novo para "' + b.dataset.nome + '"?\n\nO link antigo deste aparelho deixa de funcionar. Abra o link novo no próprio aparelho, com internet.')) return;
+      b.disabled = true;
+      const { data: token, error: e3 } = await supabase.rpc('quiosque_renovar', { p_id: b.dataset.tcLink });
+      b.disabled = false;
+      if(e3 || !token){ modal.querySelector('#tc-link').innerHTML = `<div class="msg-erro">${esc((e3 && e3.message) || 'Não foi possível gerar o link.')}</div>`; return; }
+      mostrarLink(b.dataset.nome, token);
+      modal.querySelector('#tc-link').scrollIntoView({ behavior:'smooth', block:'center' });
+      carregarAparelhos();
+    }));
+    alvo.querySelectorAll('[data-tc-apagar]').forEach(b => b.addEventListener('click', async () => {
+      if(!confirm('Apagar o aparelho "' + b.dataset.nome + '"?\n\nO link dele deixa de funcionar e ele sai da lista. As marcações de ponto já feitas continuam guardadas.')) return;
+      const { error: e4 } = await supabase.from('quiosques_ponto').delete().eq('id', b.dataset.tcApagar);
+      if(e4){ alert('Não foi possível apagar: ' + e4.message); return; }
+      modal.querySelector('#tc-link').innerHTML = '';
+      carregarAparelhos();
+    }));
     alvo.querySelectorAll('[data-tc-alternar]').forEach(b => b.addEventListener('click', async () => {
       const ativar = b.dataset.ativo !== 'true';
       if(!ativar && !confirm('Desativar este aparelho? Ele deixa de enviar marcações e de receber os rostos cadastrados.')) return;
@@ -5157,26 +5208,16 @@ async function abrirModalTabletCozinha(){
 
   modal.querySelector('#tc-parear').addEventListener('click', async () => {
     const btn = modal.querySelector('#tc-parear'); btn.disabled = true;
-    const { data: token, error } = await supabase.rpc('quiosque_criar', { p_nome: modal.querySelector('#tc-nome').value });
+    const nomeUsado = modal.querySelector('#tc-nome').value.trim() || 'Tablet da cozinha';
+    const { data: token, error } = await supabase.rpc('quiosque_criar', { p_nome: nomeUsado });
     btn.disabled = false;
     if(error || !token){ modal.querySelector('#tc-link').innerHTML = `<div class="msg-erro">${esc((error && error.message) || 'Não foi possível gerar o link.')}</div>`; return; }
-    const link = location.origin + location.pathname.replace(/[^/]*$/, '') + 'ponto.html#t=' + token;
-    modal.querySelector('#tc-link').innerHTML = `
-      <div style="border:1.5px solid #D98A1F;border-radius:8px;padding:10px 12px;margin-top:8px;background:#FFF8E8;">
-        <b style="font-size:13px;">Link de pareamento (aparece só agora — guarde ou use na hora):</b>
-        <input type="text" id="tc-link-texto" readonly value="${esc(link)}" style="width:100%;margin:6px 0;font-size:12.5px;" />
-        <button class="botao terracota pequeno" id="tc-copiar" style="width:auto;">Copiar link</button>
-        <span style="font-size:12.5px;color:var(--texto-suave);margin-left:6px;">Abra este link no tablet, <b>com internet</b>, permita a câmera e use "Adicionar à tela inicial".</span>
-      </div>`;
-    modal.querySelector('#tc-copiar').addEventListener('click', async () => {
-      const inp = modal.querySelector('#tc-link-texto'); inp.select();
-      try{ await navigator.clipboard.writeText(inp.value); modal.querySelector('#tc-copiar').textContent = 'Copiado ✓'; }catch(e){ document.execCommand('copy'); }
-    });
+    mostrarLink(nomeUsado, token);
     modal.querySelector('#tc-nome').value = '';
     carregarAparelhos();
   });
   modal.querySelector('#tc-data').addEventListener('change', carregarMarcas);
-  modal.querySelector('#tc-rel-func').innerHTML += merendeiras.map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('');
+  atualizarSelectRel();
   modal.querySelector('#tc-rel-imprimir').addEventListener('click', () => {
     const mes = modal.querySelector('#tc-rel-mes').value;
     if(!mes){ alert('Escolha o mês.'); return; }
@@ -5502,6 +5543,7 @@ function abrirModalFuncionario(funcionario, opcoes){
           <div class="campo"><label>Vínculo</label><select id="func-vinculo">${opcoesSelect(VINCULOS_FUNCIONARIO, vd('vinculo'))}</select></div>
           <div class="campo"><label>Matrícula</label><input type="text" id="func-matricula" value="${v('matricula')}" /></div>
         </div>
+        <div class="campo"><label>Empresa contratante <span style="font-weight:400;color:var(--texto-suave);">(se for terceirizado(a), ex.: AVANT)</span></label><input type="text" id="func-empresa" list="func-empresa-lista" value="${v('empresa_contratante')}" /><datalist id="func-empresa-lista"><option value="AVANT"></option></datalist></div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
           <div class="campo"><label>Categoria</label><select id="func-categoria">${opcoesSelect(CATEGORIAS_FUNCIONARIO, vd('categoria'))}</select></div>
           <div class="campo"><label>Função</label>
@@ -5613,7 +5655,7 @@ function abrirModalFuncionario(funcionario, opcoes){
     </div>`;
   document.body.appendChild(modal);
   if(proprio){
-    ['func-nome','func-funcao','func-vinculo','func-matricula','func-categoria','func-ensino','func-disciplinas','func-turno','func-carga-horaria'].forEach(id => { const c = document.getElementById(id); if(c){ c.disabled = true; c.title = 'Somente a secretaria altera este campo'; } });
+    ['func-nome','func-funcao','func-vinculo','func-matricula','func-empresa','func-categoria','func-ensino','func-disciplinas','func-turno','func-carga-horaria'].forEach(id => { const c = document.getElementById(id); if(c){ c.disabled = true; c.title = 'Somente a secretaria altera este campo'; } });
     const ativo = document.getElementById('func-ativo'); if(ativo && ativo.closest('.campo')) ativo.closest('.campo').style.display = 'none';
   }
   // Formações acadêmicas: várias linhas (graduação, especialização, mestrado, doutorado) ao mesmo tempo.
@@ -5734,6 +5776,7 @@ function abrirModalFuncionario(funcionario, opcoes){
       telefone: campo('func-telefone'),
       vinculo: document.getElementById('func-vinculo').value || null,
       matricula: campo('func-matricula'),
+      empresa_contratante: (campo('func-empresa') || '').toUpperCase() || null,
       categoria: document.getElementById('func-categoria').value || null,
       data_nascimento: campo('func-data-nascimento'),
       sexo: document.getElementById('func-sexo').value || null,
