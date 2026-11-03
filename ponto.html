@@ -77,6 +77,7 @@
     <span class="chip" id="chip-fila">…</span>
     <span class="chip" id="chip-sync">Sem sincronização ainda</span>
     <span class="chip" id="chip-rostos">…</span>
+    <span class="chip" id="chip-local">📍 Localização…</span>
   </footer>
 </div>
 <button id="engrenagem" title="Opções (segure por 2 segundos)">⚙</button>
@@ -175,6 +176,41 @@ let LENDO = false;
 let ULTIMA_SYNC = null;
 let SYNC_EM_ANDAMENTO = false;
 let ERRO_AUTORIZACAO = false;
+let LOCAL_ESCOLA = null;     // {latitude, longitude, raio_m} definido pela gestão
+let LOCAL_ATUAL = null;      // última posição do aparelho {latitude, longitude, precisao_m, em}
+let LOCAL_ERRO = null;       // 'negado' | 'indisponivel'
+
+// ====================== LOCALIZAÇÃO ======================
+function distanciaM(lat1, lng1, lat2, lng2){
+  const R = 6371000, rad = Math.PI / 180;
+  const a = Math.sin((lat2 - lat1) * rad / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin((lng2 - lng1) * rad / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(a))));
+}
+// 'ok' (no local) | 'fora' | 'sem_local' (escola não configurada) | 'sem_gps' (aparelho sem posição recente)
+function situacaoLocal(pos){
+  pos = pos || LOCAL_ATUAL;
+  if(!LOCAL_ESCOLA) return { estado: 'sem_local' };
+  if(!pos || (Date.now() - pos.em) > 15 * 60000) return { estado: 'sem_gps' };
+  const d = distanciaM(pos.latitude, pos.longitude, LOCAL_ESCOLA.latitude, LOCAL_ESCOLA.longitude);
+  return { estado: d > LOCAL_ESCOLA.raio_m + Math.min(pos.precisao_m || 0, 150) ? 'fora' : 'ok', distancia: d };
+}
+function iniciarLocalizacao(){
+  if(!navigator.geolocation){ LOCAL_ERRO = 'indisponivel'; return; }
+  navigator.geolocation.watchPosition(
+    (p) => { LOCAL_ATUAL = { latitude: p.coords.latitude, longitude: p.coords.longitude, precisao_m: Math.round(p.coords.accuracy || 0), em: Date.now() }; LOCAL_ERRO = null; atualizarStatus(); },
+    (e) => { LOCAL_ERRO = e && e.code === 1 ? 'negado' : 'indisponivel'; atualizarStatus(); },
+    { enableHighAccuracy: true, maximumAge: 60000, timeout: 30000 }
+  );
+}
+function obterLocalAgora(){
+  return new Promise((resolve) => {
+    if(LOCAL_ATUAL && (Date.now() - LOCAL_ATUAL.em) < 10 * 60000) return resolve(LOCAL_ATUAL);
+    if(!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => { LOCAL_ATUAL = { latitude: p.coords.latitude, longitude: p.coords.longitude, precisao_m: Math.round(p.coords.accuracy || 0), em: Date.now() }; resolve(LOCAL_ATUAL); },
+      () => resolve(null), { enableHighAccuracy: true, timeout: 5000, maximumAge: 120000 });
+  });
+}
 
 // ====================== SOM ======================
 let audioCtx = null;
@@ -206,6 +242,12 @@ async function atualizarStatus(){
   const rs = $('chip-rostos');
   if(ERRO_AUTORIZACAO){ rs.textContent = '⚠ Aparelho não autorizado — peça novo pareamento'; rs.className = 'chip erro'; }
   else { rs.textContent = `👩‍🍳 ${FUNCIONARIOS.length} rosto(s) cadastrado(s)`; rs.className = 'chip ' + (FUNCIONARIOS.length ? 'on' : 'off'); }
+  const cl = $('chip-local'), sl = situacaoLocal();
+  if(LOCAL_ERRO === 'negado'){ cl.textContent = '📍 Localização bloqueada — permita no navegador'; cl.className = 'chip erro'; }
+  else if(sl.estado === 'ok'){ cl.textContent = '📍 No local da escola'; cl.className = 'chip on'; }
+  else if(sl.estado === 'fora'){ cl.textContent = `📍 Fora do local da escola (${sl.distancia} m)`; cl.className = 'chip erro'; }
+  else if(sl.estado === 'sem_local'){ cl.textContent = '📍 Local da escola não definido'; cl.className = 'chip off'; }
+  else { cl.textContent = '📍 Buscando localização…'; cl.className = 'chip off'; }
   const btn = $('btn-ponto');
   if(!MODELOS_PRONTOS && ERRO_MODELOS){ btn.disabled = false; btn.style.fontSize = '20px'; btn.textContent = '⚠ Falha ao carregar o reconhecimento (' + ERRO_MODELOS + '). Toque para tentar de novo'; }
   else if(!MODELOS_PRONTOS){ btn.style.fontSize = ''; btn.disabled = true; btn.textContent = 'Preparando reconhecimento…'; }
@@ -242,7 +284,7 @@ async function sincronizar(){
       const lote = pend.slice(0, 100);
       await rpc('quiosque_enviar', {
         p_token: TOKEN, p_agora_dispositivo: new Date().toISOString(),
-        p_registros: lote.map(m => ({ client_id: m.client_id, funcionario_id: m.funcionario_id, registrado_em: m.registrado_em, tipo: m.tipo, confianca: m.confianca })),
+        p_registros: lote.map(m => ({ client_id: m.client_id, funcionario_id: m.funcionario_id, registrado_em: m.registrado_em, tipo: m.tipo, confianca: m.confianca, latitude: m.latitude ?? null, longitude: m.longitude ?? null, precisao_m: m.precisao_m ?? null })),
       });
       for(const m of lote){ m.enviado = 1; await BD.gravarMarca(m); }
       pend = pend.slice(100);
@@ -251,6 +293,7 @@ async function sincronizar(){
     const dados = await rpc('quiosque_dados', { p_token: TOKEN });
     FUNCIONARIOS = (dados.funcionarios || []).filter(f => Array.isArray(f.descritor) && f.descritor.length === 128);
     await BD.gravar('funcionarios', FUNCIONARIOS);
+    LOCAL_ESCOLA = dados.local || null; await BD.gravar('local_escola', LOCAL_ESCOLA);
     marcas = await BD.todasMarcas();
     for(const m of marcas.filter(m => m.origem === 'servidor')) await BD.apagarMarca(m.chave);
     for(const h of (dados.hoje || [])){
@@ -363,15 +406,18 @@ async function baterPonto(){
       mostrarResultado('aviso', '✔', m.funcionario.nome, 'PONTO DO DIA COMPLETO', horaDe(new Date(ultima.registrado_em)), 'As 4 marcações de hoje já foram feitas. Se algo estiver errado, avise a secretaria.', 4500);
       return;
     }
+    const pos = await obterLocalAgora();
+    const sit = situacaoLocal(pos);
     const marca = {
       chave: 'loc:' + uuid(), origem: 'local', enviado: 0, funcionario_id: m.funcionario.id,
       registrado_em: agora.toISOString(), tipo, confianca: Math.max(0, Math.round((1 - m.distancia) * 1000) / 1000),
+      latitude: pos ? pos.latitude : null, longitude: pos ? pos.longitude : null, precisao_m: pos ? pos.precisao_m : null,
     };
     marca.client_id = marca.chave.slice(4);
     await BD.gravarMarca(marca);
     bip([660, 880], 0.14); if(navigator.vibrate) navigator.vibrate(120);
     mostrarResultado('ok', ICONE[tipo] || '✅', m.funcionario.nome, rotuloTipo(tipo), horaDe(agora),
-      navigator.onLine ? 'Ponto registrado.' : 'Ponto guardado no aparelho. Será enviado quando voltar a internet.', 3800);
+      (navigator.onLine ? 'Ponto registrado.' : 'Ponto guardado no aparelho. Será enviado quando voltar a internet.') + (sit.estado === 'fora' ? ' ⚠ Aparelho fora do local da escola — a marcação foi sinalizada.' : ''), sit.estado === 'fora' ? 5500 : 3800);
     sincronizar();
   } catch(e){
     tela.classList.remove('ativa');
@@ -420,6 +466,8 @@ async function iniciar(){
   TOKEN = await BD.ler('token');
   FUNCIONARIOS = (await BD.ler('funcionarios')) || [];
   ULTIMA_SYNC = (await BD.ler('ultima_sync')) || null;
+  LOCAL_ESCOLA = (await BD.ler('local_escola')) || null;
+  iniciarLocalizacao();
   if(m){ await configurar(m[1]); }
   if(!TOKEN){ $('config-tela').classList.add('ativa'); }
 

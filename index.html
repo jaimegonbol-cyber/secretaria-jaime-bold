@@ -5089,6 +5089,17 @@ async function abrirModalTabletCozinha(){
         <button class="botao terracota pequeno" id="tc-parear" style="width:auto;">+ Gerar link de pareamento</button>
       </div>
       <div id="tc-link"></div>
+      <div style="border-top:1px solid var(--borda);padding-top:12px;margin:14px 0 6px;"><b>📍 Local da escola</b></div>
+      <p style="font-size:12.5px;color:var(--texto-suave);margin:0 0 8px;">Cada batida guarda a localização do tablet. Se ele estiver a mais do que o raio definido daqui, a marcação é registrada normalmente, mas sinalizada como <b>fora do local</b>. Para definir, abra o sistema <b>dentro da escola</b> e clique em "Usar minha localização atual".</p>
+      <div id="tc-local-atual" style="font-size:13.5px;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="campo" style="margin:0;width:150px;"><label>Latitude</label><input type="text" id="tc-lat" inputmode="decimal" /></div>
+        <div class="campo" style="margin:0;width:150px;"><label>Longitude</label><input type="text" id="tc-lng" inputmode="decimal" /></div>
+        <div class="campo" style="margin:0;width:110px;"><label>Raio (metros)</label><input type="number" id="tc-raio" min="30" max="5000" value="200" /></div>
+        <button class="botao secundario pequeno" id="tc-usar-gps" style="width:auto;">📍 Usar minha localização atual</button>
+        <button class="botao terracota pequeno" id="tc-salvar-local" style="width:auto;">Salvar local</button>
+      </div>
+      <div id="tc-local-msg" style="font-size:13px;margin-top:6px;"></div>
       <div style="border-top:1px solid var(--borda);padding-top:12px;margin:14px 0 6px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
         <b>Marcações do dia</b>
         <div class="campo" style="margin:0;"><input type="date" id="tc-data" value="${hojeISO()}" /></div>
@@ -5111,8 +5122,8 @@ async function abrirModalTabletCozinha(){
   const habilitadas = () => ESTADO.funcionarios.filter(f => f.ativo && f.ponto_quiosque);
   function desenharMerendeiras(){
     const lista = candidatas();
-    modal.querySelector('#tc-merendeiras').innerHTML = `<b style="font-size:13.5px;">Quem bate ponto no tablet</b><div style="font-size:12.5px;color:var(--texto-suave);">Marque apenas as funcionárias que devem aparecer no tablet (ex.: contratadas da empresa AVANT).</div>` + (lista.length
-      ? `<div style="margin-top:6px;">${lista.map(f => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:4px 0;cursor:pointer;"><input type="checkbox" data-tc-hab="${f.id}" ${f.ponto_quiosque ? 'checked' : ''} /> <span><b>${esc(f.nome)}</b> — ${f.empresa_contratante ? 'Empresa ' + esc(f.empresa_contratante) : '<span style="color:var(--texto-suave);">sem empresa informada (' + esc(rotuloVinculo(f.vinculo)) + ')</span>'} — ${f.face_descriptor ? '✅ rosto cadastrado' : '<span style="color:#B4432E;">⚠️ sem rosto cadastrado</span>'}</span></label><div style="margin:0 0 6px 26px;"><button type="button" class="botao secundario pequeno" style="width:auto;" data-tc-rosto="${f.id}">📷 ${f.face_descriptor ? 'Recadastrar rosto' : 'Cadastrar rosto'}</button></div>`).join('')}</div>`
+    modal.querySelector('#tc-merendeiras').innerHTML = `<b style="font-size:13.5px;">Quem bate ponto no tablet</b><div style="font-size:12.5px;color:var(--texto-suave);">Marque apenas as funcionárias que devem aparecer no tablet (ex.: contratadas da empresa AVANTE).${ESTADO.perfil.role === 'admin' ? '' : ' <b>Somente a gestão (administrador) pode alterar esta seleção.</b>'}</div>` + (lista.length
+      ? `<div style="margin-top:6px;">${lista.map(f => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:4px 0;cursor:pointer;"><input type="checkbox" data-tc-hab="${f.id}" ${f.ponto_quiosque ? 'checked' : ''} ${ESTADO.perfil.role === 'admin' ? '' : 'disabled'} /> <span><b>${esc(f.nome)}</b> — ${f.empresa_contratante ? 'Empresa ' + esc(f.empresa_contratante) : '<span style="color:var(--texto-suave);">sem empresa informada (' + esc(rotuloVinculo(f.vinculo)) + ')</span>'} — ${f.face_descriptor ? '✅ rosto cadastrado' : '<span style="color:#B4432E;">⚠️ sem rosto cadastrado</span>'}</span></label><div style="margin:0 0 6px 26px;"><button type="button" class="botao secundario pequeno" style="width:auto;" data-tc-rosto="${f.id}">📷 ${f.face_descriptor ? 'Recadastrar rosto' : 'Cadastrar rosto'}</button></div>`).join('')}</div>`
       : `<p style="font-size:13px;color:#B4432E;margin:6px 0 0;">Nenhum funcionário com a função "Merendeira".</p>`);
     modal.querySelectorAll('[data-tc-rosto]').forEach(b => b.addEventListener('click', () => { const f = ESTADO.funcionarios.find(x => x.id === b.dataset.tcRosto); if(f) abrirModalCadastrarRosto(f); }));
     modal.querySelectorAll('[data-tc-hab]').forEach(c => c.addEventListener('change', async () => {
@@ -5143,6 +5154,38 @@ async function abrirModalTabletCozinha(){
       try{ await navigator.clipboard.writeText(inp.value); modal.querySelector('#tc-copiar').textContent = 'Copiado ✓'; }catch(e){ document.execCommand('copy'); }
     });
   }
+
+  const ehAdminLocal = ESTADO.perfil.role === 'admin';
+  async function carregarLocal(){
+    const { data } = await supabase.from('config_ponto_local').select('*').eq('id', 1).maybeSingle();
+    modal.querySelector('#tc-local-atual').innerHTML = data
+      ? `✅ Local definido: <b>${Number(data.latitude).toFixed(6)}, ${Number(data.longitude).toFixed(6)}</b> · raio de <b>${data.raio_m} m</b> <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${data.latitude},${data.longitude}">ver no mapa</a>`
+      : `<span style="color:#B4432E;">⚠️ O local da escola ainda não foi definido. Enquanto isso, as marcações ficam "sem verificação de local".</span>`;
+    if(data){ modal.querySelector('#tc-lat').value = data.latitude; modal.querySelector('#tc-lng').value = data.longitude; modal.querySelector('#tc-raio').value = data.raio_m; }
+  }
+  if(!ehAdminLocal){ ['#tc-lat','#tc-lng','#tc-raio','#tc-usar-gps','#tc-salvar-local'].forEach(q => modal.querySelector(q).disabled = true); modal.querySelector('#tc-local-msg').textContent = 'Somente a gestão (administrador) pode definir o local da escola.'; }
+  modal.querySelector('#tc-usar-gps').addEventListener('click', () => {
+    const msg = modal.querySelector('#tc-local-msg');
+    if(!navigator.geolocation){ msg.textContent = 'Este navegador não consegue obter a localização.'; return; }
+    msg.textContent = 'Obtendo a localização… permita o acesso quando o navegador pedir.';
+    navigator.geolocation.getCurrentPosition(p => {
+      modal.querySelector('#tc-lat').value = p.coords.latitude.toFixed(6);
+      modal.querySelector('#tc-lng').value = p.coords.longitude.toFixed(6);
+      msg.textContent = `Localização obtida (precisão de cerca de ${Math.round(p.coords.accuracy)} m). Confira e clique em "Salvar local".`;
+    }, err => { msg.textContent = err.code === 1 ? 'Localização bloqueada. Permita o acesso ao local nas configurações do navegador.' : 'Não foi possível obter a localização agora.'; }, { enableHighAccuracy: true, timeout: 15000 });
+  });
+  modal.querySelector('#tc-salvar-local').addEventListener('click', async () => {
+    const msg = modal.querySelector('#tc-local-msg');
+    const lat = parseFloat(String(modal.querySelector('#tc-lat').value).replace(',', '.'));
+    const lng = parseFloat(String(modal.querySelector('#tc-lng').value).replace(',', '.'));
+    const raio = parseInt(modal.querySelector('#tc-raio').value, 10);
+    if(!(Math.abs(lat) <= 90) || !(Math.abs(lng) <= 180) || isNaN(lat) || isNaN(lng)){ msg.textContent = 'Latitude ou longitude inválida.'; return; }
+    if(!(raio >= 30 && raio <= 5000)){ msg.textContent = 'O raio deve ficar entre 30 e 5000 metros.'; return; }
+    const { error } = await supabase.from('config_ponto_local').upsert({ id: 1, latitude: lat, longitude: lng, raio_m: raio, atualizado_por: ESTADO.perfil.id || null, atualizado_em: new Date().toISOString() });
+    msg.textContent = error ? 'Não foi possível salvar: ' + error.message : 'Local salvo. Os tablets recebem na próxima sincronização.';
+    if(!error) carregarLocal();
+  });
+  carregarLocal();
 
   async function carregarAparelhos(){
     const { data, error } = await supabase.from('quiosques_ponto').select('id, nome, ativo, criado_em, ultimo_contato').order('criado_em');
@@ -5183,7 +5226,7 @@ async function abrirModalTabletCozinha(){
     const dia = modal.querySelector('#tc-data').value || hojeISO();
     const alvo = modal.querySelector('#tc-marcas');
     alvo.innerHTML = `<p style="font-size:13px;color:var(--texto-suave);">Carregando…</p>`;
-    const { data, error } = await supabase.from('registros_ponto_quiosque').select('id, funcionario_id, registrado_em, tipo, desvio_relogio_s')
+    const { data, error } = await supabase.from('registros_ponto_quiosque').select('id, funcionario_id, registrado_em, tipo, desvio_relogio_s, fora_local, dist_escola_m')
       .gte('registrado_em', dia + 'T00:00:00-03:00').lte('registrado_em', dia + 'T23:59:59.999-03:00').order('registrado_em');
     if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
     const nome = (id) => (ESTADO.funcionarios.find(f => f.id === id) || {}).nome || 'Funcionário';
@@ -5195,7 +5238,7 @@ async function abrirModalTabletCozinha(){
     const quadro = Object.keys(porFunc).length ? `<div style="overflow-x:auto;margin-bottom:12px;"><table style="width:100%;border-collapse:collapse;font-size:13.5px;"><thead><tr style="background:var(--areia-escura);"><th style="text-align:left;padding:5px 8px;">Funcionária</th><th style="padding:5px 8px;">Entrada</th><th style="padding:5px 8px;">Saída p/ almoço</th><th style="padding:5px 8px;">Retorno do almoço</th><th style="padding:5px 8px;">Saída</th></tr></thead><tbody>
       ${Object.keys(porFunc).sort((a, b) => nome(a).localeCompare(nome(b), 'pt-BR')).map((id, i) => `<tr style="background:${i%2?'#EEEEEE':'#FFFFFF'};"><td style="padding:5px 8px;font-weight:700;">${esc(nome(id))}</td>${['entrada','saida_almoco','retorno_almoco','saida'].map(t => `<td style="padding:5px 8px;text-align:center;font-weight:700;">${porFunc[id][t] || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '';
     alvo.innerHTML = quadro + ((data||[]).length ? `<div style="font-size:12.5px;color:var(--texto-suave);margin-bottom:4px;">Detalhe das marcações:</div>` : '') + ((data||[]).length ? `<table style="width:100%;border-collapse:collapse;font-size:13.5px;"><thead><tr><th style="text-align:left;padding:4px 6px;">Hora</th><th style="text-align:left;padding:4px 6px;">Funcionária</th><th style="text-align:left;padding:4px 6px;">Tipo</th><th></th></tr></thead><tbody>
-      ${data.map((r, i) => `<tr style="background:${i%2?'#EEEEEE':'#FFFFFF'};"><td style="padding:5px 6px;">${hora(r.registrado_em)}${Math.abs(r.desvio_relogio_s||0) > 600 ? ' <span title="O relógio do tablet estava diferente do servidor quando as marcações foram enviadas" style="color:#B4432E;">⚠ relógio</span>' : ''}</td><td style="padding:5px 6px;">${esc(nome(r.funcionario_id))}</td><td style="padding:5px 6px;">${rotuloTipo[r.tipo] || r.tipo}</td>
+      ${data.map((r, i) => `<tr style="background:${i%2?'#EEEEEE':'#FFFFFF'};"><td style="padding:5px 6px;">${hora(r.registrado_em)}${Math.abs(r.desvio_relogio_s||0) > 600 ? ' <span title="O relógio do tablet estava diferente do servidor quando as marcações foram enviadas" style="color:#B4432E;">⚠ relógio</span>' : ''}${r.fora_local === true ? ` <span style="color:#B4432E;font-weight:700;" title="Distância da escola">⚠ fora do local (${r.dist_escola_m} m)</span>` : (r.fora_local === false ? ' <span style="color:#1B6B3A;">📍 no local</span>' : ' <span style="color:#555;">sem localização</span>')}</td><td style="padding:5px 6px;">${esc(nome(r.funcionario_id))}</td><td style="padding:5px 6px;">${rotuloTipo[r.tipo] || r.tipo}</td>
       <td style="padding:5px 6px;text-align:right;"><button class="botao secundario pequeno" style="width:auto;" data-tc-excluir="${r.id}">Excluir</button></td></tr>`).join('')}</tbody></table>`
       : `<p style="font-size:13px;color:var(--texto-suave);">Nenhuma marcação neste dia.</p>`);
     alvo.querySelectorAll('[data-tc-excluir]').forEach(b => b.addEventListener('click', async () => {
@@ -5543,7 +5586,7 @@ function abrirModalFuncionario(funcionario, opcoes){
           <div class="campo"><label>Vínculo</label><select id="func-vinculo">${opcoesSelect(VINCULOS_FUNCIONARIO, vd('vinculo'))}</select></div>
           <div class="campo"><label>Matrícula</label><input type="text" id="func-matricula" value="${v('matricula')}" /></div>
         </div>
-        <div class="campo"><label>Empresa contratante <span style="font-weight:400;color:var(--texto-suave);">(se for terceirizado(a), ex.: AVANT)</span></label><input type="text" id="func-empresa" list="func-empresa-lista" value="${v('empresa_contratante')}" /><datalist id="func-empresa-lista"><option value="AVANT"></option></datalist></div>
+        <div class="campo"><label>Empresa contratante <span style="font-weight:400;color:var(--texto-suave);">(se for terceirizado(a), ex.: AVANTE)</span></label><input type="text" id="func-empresa" list="func-empresa-lista" value="${v('empresa_contratante')}" ${ESTADO.perfil.role === 'admin' ? '' : 'disabled title="Somente a gestão altera a empresa contratante"'} /><datalist id="func-empresa-lista"><option value="AVANTE"></option></datalist></div>
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
           <div class="campo"><label>Categoria</label><select id="func-categoria">${opcoesSelect(CATEGORIAS_FUNCIONARIO, vd('categoria'))}</select></div>
           <div class="campo"><label>Função</label>
@@ -5771,12 +5814,12 @@ function abrirModalFuncionario(funcionario, opcoes){
     btn.disabled = true; btn.textContent = 'Salvando…';
     const dados = {
       nome: campo('func-nome'),
+      ...(ESTADO.perfil.role === 'admin' ? { empresa_contratante: (campo('func-empresa') || '').toUpperCase() || null } : {}),
       funcao: campo('func-funcao'),
       email: campo('func-email'),
       telefone: campo('func-telefone'),
       vinculo: document.getElementById('func-vinculo').value || null,
       matricula: campo('func-matricula'),
-      empresa_contratante: (campo('func-empresa') || '').toUpperCase() || null,
       categoria: document.getElementById('func-categoria').value || null,
       data_nascimento: campo('func-data-nascimento'),
       sexo: document.getElementById('func-sexo').value || null,
