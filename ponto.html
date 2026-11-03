@@ -207,8 +207,8 @@ async function atualizarStatus(){
   if(ERRO_AUTORIZACAO){ rs.textContent = '⚠ Aparelho não autorizado — peça novo pareamento'; rs.className = 'chip erro'; }
   else { rs.textContent = `👩‍🍳 ${FUNCIONARIOS.length} rosto(s) cadastrado(s)`; rs.className = 'chip ' + (FUNCIONARIOS.length ? 'on' : 'off'); }
   const btn = $('btn-ponto');
-  if(!MODELOS_PRONTOS && ERRO_MODELOS){ btn.disabled = false; btn.textContent = '⚠ Falha ao carregar o reconhecimento (' + ERRO_MODELOS + '). Toque para tentar de novo'; }
-  else if(!MODELOS_PRONTOS){ btn.disabled = true; btn.textContent = 'Preparando reconhecimento…'; }
+  if(!MODELOS_PRONTOS && ERRO_MODELOS){ btn.disabled = false; btn.style.fontSize = '20px'; btn.textContent = '⚠ Falha ao carregar o reconhecimento (' + ERRO_MODELOS + '). Toque para tentar de novo'; }
+  else if(!MODELOS_PRONTOS){ btn.style.fontSize = ''; btn.disabled = true; btn.textContent = 'Preparando reconhecimento…'; }
   else if(!FUNCIONARIOS.length){ btn.disabled = true; btn.textContent = 'Nenhum rosto cadastrado'; }
   else { btn.disabled = LENDO; btn.textContent = '👆 TOQUE AQUI PARA BATER O PONTO'; }
 }
