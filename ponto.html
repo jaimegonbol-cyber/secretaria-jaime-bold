@@ -170,6 +170,7 @@ function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<
 let TOKEN = null;
 let FUNCIONARIOS = [];      // [{id, nome, descritor}]
 let MODELOS_PRONTOS = false;
+let ERRO_MODELOS = null;
 let LENDO = false;
 let ULTIMA_SYNC = null;
 let SYNC_EM_ANDAMENTO = false;
@@ -206,7 +207,8 @@ async function atualizarStatus(){
   if(ERRO_AUTORIZACAO){ rs.textContent = '⚠ Aparelho não autorizado — peça novo pareamento'; rs.className = 'chip erro'; }
   else { rs.textContent = `👩‍🍳 ${FUNCIONARIOS.length} rosto(s) cadastrado(s)`; rs.className = 'chip ' + (FUNCIONARIOS.length ? 'on' : 'off'); }
   const btn = $('btn-ponto');
-  if(!MODELOS_PRONTOS){ btn.disabled = true; btn.textContent = 'Preparando reconhecimento…'; }
+  if(!MODELOS_PRONTOS && ERRO_MODELOS){ btn.disabled = false; btn.textContent = '⚠ Falha ao carregar o reconhecimento (' + ERRO_MODELOS + '). Toque para tentar de novo'; }
+  else if(!MODELOS_PRONTOS){ btn.disabled = true; btn.textContent = 'Preparando reconhecimento…'; }
   else if(!FUNCIONARIOS.length){ btn.disabled = true; btn.textContent = 'Nenhum rosto cadastrado'; }
   else { btn.disabled = LENDO; btn.textContent = '👆 TOQUE AQUI PARA BATER O PONTO'; }
 }
@@ -270,9 +272,10 @@ async function sincronizar(){
 // ====================== RECONHECIMENTO ======================
 async function prepararModelos(){
   const fa = window.faceapi;
+  if(!fa) throw new Error('arquivo vendor-face/face-api.js não encontrado');
   // Usa a placa de vídeo (rápido). Se o aparelho não suportar, cai para o processador (mais lento, mas funciona).
   let ok = false;
-  try{ ok = await fa.tf.setBackend('webgl'); await fa.tf.ready(); }catch(e){ ok = false; }
+  try{ ok = await Promise.race([(async () => { const r = await fa.tf.setBackend('webgl'); await fa.tf.ready(); return r; })(), new Promise((_, rej) => setTimeout(() => rej(new Error('webgl lento')), 10000))]); }catch(e){ ok = false; }
   if(!ok){ await fa.tf.setBackend('cpu'); await fa.tf.ready(); }
   console.log('Reconhecimento facial usando:', fa.tf.getBackend());
   await Promise.all([
@@ -334,6 +337,7 @@ async function proximoTipo(funcionarioId){
   return { ultima, tipo: SEQUENCIA[i + 1], completo: false };
 }
 async function baterPonto(){
+  if(ERRO_MODELOS && !MODELOS_PRONTOS){ location.reload(); return; }
   if(LENDO || !MODELOS_PRONTOS || !FUNCIONARIOS.length) return;
   LENDO = true; atualizarStatus();
   let stream = null, cancelou = false;
@@ -439,7 +443,7 @@ async function iniciar(){
   window.addEventListener('offline', atualizarStatus);
   setInterval(() => { atualizarStatus(); sincronizar(); }, INTERVALO_SYNC_MS);
   atualizarStatus();
-  try{ await prepararModelos(); }catch(e){ console.error(e); $('btn-ponto').textContent = 'Erro ao preparar o reconhecimento (conecte à internet uma vez)'; }
+  try{ await prepararModelos(); }catch(e){ console.error(e); ERRO_MODELOS = String((e && e.message) || e).slice(0, 90); }
   atualizarStatus(); sincronizar();
 }
 iniciar();
