@@ -6120,6 +6120,26 @@ async function abaNotasDiario(corpo, { alunos, podeEditar, ano, nomeComp, chaveB
     inp.addEventListener('blur', () => { aplicarLimite(inp); const v = parseNotaDiario(inp.value); inp.value = v === null ? '' : fmtNotaDiario(v); recalcular(inp.closest('tr')); atualizarLimites(inp.closest('tr')); });
   });
   corpo.querySelectorAll('tr[data-linha]').forEach(atualizarLimites);
+  // ENTER vai para o estudante de baixo, na MESMA coluna (Shift+Enter sobe). No fim da coluna, segue para o topo da próxima coluna.
+  const ORDEM_COLUNAS = ['atv1', 'atv2', 'atv3', 'n2'];
+  corpo.querySelectorAll('.dr-nota').forEach(inp => inp.addEventListener('keydown', (e) => {
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+    const linhas = Array.from(corpo.querySelectorAll('tr[data-linha]'));
+    const i = linhas.indexOf(inp.closest('tr'));
+    const slot = inp.dataset.slot;
+    const campoEm = (idx, sl) => linhas[idx] && linhas[idx].querySelector(`[data-slot="${sl}"]`);
+    let alvo = null;
+    if(e.shiftKey){
+      alvo = campoEm(i - 1, slot);
+      if(!alvo){ const c = ORDEM_COLUNAS.indexOf(slot); if(c > 0) alvo = campoEm(linhas.length - 1, ORDEM_COLUNAS[c - 1]); }
+    } else {
+      alvo = campoEm(i + 1, slot);
+      if(!alvo){ const c = ORDEM_COLUNAS.indexOf(slot); if(c >= 0 && c < ORDEM_COLUNAS.length - 1) alvo = campoEm(0, ORDEM_COLUNAS[c + 1]); }
+    }
+    if(alvo){ alvo.focus(); alvo.select(); }
+    else { const sv = document.getElementById('dr-salvar-notas'); if(sv) sv.focus(); }
+  }));
   const btn = document.getElementById('dr-salvar-notas');
   if(btn) btn.addEventListener('click', async () => {
     btn.disabled = true; btn.textContent = 'Salvando…';
