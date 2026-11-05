@@ -3357,7 +3357,9 @@ async function renderizarRenovacaoMatricula(el){
   }
   const anoOrigem = ESTADO.renovacaoAnoOrigem;
   const anoDestino = anoOrigem + 1;
-  const turmasOrigem = ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem).slice()
+  // As turmas do 9º ano ficam FORA da renovação: esses estudantes seguem para o 1º ano do Ensino Médio em outra rede (Estado de Pernambuco).
+  const ehTurma9Ano = (nome) => /^\s*9\s*[º°o]?\s*ANO\b/i.test(nome || '');
+  const turmasOrigem = ESTADO.turmas.filter(t => t.ano_letivo === anoOrigem && !ehTurma9Ano(t.nome)).slice()
     .sort((a,b) => ordemCronologicaTurma(a.nome) - ordemCronologicaTurma(b.nome) || a.nome.localeCompare(b.nome, 'pt-BR'));
   const turmasDestinoExistentes = ESTADO.turmas.filter(t => t.ano_letivo === anoDestino);
 
@@ -3366,7 +3368,7 @@ async function renderizarRenovacaoMatricula(el){
   el.innerHTML = `
     <div class="painel" style="margin-bottom:10px;">
       <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-        <span style="font-size:13px;"><b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b> <span style="color:var(--texto-suave);font-weight:400;">— renove a matrícula do(a) estudante, depois enturme-o(a) quando souber o resultado de aprovação.</span></span>
+        <span style="font-size:13px;"><b>Renovação de Matrícula — ${anoOrigem} → ${anoDestino}</b> <span style="color:var(--texto-suave);font-weight:400;">— renove a matrícula do(a) estudante, depois enturme-o(a) quando souber o resultado de aprovação. <b>O 9º ano não entra</b> (segue para o Ensino Médio na rede estadual).</span></span>
         <select id="renovacao-ano-origem" style="width:auto;">${anosDisponiveis.map(a => `<option value="${a}" ${a===anoOrigem?'selected':''}>${a}</option>`).join('')}</select>
       </div>
     </div>
