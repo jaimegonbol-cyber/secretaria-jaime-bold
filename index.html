@@ -726,6 +726,19 @@ const VINCULOS_FUNCIONARIO = [
   ['contrato', 'Contrato'],
   ['estagiario', 'Estagiário'],
 ];
+const TIPOS_AFASTAMENTO = [['licenca_medica','Licença médica'],['licenca_curso','Licença para curso'],['licenca_outra','Outra licença']];
+// Retorna o funcionário se ele está afastado HOJE (tipo preenchido e hoje dentro do período); senão null.
+function afastamentoAtivo(f){
+  if(!f || !f.afastamento_tipo) return null;
+  const h = hojeISO();
+  if(f.afastamento_inicio && f.afastamento_inicio > h) return null;
+  if(f.afastamento_fim && f.afastamento_fim < h) return null;
+  return f;
+}
+function rotuloAfastamento(f){
+  const t = (TIPOS_AFASTAMENTO.find(x => x[0] === f.afastamento_tipo) || [])[1] || 'Licença';
+  return t + (f.afastamento_fim ? ' · até ' + formatarDataBR(f.afastamento_fim) : '');
+}
 function rotuloVinculo(v){
   const item = VINCULOS_FUNCIONARIO.find(([chave]) => chave === v);
   return item ? item[1] : '—';
@@ -2531,7 +2544,7 @@ function abrirModalEditarTurma(turma){
           <button class="botao secundario pequeno" type="button" id="btn-add-vinculo" style="width:auto;">+ Vincular</button>
         </div>
         <div id="msg-vinculo-turma"></div>
-        <p style="font-size:11.5px;color:var(--texto-suave);margin:6px 0 0;">Só aparecem funcionários com função de Professor(a). Selecionando <b>Polivalente (Anos Iniciais)</b>, o sistema já vincula automaticamente o professor a Arte, Ciências, Geografia, História, Língua Portuguesa, Matemática e EDI/EDHC (conforme a série) — não precisa adicionar um por um. <b>Polivalente (Educação Infantil)</b> é vinculado como uma disciplina própria, sem essa expansão.</p>
+        <p style="font-size:11.5px;color:var(--texto-suave);margin:6px 0 0;">Só aparecem funcionários com função de Professor(a). <b>Professor(a) em licença:</b> mantenha o vínculo dele(a) (aparece como "em licença" e volta sozinho ao fim da licença) e vincule também o(a) substituto(a). Selecionando <b>Polivalente (Anos Iniciais)</b>, o sistema já vincula automaticamente o professor a Arte, Ciências, Geografia, História, Língua Portuguesa, Matemática e EDI/EDHC (conforme a série) — não precisa adicionar um por um. <b>Polivalente (Educação Infantil)</b> é vinculado como uma disciplina própria, sem essa expansão.</p>
       </div>` : ''}
     </div>`;
   document.body.appendChild(modal);
@@ -2543,11 +2556,11 @@ function abrirModalEditarTurma(turma){
   async function carregarVinculosTurma(turmaId){
     const alvo = document.getElementById('lista-vinculos-turma');
     const { data, error } = await supabase.from('turma_professor_disciplina')
-      .select('id, disciplina, funcionarios(nome)').eq('turma_id', turmaId).order('disciplina');
+      .select('id, disciplina, funcionarios(nome, afastamento_tipo, afastamento_inicio, afastamento_fim)').eq('turma_id', turmaId).order('disciplina');
     if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
     alvo.innerHTML = (data && data.length) ? data.map(v => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 2px;border-bottom:1px solid var(--borda);font-size:13px;">
-        <span><b>${esc(v.disciplina)}</b> — ${esc(v.funcionarios?.nome || 'Funcionário removido')}</span>
+        <span><b>${esc(v.disciplina)}</b> — ${esc(v.funcionarios?.nome || 'Funcionário removido')}${afastamentoAtivo(v.funcionarios) ? ` <span class="pill laranja" style="font-size:10.5px;">em licença</span>` : ''}</span>
         <button type="button" class="btn-icone perigo" data-remover-vinculo="${v.id}" title="Remover">🗑️</button>
       </div>`).join('') : `<p style="color:var(--texto-suave);font-size:13px;">Nenhum professor vinculado ainda.</p>`;
     alvo.querySelectorAll('[data-remover-vinculo]').forEach(b => b.addEventListener('click', async () => {
@@ -3893,6 +3906,13 @@ async function renderizarFuncionarios(el){
     ESTADO.disciplinasPorFuncionarioCache = mapa;
   }
   const disciplinasPorFuncionario = ESTADO.disciplinasPorFuncionarioCache;
+  if(!ESTADO.aeePorFuncionarioCache){
+    const { data: aeeVinc } = await supabase.from('aee_atendimento').select('funcionario_id');
+    const m = {};
+    (aeeVinc||[]).forEach(v => { m[v.funcionario_id] = (m[v.funcionario_id] || 0) + 1; });
+    ESTADO.aeePorFuncionarioCache = m;
+  }
+  const aeePorFuncionario = ESTADO.aeePorFuncionarioCache;
 
   const linhas = lista.map(f => {
     const disciplinas = disciplinasPorFuncionario[f.id];
@@ -3908,7 +3928,11 @@ async function renderizarFuncionarios(el){
         <span class="pill verde">${esc(f.funcao)}</span>
         ${ehProfessor ? (disciplinas && disciplinas.size
           ? `<div style="font-size:11px;color:var(--texto-suave);margin-top:3px;max-width:220px;">${esc(Array.from(disciplinas).sort((a,b)=>a.localeCompare(b,'pt-BR')).join(', '))}</div>`
-          : `<div style="font-size:11px;color:var(--erro);margin-top:3px;">Sem disciplina vinculada</div>`) : ''}
+          : (aeePorFuncionario[f.id]
+              ? ''
+              : (afastamentoAtivo(f) ? '' : `<div style="font-size:11px;color:var(--erro);margin-top:3px;">Sem disciplina vinculada</div>`))) : ''}
+        ${aeePorFuncionario[f.id] ? `<div style="margin-top:3px;"><span class="pill azul" style="font-size:11px;">AEE · ${aeePorFuncionario[f.id]} estudante${aeePorFuncionario[f.id] > 1 ? 's' : ''}</span></div>` : ''}
+        ${afastamentoAtivo(f) ? `<div style="margin-top:3px;"><span class="pill laranja" style="font-size:11px;">🩺 ${esc(rotuloAfastamento(f))}</span></div>` : ''}
       </td>
       <td>${f.vinculo ? `<span class="pill azul">${esc(rotuloVinculo(f.vinculo))}</span>` : '—'}</td>
       <td>${f.categoria ? esc(rotuloCategoria(f.categoria)) : '—'}</td>
@@ -5594,6 +5618,25 @@ function abrirModalFuncionario(funcionario, opcoes){
           <div class="campo"><label>Matrícula</label><input type="text" id="func-matricula" value="${v('matricula')}" /></div>
         </div>
         <div class="campo"><label>Empresa contratante <span style="font-weight:400;color:var(--texto-suave);">(se for terceirizado(a), ex.: AVANTE)</span></label><input type="text" id="func-empresa" list="func-empresa-lista" value="${v('empresa_contratante')}" ${ESTADO.perfil.role === 'admin' ? '' : 'disabled title="Somente a gestão altera a empresa contratante"'} /><datalist id="func-empresa-lista"><option value="AVANTE"></option></datalist></div>
+        ${proprio ? '' : `
+        <div class="painel" style="margin:6px 0 12px;padding:10px 14px;">
+          <b style="font-size:13.5px;">🩺 Afastamento / licença</b>
+          <p style="font-size:12px;color:var(--texto-suave);margin:3px 0 8px;">Para professor(a) de licença médica ou de curso: o cadastro e as turmas dele(a) continuam, e ele(a) aparece como "em licença" no período.</p>
+          <div class="grade-2" style="grid-template-columns:1.4fr 1fr 1fr;gap:12px;">
+            <div class="campo" style="margin:0;"><label>Situação</label><select id="func-afast-tipo"><option value="">Em atividade</option>${TIPOS_AFASTAMENTO.map(([k, n]) => `<option value="${k}" ${vd('afastamento_tipo')===k?'selected':''}>${n}</option>`).join('')}</select></div>
+            <div class="campo" style="margin:0;"><label>Início</label><input type="date" id="func-afast-inicio" value="${v('afastamento_inicio')}" /></div>
+            <div class="campo" style="margin:0;"><label>Previsão de retorno</label><input type="date" id="func-afast-fim" value="${v('afastamento_fim')}" /></div>
+          </div>
+          <div class="campo" style="margin:8px 0 0;"><label>Observação (opcional)</label><input type="text" id="func-afast-obs" value="${v('afastamento_obs')}" placeholder="Ex.: substituído(a) por ___ nas turmas do 6º ao 9º ano" /></div>
+        </div>
+        <div class="painel" style="margin:6px 0 12px;padding:10px 14px;">
+          <label style="display:flex;gap:8px;align-items:center;font-weight:700;font-size:13.5px;cursor:pointer;"><input type="checkbox" id="func-aee-ativo" style="width:auto;" /> Professor(a) do AEE (atende estudantes do AEE)</label>
+          <div id="func-aee-bloco" style="display:none;margin-top:8px;">
+            <input type="text" id="func-aee-busca" placeholder="Buscar estudante do AEE…" style="margin-bottom:6px;" />
+            <div id="func-aee-lista" style="max-height:220px;overflow-y:auto;border:1px solid var(--borda);border-radius:8px;padding:6px 10px;"></div>
+            <div id="func-aee-contagem" style="font-size:12px;color:var(--texto-suave);margin-top:4px;"></div>
+          </div>
+        </div>`}
         <div class="grade-2" style="grid-template-columns:1fr 1fr;gap:12px;">
           <div class="campo"><label>Categoria</label><select id="func-categoria">${opcoesSelect(CATEGORIAS_FUNCIONARIO, vd('categoria'))}</select></div>
           <div class="campo"><label>Função</label>
@@ -5708,6 +5751,31 @@ function abrirModalFuncionario(funcionario, opcoes){
     ['func-nome','func-funcao','func-vinculo','func-matricula','func-empresa','func-categoria','func-ensino','func-disciplinas','func-turno','func-carga-horaria'].forEach(id => { const c = document.getElementById(id); if(c){ c.disabled = true; c.title = 'Somente a secretaria altera este campo'; } });
     const ativo = document.getElementById('func-ativo'); if(ativo && ativo.closest('.campo')) ativo.closest('.campo').style.display = 'none';
   }
+  // Estudantes atendidos pelo(a) professor(a) do AEE
+  const aeeSelecionados = new Set();
+  let aeeCarregado = false;
+  if(!proprio){
+    const alunosAEE = ESTADO.alunos.filter(a => a.aee && (a.situacao || 'matriculado') === 'matriculado')
+      .slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    const desenharAEE = () => {
+      const termo = (modal.querySelector('#func-aee-busca').value || '').toLowerCase();
+      modal.querySelector('#func-aee-lista').innerHTML = alunosAEE.filter(a => !termo || a.nome.toLowerCase().includes(termo)).map(a => {
+        const t = ESTADO.turmas.find(x => x.id === a.turma_id);
+        return `<label style="display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-aee-aluno="${a.id}" ${aeeSelecionados.has(a.id) ? 'checked' : ''} style="width:auto;" /> ${esc(a.nome)} <span style="color:var(--texto-suave);font-size:11.5px;">${esc(t ? t.nome + ' · ' + (t.turno || '') : '')}</span></label>`;
+      }).join('') || '<span style="font-size:12.5px;color:var(--texto-suave);">Nenhum estudante com AEE encontrado.</span>';
+      modal.querySelectorAll('[data-aee-aluno]').forEach(c => c.addEventListener('change', () => { c.checked ? aeeSelecionados.add(c.dataset.aeeAluno) : aeeSelecionados.delete(c.dataset.aeeAluno); modal.querySelector('#func-aee-contagem').textContent = aeeSelecionados.size + ' estudante(s) selecionado(s)'; }));
+      modal.querySelector('#func-aee-contagem').textContent = aeeSelecionados.size + ' estudante(s) selecionado(s)';
+    };
+    modal.querySelector('#func-aee-busca').addEventListener('input', desenharAEE);
+    modal.querySelector('#func-aee-ativo').addEventListener('change', (e) => { modal.querySelector('#func-aee-bloco').style.display = e.target.checked ? '' : 'none'; if(e.target.checked) desenharAEE(); });
+    if(editando){
+      supabase.from('aee_atendimento').select('aluno_id').eq('funcionario_id', funcionario.id).then(({ data }) => {
+        (data || []).forEach(r => aeeSelecionados.add(r.aluno_id));
+        aeeCarregado = true;
+        if(aeeSelecionados.size){ modal.querySelector('#func-aee-ativo').checked = true; modal.querySelector('#func-aee-bloco').style.display = ''; desenharAEE(); }
+      });
+    } else { aeeCarregado = true; }
+  }
   // Formações acadêmicas: várias linhas (graduação, especialização, mestrado, doutorado) ao mesmo tempo.
   const formacoesEl = modal.querySelector('#func-formacoes');
   function adicionarLinhaFormacao(x){
@@ -5821,6 +5889,12 @@ function abrirModalFuncionario(funcionario, opcoes){
     btn.disabled = true; btn.textContent = 'Salvando…';
     const dados = {
       nome: campo('func-nome'),
+      ...(proprio ? {} : {
+        afastamento_tipo: document.getElementById('func-afast-tipo').value || null,
+        afastamento_inicio: document.getElementById('func-afast-tipo').value ? campo('func-afast-inicio') : null,
+        afastamento_fim: document.getElementById('func-afast-tipo').value ? campo('func-afast-fim') : null,
+        afastamento_obs: document.getElementById('func-afast-tipo').value ? campo('func-afast-obs') : null,
+      }),
       ...(ESTADO.perfil.role === 'admin' ? { empresa_contratante: (campo('func-empresa') || '').toUpperCase() || null } : {}),
       funcao: campo('func-funcao'),
       email: campo('func-email'),
@@ -5907,6 +5981,15 @@ function abrirModalFuncionario(funcionario, opcoes){
       return;
     }
     const funcionarioId = editando ? funcionario.id : registroFunc.id;
+    if(aeeCarregado){
+      const marcado = document.getElementById('func-aee-ativo').checked;
+      await supabase.from('aee_atendimento').delete().eq('funcionario_id', funcionarioId);
+      if(marcado && aeeSelecionados.size){
+        const { error: erroAee } = await supabase.from('aee_atendimento').insert(Array.from(aeeSelecionados).map(aid => ({ funcionario_id: funcionarioId, aluno_id: aid, criado_por: ESTADO.perfil.id })));
+        if(erroAee) alert('Funcionário salvo, mas os estudantes do AEE não foram gravados: ' + erroAee.message);
+      }
+    }
+    ESTADO.aeePorFuncionarioCache = null; ESTADO.disciplinasPorFuncionarioCache = null;
     const arquivoFotoFunc = document.getElementById('func-foto').files[0];
     if(arquivoFotoFunc){
       const extensao = arquivoFotoFunc.name.split('.').pop();
@@ -6001,9 +6084,12 @@ async function renderizarDiario(el){
   let nomesProfessores = '—';
   if(DIARIO.comp){
     const { data: vincsTurma } = await supabase.from('turma_professor_disciplina').select('funcionario_id, disciplina').eq('turma_id', DIARIO.turmaId);
-    const nomes = [...new Set((vincsTurma || []).filter(v => disciplinaCasaComponente(v.disciplina, DIARIO.comp))
-      .map(v => (ESTADO.funcionarios.find(f => f.id === v.funcionario_id) || {}).nome).filter(Boolean))];
-    if(nomes.length) nomesProfessores = nomes.join(' / ');
+    const funcsVinc = [...new Set((vincsTurma || []).filter(v => disciplinaCasaComponente(v.disciplina, DIARIO.comp)).map(v => v.funcionario_id))]
+      .map(id => ESTADO.funcionarios.find(f => f.id === id)).filter(Boolean);
+    const emAula = funcsVinc.filter(f => !afastamentoAtivo(f)).map(f => f.nome);
+    const emLicenca = funcsVinc.filter(f => afastamentoAtivo(f)).map(f => f.nome);
+    if(emAula.length) nomesProfessores = emAula.join(' / ') + (emLicenca.length ? ` (titular em licença: ${emLicenca.join(', ')})` : '');
+    else if(emLicenca.length) nomesProfessores = emLicenca.join(' / ') + ' (em licença)';
   }
 
   const abas = [['notas', 'Notas'], ['avaliacoes', 'Avaliações'], ['aulas', 'Registro de aula'], ['resumo', 'Resumo do ano']];
@@ -15431,7 +15517,14 @@ async function imprimirFrequenciaMensalEmBranco(turmaId, ano, mes, btn){
   janela.focus();
 }
 
-function imprimirListaAEE(turmaIdOpcional){
+async function imprimirListaAEE(turmaIdOpcional){
+  const janela = window.open('', '_blank'); // abre antes de consultar, para o navegador não bloquear a janela
+  const { data: aeeVinculos } = await supabase.from('aee_atendimento').select('funcionario_id, aluno_id');
+  const profsAEEPorAluno = {};
+  (aeeVinculos || []).forEach(v => {
+    const f = ESTADO.funcionarios.find(x => x.id === v.funcionario_id);
+    if(f) (profsAEEPorAluno[v.aluno_id] = profsAEEPorAluno[v.aluno_id] || []).push(f.nome.split(' ').slice(0, 2).join(' '));
+  });
   const alunosAEE = ESTADO.alunos
     .filter(a => a.aee && a.situacao !== 'transferido' && a.situacao !== 'cancelado')
     .filter(a => !turmaIdOpcional || a.turma_id === turmaIdOpcional)
@@ -15453,12 +15546,12 @@ function imprimirListaAEE(turmaIdOpcional){
       <td style="text-align:center;font-weight:700;">${esc(cid)}</td>
       <td style="text-align:left;padding-left:8px;">${esc(a.transtorno || '—')}</td>
       <td style="text-align:left;padding-left:8px;">${esc(a.descricao_aee || '—')}</td>
+      <td style="text-align:left;padding-left:8px;">${esc((profsAEEPorAluno[a.id] || []).join(' / ') || '—')}</td>
     </tr>`;
   }).join('');
 
   const turmaFiltro = turmaIdOpcional ? ESTADO.turmas.find(t => t.id === turmaIdOpcional) : null;
 
-  const janela = window.open('', '_blank');
   janela.document.write(`
     <!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" />
     <title>Estudantes com AEE</title>
@@ -15483,8 +15576,9 @@ function imprimirListaAEE(turmaIdOpcional){
           <th style="width:13%;">CID</th>
           <th style="width:14%;">TRANSTORNO</th>
           <th>DESCRIÇÃO AEE</th>
+          <th style="width:16%;">PROFESSOR(A) AEE</th>
         </tr></thead>
-        <tbody>${linhas || `<tr><td colspan="6" style="text-align:center;padding:14px;">Nenhum estudante com AEE encontrado.</td></tr>`}</tbody>
+        <tbody>${linhas || `<tr><td colspan="7" style="text-align:center;padding:14px;">Nenhum estudante com AEE encontrado.</td></tr>`}</tbody>
       </table>
     <script>${JS_AUTOAJUSTE_LISTA_ESTUDANTES}<\/script>
     </body></html>
