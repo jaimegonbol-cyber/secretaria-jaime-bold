@@ -10144,6 +10144,14 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
         </div>
         <div class="campo" id="campo-oc-espaco-outro" style="display:${editando && registroExistente.espaco==='outro'?'':'none'};"><label>Qual espaço?</label><input type="text" id="oc-espaco-outro" value="${editando ? esc(registroExistente.espaco_outro||'') : ''}" /></div>
       </div>
+      <div class="campo">
+        <label>Gestor(a) / Vice-Gestor(a) responsável</label>
+        <select id="oc-gestao">
+          <option value="">Selecione…</option>
+          <option value="gestora" ${editando && registroExistente.gestao_tipo==='gestora'?'selected':''}>${esc(GESTAO_ASSINATURA.gestora.nome)} — Gestora</option>
+          <option value="vice" ${editando && registroExistente.gestao_tipo==='vice'?'selected':''}>${esc(GESTAO_ASSINATURA.vice.nome)} — Vice-Gestor</option>
+        </select>
+      </div>
       <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" list="lista-professores-oc" autocomplete="off" placeholder="Clique para escolher o professor(a) cadastrado ou digite o nome" value="${editando ? esc(registroExistente.professor||'') : ''}" /></div>
       <datalist id="lista-professores-oc">${ESTADO.funcionarios.filter(f => f.ativo !== false && (f.funcao||'').toLowerCase().includes('professor')).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(f => `<option value="${esc(f.nome)}"></option>`).join('')}</datalist>
       <div class="campo">
@@ -10250,6 +10258,7 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
     if(!qualificacoes.length && !(outrasCheck && outrasTexto)){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos uma qualificação da ocorrência.</div>`; return; }
     const dataParaSalvar = document.getElementById('oc-data').value;
     if(!dataParaSalvar){ msg.innerHTML = `<div class="msg-erro">Selecione a data da ocorrência.</div>`; return; }
+    if(!document.getElementById('oc-gestao').value){ msg.innerHTML = `<div class="msg-erro">Selecione o(a) Gestor(a) ou Vice-Gestor(a) responsável.</div>`; return; }
     if(dataParaSalvar > hojeISO()){ msg.innerHTML = `<div class="msg-erro">A data da ocorrência não pode estar no futuro.</div>`; return; }
     const btn = document.getElementById('btn-salvar-ocorrencia');
     btn.disabled = true; btn.textContent = 'Salvando…';
@@ -10261,6 +10270,7 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
       espaco: document.getElementById('oc-espaco').value,
       espaco_outro: document.getElementById('oc-espaco').value === 'outro' ? document.getElementById('oc-espaco-outro').value.trim() : null,
       professor: document.getElementById('oc-professor').value.trim() || null,
+      gestao_tipo: document.getElementById('oc-gestao').value,
       qualificacoes,
       outras_texto: outrasCheck ? outrasTexto : null,
       observacoes: document.getElementById('oc-observacoes').value.trim() || null,
@@ -10418,7 +10428,7 @@ function montarBlocoFichaOcorrencia(r, aluno, comQuebra){
         <p style="text-align:right;margin:0;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
         <div class="assinaturas">
           <div class="linha-assinatura">Assinatura do Estudante</div>
-          <div class="linha-assinatura">${r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou')}</div>
+          <div class="linha-assinatura">${r.gestao_tipo && GESTAO_ASSINATURA[r.gestao_tipo] ? esc(GESTAO_ASSINATURA[r.gestao_tipo].nome) + '<br/>' + esc(GESTAO_ASSINATURA[r.gestao_tipo].cargo) : (r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou'))}</div>
           <div class="linha-assinatura">Assinatura do(a) Responsável</div>
         </div>
       </div>
@@ -10525,7 +10535,7 @@ function montarFichaOcorrenciaConjunta(registros, alunosPorId){
           ${paresAssinatura}
         </div>
         <div style="display:flex;justify-content:center;margin-top:24px;">
-          <div class="linha-registrou">${base.registrado?.nome ? esc(base.registrado.nome) : (base.professor ? esc(base.professor) : 'Assinatura de quem registrou')}</div>
+          <div class="linha-registrou">${base.gestao_tipo && GESTAO_ASSINATURA[base.gestao_tipo] ? esc(GESTAO_ASSINATURA[base.gestao_tipo].nome) + '<br/>' + esc(GESTAO_ASSINATURA[base.gestao_tipo].cargo) : (base.registrado?.nome ? esc(base.registrado.nome) : (base.professor ? esc(base.professor) : 'Assinatura de quem registrou'))}</div>
         </div>
       </div>
       </div>`;
