@@ -15150,13 +15150,26 @@ async function imprimirAutorizacoesLGPD(idsTurmas, opc){
       for(let i = 0; i < alunos.length; i += 120){
         const ids = alunos.slice(i, i + 120).map(a => a.id);
         const { data: vincs } = await supabase.from('aluno_responsavel').select('aluno_id, tipo, principal, responsaveis(nome, cpf, telefone, email)').in('aluno_id', ids);
-        (vincs || []).forEach(v => {
-          const atual = respPorAluno[v.aluno_id];
-          if(!atual || (v.principal && !atual.principal)) respPorAluno[v.aluno_id] = v;
-        });
+        (vincs || []).forEach(v => { (respPorAluno[v.aluno_id] = respPorAluno[v.aluno_id] || []).push(v); });
       }
     }
-    itens = alunos.map(a => ({ a, r: respPorAluno[a.id]?.responsaveis || null }));
+    // Escolhe o responsável principal e completa CPF/telefone/e-mail com os dados de outros vínculos
+    // do mesmo aluno quando o cadastro principal estiver incompleto (ex.: mesma pessoa cadastrada como mãe/pai/responsável).
+    const norm = (t) => String(t || '').trim().toUpperCase();
+    const escolher = (lista) => {
+      if(!lista || !lista.length) return null;
+      const ord = lista.slice().sort((x, y) => (y.principal ? 1 : 0) - (x.principal ? 1 : 0));
+      const base = ord[0].responsaveis; if(!base) return null;
+      const r = { nome: base.nome, cpf: base.cpf, telefone: base.telefone, email: base.email };
+      ['cpf', 'telefone', 'email'].forEach(c => {
+        if(r[c]) return;
+        const outro = ord.find(v => v.responsaveis && v.responsaveis[c] && norm(v.responsaveis.nome) === norm(base.nome))
+                   || ord.find(v => v.responsaveis && v.responsaveis[c]);
+        if(outro) r[c] = outro.responsaveis[c];
+      });
+      return r;
+    };
+    itens = alunos.map(a => ({ a, r: escolher(respPorAluno[a.id]) }));
   }
   if(opc.vias === 2 && !opc.emBranco) itens = itens.flatMap(x => [x, x]);
 
