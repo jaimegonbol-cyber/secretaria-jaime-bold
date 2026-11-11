@@ -10144,14 +10144,6 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
         </div>
         <div class="campo" id="campo-oc-espaco-outro" style="display:${editando && registroExistente.espaco==='outro'?'':'none'};"><label>Qual espaço?</label><input type="text" id="oc-espaco-outro" value="${editando ? esc(registroExistente.espaco_outro||'') : ''}" /></div>
       </div>
-      <div class="campo">
-        <label>Gestor(a) / Vice-Gestor(a) responsável</label>
-        <select id="oc-gestao">
-          <option value="">Selecione…</option>
-          <option value="gestora" ${editando && registroExistente.gestao_tipo==='gestora'?'selected':''}>${esc(GESTAO_ASSINATURA.gestora.nome)} — Gestora</option>
-          <option value="vice" ${editando && registroExistente.gestao_tipo==='vice'?'selected':''}>${esc(GESTAO_ASSINATURA.vice.nome)} — Vice-Gestor</option>
-        </select>
-      </div>
       <div class="campo"><label>Professor(a)</label><input type="text" id="oc-professor" list="lista-professores-oc" autocomplete="off" placeholder="Clique para escolher o professor(a) cadastrado ou digite o nome" value="${editando ? esc(registroExistente.professor||'') : ''}" /></div>
       <datalist id="lista-professores-oc">${ESTADO.funcionarios.filter(f => f.ativo !== false && (f.funcao||'').toLowerCase().includes('professor')).slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(f => `<option value="${esc(f.nome)}"></option>`).join('')}</datalist>
       <div class="campo">
@@ -10258,7 +10250,6 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
     if(!qualificacoes.length && !(outrasCheck && outrasTexto)){ msg.innerHTML = `<div class="msg-erro">Selecione ao menos uma qualificação da ocorrência.</div>`; return; }
     const dataParaSalvar = document.getElementById('oc-data').value;
     if(!dataParaSalvar){ msg.innerHTML = `<div class="msg-erro">Selecione a data da ocorrência.</div>`; return; }
-    if(!document.getElementById('oc-gestao').value){ msg.innerHTML = `<div class="msg-erro">Selecione o(a) Gestor(a) ou Vice-Gestor(a) responsável.</div>`; return; }
     if(dataParaSalvar > hojeISO()){ msg.innerHTML = `<div class="msg-erro">A data da ocorrência não pode estar no futuro.</div>`; return; }
     const btn = document.getElementById('btn-salvar-ocorrencia');
     btn.disabled = true; btn.textContent = 'Salvando…';
@@ -10270,7 +10261,6 @@ function abrirModalNovaOcorrencia(aluno, conteudo, elPai, registroExistente){
       espaco: document.getElementById('oc-espaco').value,
       espaco_outro: document.getElementById('oc-espaco').value === 'outro' ? document.getElementById('oc-espaco-outro').value.trim() : null,
       professor: document.getElementById('oc-professor').value.trim() || null,
-      gestao_tipo: document.getElementById('oc-gestao').value,
       qualificacoes,
       outras_texto: outrasCheck ? outrasTexto : null,
       observacoes: document.getElementById('oc-observacoes').value.trim() || null,
@@ -10428,7 +10418,7 @@ function montarBlocoFichaOcorrencia(r, aluno, comQuebra){
         <p style="text-align:right;margin:0;">Paulista, ${dataPorExtenso(hojeISO())}.</p>
         <div class="assinaturas">
           <div class="linha-assinatura">Assinatura do Estudante</div>
-          <div class="linha-assinatura">${r.gestao_tipo && GESTAO_ASSINATURA[r.gestao_tipo] ? esc(GESTAO_ASSINATURA[r.gestao_tipo].nome) + '<br/>' + esc(GESTAO_ASSINATURA[r.gestao_tipo].cargo) : (r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou'))}</div>
+          <div class="linha-assinatura">${r.registrado?.nome ? esc(r.registrado.nome) : (r.professor ? esc(r.professor) : 'Assinatura de quem registrou')}</div>
           <div class="linha-assinatura">Assinatura do(a) Responsável</div>
         </div>
       </div>
@@ -10535,7 +10525,7 @@ function montarFichaOcorrenciaConjunta(registros, alunosPorId){
           ${paresAssinatura}
         </div>
         <div style="display:flex;justify-content:center;margin-top:24px;">
-          <div class="linha-registrou">${base.gestao_tipo && GESTAO_ASSINATURA[base.gestao_tipo] ? esc(GESTAO_ASSINATURA[base.gestao_tipo].nome) + '<br/>' + esc(GESTAO_ASSINATURA[base.gestao_tipo].cargo) : (base.registrado?.nome ? esc(base.registrado.nome) : (base.professor ? esc(base.professor) : 'Assinatura de quem registrou'))}</div>
+          <div class="linha-registrou">${base.registrado?.nome ? esc(base.registrado.nome) : (base.professor ? esc(base.professor) : 'Assinatura de quem registrou')}</div>
         </div>
       </div>
       </div>`;
@@ -14765,6 +14755,7 @@ function renderizarRelatorios(el){
     { id:'aee', label:'Estudantes com AEE' },
     { id:'fardamento', label:'Fardamento' },
     { id:'etiquetas', label:'Etiquetas' },
+    { id:'lgpd', label:'Autorização LGPD' },
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subRelatorios===a.id?'ativa':''}" data-aba-rel="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -14784,6 +14775,7 @@ function renderizarRelatorios(el){
   else if(ESTADO.subRelatorios === 'aee') renderizarRelAEE(alvo);
   else if(ESTADO.subRelatorios === 'fardamento') renderizarRelFardamento(alvo);
   else if(ESTADO.subRelatorios === 'etiquetas') renderizarRelEtiquetas(alvo);
+  else if(ESTADO.subRelatorios === 'lgpd') renderizarRelLGPD(alvo);
   else renderizarRelListaPresenca(alvo);
 }
 
@@ -15074,6 +15066,154 @@ function imprimirEtiquetasEstudantes(idsTurmas, pontilhado){
     .turma{ font-size:15px; font-weight:800; color:#0B5CAD; margin-top:2.5mm; }
   </style></head><body>${corpo}
   <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };<\/script></body></html>`);
+  janela.document.close();
+  janela.focus();
+}
+
+
+// ---------------------------------------------------------------
+// AUTORIZAÇÃO LGPD — Declaração de consentimento do(a) responsável legal (uma por estudante)
+// ---------------------------------------------------------------
+function renderizarRelLGPD(el){
+  const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'));
+  if(!Array.isArray(ESTADO.lgpdTurmas)) ESTADO.lgpdTurmas = [];
+  ESTADO.lgpdTurmas = ESTADO.lgpdTurmas.filter(id => turmas.some(t => t.id === id));
+  if(ESTADO.lgpdPreencher === undefined) ESTADO.lgpdPreencher = true;
+  if(!ESTADO.lgpdVias) ESTADO.lgpdVias = 1;
+  if(ESTADO.lgpdFinalidade === undefined) ESTADO.lgpdFinalidade = '';
+  const marcadas = new Set(ESTADO.lgpdTurmas);
+  const qtd = turmas.filter(t => marcadas.has(t.id)).reduce((n, t) => n + alunosFardamentoDaTurma(t.id).length, 0);
+  el.innerHTML = `
+    <div class="painel">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--borda);"><b>Autorização LGPD — Declaração de consentimento</b></div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+            <b style="font-size:13.5px;">Selecione as turmas</b>
+            <button class="botao secundario pequeno" id="lgpd-todas" style="width:auto;">Selecionar todas</button>
+            <button class="botao secundario pequeno" id="lgpd-nenhuma" style="width:auto;">Limpar</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;">
+            ${turmas.map(t => `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;padding:6px 10px;border:1px solid var(--borda);border-radius:8px;cursor:pointer;background:${marcadas.has(t.id)?'var(--areia-escura)':'transparent'};">
+              <input type="checkbox" data-lgpd-turma="${t.id}" ${marcadas.has(t.id)?'checked':''} style="width:auto;margin:0;" />
+              ${esc(t.nome)} · ${esc(t.turno)} <span style="color:var(--texto-suave);font-size:12px;">(${alunosFardamentoDaTurma(t.id).length})</span></label>`).join('')}
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;"><input type="checkbox" id="lgpd-preencher" ${ESTADO.lgpdPreencher?'checked':''} style="width:auto;" />
+          Preencher com os dados do cadastro (nome, CPF e nascimento do estudante; nome, CPF e contato do responsável)</label>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;">
+          <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="lgpd-vias" value="1" ${ESTADO.lgpdVias===1?'checked':''} style="width:auto;" /> 1 via por estudante (2 estudantes por folha)</label>
+          <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="lgpd-vias" value="2" ${ESTADO.lgpdVias===2?'checked':''} style="width:auto;" /> 2 vias do mesmo estudante (1 folha por estudante)</label>
+        </div>
+        <div class="campo" style="margin:0;max-width:640px;"><label>Finalidade do tratamento (opcional — aparece como um parágrafo no termo)</label>
+          <input type="text" id="lgpd-finalidade" value="${esc(ESTADO.lgpdFinalidade)}" placeholder="Ex.: emissão de documentos e atendimento junto aos Correios" /></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="botao terracota pequeno" id="btn-lgpd-gerar" style="width:auto;" ${qtd?'':'disabled'}>🖨️ Gerar autorizações (${qtd})</button>
+          <button class="botao secundario pequeno" id="btn-lgpd-branco" style="width:auto;">🖨️ Folha em branco (2 vias)</button>
+        </div>
+        <p style="font-size:12.5px;color:var(--texto-suave);margin:0;">O termo sai em A4 com <b>2 declarações por folha</b>, separadas por linha pontilhada de corte, em ordem alfabética dentro de cada turma. Local, data e assinatura do(a) responsável ficam em branco para preenchimento à mão. O responsável usado é o <b>principal</b> do cadastro (ou o primeiro cadastrado). Estudantes transferidos ou cancelados não entram.</p>
+      </div>
+    </div>`;
+  el.querySelectorAll('[data-lgpd-turma]').forEach(c => c.addEventListener('change', () => {
+    const id = c.dataset.lgpdTurma;
+    ESTADO.lgpdTurmas = c.checked ? [...new Set([...ESTADO.lgpdTurmas, id])] : ESTADO.lgpdTurmas.filter(x => x !== id);
+    ESTADO.lgpdFinalidade = document.getElementById('lgpd-finalidade').value;
+    renderizarRelLGPD(el);
+  }));
+  document.getElementById('lgpd-todas').addEventListener('click', () => { ESTADO.lgpdTurmas = turmas.map(t => t.id); ESTADO.lgpdFinalidade = document.getElementById('lgpd-finalidade').value; renderizarRelLGPD(el); });
+  document.getElementById('lgpd-nenhuma').addEventListener('click', () => { ESTADO.lgpdTurmas = []; ESTADO.lgpdFinalidade = document.getElementById('lgpd-finalidade').value; renderizarRelLGPD(el); });
+  document.getElementById('lgpd-preencher').addEventListener('change', (e) => { ESTADO.lgpdPreencher = e.target.checked; });
+  el.querySelectorAll('[name="lgpd-vias"]').forEach(r => r.addEventListener('change', () => { ESTADO.lgpdVias = parseInt(r.value, 10); }));
+  document.getElementById('lgpd-finalidade').addEventListener('input', (e) => { ESTADO.lgpdFinalidade = e.target.value; });
+  document.getElementById('btn-lgpd-gerar').addEventListener('click', () => imprimirAutorizacoesLGPD(ESTADO.lgpdTurmas.slice(), { preencher: document.getElementById('lgpd-preencher').checked, vias: ESTADO.lgpdVias, finalidade: ESTADO.lgpdFinalidade.trim() }));
+  document.getElementById('btn-lgpd-branco').addEventListener('click', () => imprimirAutorizacoesLGPD([], { preencher: false, vias: 2, finalidade: ESTADO.lgpdFinalidade.trim(), emBranco: true }));
+}
+
+async function imprimirAutorizacoesLGPD(idsTurmas, opc){
+  const janela = window.open('', '_blank'); // abre antes das consultas, para o navegador não bloquear
+  if(!janela){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.'); return; }
+  janela.document.write('<p style="font-family:Arial;padding:20px;">Preparando as autorizações…</p>');
+
+  let itens = [];
+  if(opc.emBranco){
+    itens = [{}, {}];
+  } else {
+    const turmas = turmasAnoAtual().slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'))
+      .filter(t => (idsTurmas || []).includes(t.id));
+    const alunos = turmas.flatMap(t => alunosFardamentoDaTurma(t.id));
+    if(!alunos.length){ janela.close(); return; }
+    const respPorAluno = {};
+    if(opc.preencher){
+      for(let i = 0; i < alunos.length; i += 120){
+        const ids = alunos.slice(i, i + 120).map(a => a.id);
+        const { data: vincs } = await supabase.from('aluno_responsavel').select('aluno_id, tipo, principal, responsaveis(nome, cpf, telefone, email)').in('aluno_id', ids);
+        (vincs || []).forEach(v => {
+          const atual = respPorAluno[v.aluno_id];
+          if(!atual || (v.principal && !atual.principal)) respPorAluno[v.aluno_id] = v;
+        });
+      }
+    }
+    itens = alunos.map(a => ({ a, r: respPorAluno[a.id]?.responsaveis || null }));
+  }
+  if(opc.vias === 2 && !opc.emBranco) itens = itens.flatMap(x => [x, x]);
+
+  const linha = (rotulo, valor, largura, minusculo) => `<div class="lin"><span class="rot">${rotulo}</span><span class="val" style="${largura ? `max-width:${largura};` : ''}${minusculo ? 'text-transform:none;' : ''}">${valor ? esc(valor) : '&nbsp;'}</span></div>`;
+  const dataBlank = '___ / ___ / ______';
+  const via = (x) => {
+    const a = x.a, r = x.r;
+    const contato = r ? [r.telefone, r.email].filter(Boolean).join(' / ') : '';
+    return `<div class="via">
+      <table class="topo"><tr>
+        <td style="width:62px;"><img src="${LOGO_PREFEITURA_URL}" style="width:54px;height:54px;" /></td>
+        <td style="text-align:center;">
+          <div class="org">PREFEITURA MUNICIPAL DO PAULISTA · SECRETARIA DE EDUCAÇÃO E ESPORTES</div>
+          <div class="esc">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
+        </td>
+        <td style="width:62px;text-align:right;"><img src="${LOGO_ESCOLA_URL}" style="width:54px;height:54px;" /></td>
+      </tr></table>
+      <div class="titulo">DECLARAÇÃO DE CONSENTIMENTO LGPD<br/>em seus meios institucionais</div>
+      <p class="texto">Declaro ser o(a) responsável legal pela criança ou adolescente identificado(a) abaixo e que recebi informações claras e adequadas sobre o tratamento de seus dados pessoais. Declaro, ainda, que compreendi as finalidades do tratamento e <b>CONSINTO</b>, de forma livre, informada, inequívoca e específica com o tratamento dos dados pessoais da criança ou adolescente para as finalidades descritas neste termo.</p>
+      ${opc.finalidade ? `<p class="texto"><b>Finalidade:</b> ${esc(opc.finalidade)}.</p>` : ''}
+      <div class="secao">IDENTIFICAÇÃO DO(A) TITULAR E DO(A) RESPONSÁVEL LEGAL</div>
+      <div class="bloco">Criança ou adolescente (Titular dos Dados)</div>
+      ${linha('Nome Completo:', a ? a.nome : '')}
+      ${linha('CPF (Obrigatório):', a ? a.cpf : '', '55%')}
+      <div class="lin"><span class="rot">Data de Nascimento:</span><span class="dt">${a && a.data_nascimento ? formatarDataBR(a.data_nascimento) : dataBlank}</span></div>
+      <div class="bloco" style="margin-top:7px;">Responsável Legal</div>
+      ${linha('Nome Completo:', r ? r.nome : '')}
+      ${linha('CPF:', r ? r.cpf : '', '55%')}
+      ${linha('Telefone/E-mail para Contato:', contato, '', true)}
+      <div class="lin"><span class="rot">Local:</span><span class="val">&nbsp;</span><span class="rot" style="margin-left:10px;">Data:</span><span class="dt">${dataBlank}</span></div>
+      ${linha('Assinatura do(a) Responsável Legal:', '')}
+    </div>`;
+  };
+  const paginas = [];
+  for(let i = 0; i < itens.length; i += 2) paginas.push(itens.slice(i, i + 2));
+  const corpo = paginas.map(pg => `<div class="pagina">${pg.map(via).join('<div class="corte"></div>')}</div>`).join('');
+
+  janela.document.open();
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><title>Autorização LGPD</title>
+  <style>
+    @page{ size:A4 portrait; margin:8mm; }
+    *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body{ margin:0; font-family:Arial,Helvetica,sans-serif; color:#000; }
+    .pagina{ width:194mm; height:274mm; display:flex; flex-direction:column; justify-content:space-between; page-break-after:always; }
+    .pagina:last-of-type{ page-break-after:auto; }
+    .via{ height:136mm; padding:1mm 3mm; display:flex; flex-direction:column; }
+    .corte{ border-top:0.4mm dotted #000; margin:0 -2mm; }
+    table.topo{ width:100%; border-collapse:collapse; }
+    .org{ font-size:11.5px; font-weight:700; color:#111; }
+    .esc{ font-size:14.5px; font-weight:800; color:#1D4E9B; margin-top:1px; }
+    .titulo{ text-align:center; font-size:18px; font-weight:800; color:#0F2A4A; margin:6px 0 8px; line-height:1.2; }
+    .texto{ font-size:14px; line-height:1.34; margin:0 0 6px; text-align:justify; }
+    .secao{ text-align:center; font-size:14.5px; font-weight:800; margin:6px 0 6px; }
+    .bloco{ font-size:15px; font-weight:800; margin-bottom:1px; }
+    .lin{ display:flex; align-items:flex-end; font-size:14.5px; margin:8px 0 0; }
+    .lin .rot{ white-space:nowrap; margin-right:5px; }
+    .lin .val{ flex:1; border-bottom:0.3mm solid #000; font-weight:700; min-height:19px; padding:0 3px; text-transform:uppercase; font-size:14px; white-space:nowrap; overflow:hidden; }
+    .lin .dt{ font-weight:700; letter-spacing:.2px; }
+  </style></head><body>${corpo}
+  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 400); };<\/script></body></html>`);
   janela.document.close();
   janela.focus();
 }
