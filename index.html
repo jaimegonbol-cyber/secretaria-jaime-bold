@@ -1472,7 +1472,7 @@ function renderizarAlunos(el){
       <td>${a.aee ? '<span class="pill laranja">AEE</span>' : ''}</td>
       <td>${situacaoPill(a.situacao)}</td>
       <td class="col-acoes">
-        <button class="btn-icone" data-editar-aluno="${a.id}" title="Editar">✏️</button>
+        ${podeExcluir ? `<button class="btn-icone" data-editar-aluno="${a.id}" title="Editar">✏️</button>` : ''}
         ${podeExcluir ? `<button class="btn-icone perigo" data-excluir-aluno="${a.id}" title="Excluir">🗑️</button>` : ''}
       </td>
     </tr>`).join('');
@@ -1480,7 +1480,7 @@ function renderizarAlunos(el){
   el.innerHTML = `
     <div class="cabecalho-pagina">
       <div><h2>Estudantes</h2><p>${lista.length} de ${ESTADO.alunos.length} estudantes${ESTADO.filtroTurma||ESTADO.buscaAlunos?' (filtrado)':''}</p></div>
-      <button class="botao terracota pequeno" id="btn-novo-aluno">+ Novo estudante</button>
+      ${podeExcluir ? `<button class="botao terracota pequeno" id="btn-novo-aluno">+ Novo estudante</button>` : ''}
     </div>
     ${ehAdmin ? `
     <div class="painel" style="margin-bottom:14px;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -1509,7 +1509,8 @@ function renderizarAlunos(el){
   document.getElementById('busca-aluno').addEventListener('input', (e) => { ESTADO.buscaAlunos = e.target.value; renderizarAlunos(el); preservarFoco('busca-aluno'); });
   document.getElementById('filtro-turma').addEventListener('change', (e) => { ESTADO.filtroTurma = e.target.value; renderizarAlunos(el); });
   document.getElementById('filtro-situacao').addEventListener('change', (e) => { ESTADO.filtroSituacao = e.target.value; renderizarAlunos(el); });
-  document.getElementById('btn-novo-aluno').addEventListener('click', () => abrirModalAluno(null));
+  const btnNovoAluno = document.getElementById('btn-novo-aluno');
+  if(btnNovoAluno) btnNovoAluno.addEventListener('click', () => abrirModalAluno(null));
   if(ehAdmin){
     el.querySelectorAll('.chk-exportar-aluno').forEach(chk => {
       chk.addEventListener('click', (e) => e.stopPropagation());
@@ -2160,13 +2161,14 @@ async function abrirFichaAluno(id){
         ${htmlSeletorGestaoDoc('ficha-assinatura-gestao')}
         <button class="botao secundario pequeno" data-imprimir-ficha>🖨️ Imprimir ficha</button>
         <button class="botao secundario pequeno" data-imprimir-autorizacoes>🖨️ Autorizações</button>
-        <button class="botao terracota pequeno" data-editar-ficha>Editar</button>
+        ${(ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria') ? `<button class="botao terracota pequeno" data-editar-ficha>Editar</button>` : ''}
       </div>
     </div>`;
   document.body.appendChild(modal);
   modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
   modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
-  modal.querySelector('[data-editar-ficha]').addEventListener('click', () => { modal.remove(); abrirModalAluno(a); });
+  const btnEditarFicha = modal.querySelector('[data-editar-ficha]');
+  if(btnEditarFicha) btnEditarFicha.addEventListener('click', () => { modal.remove(); abrirModalAluno(a); });
   ligarSeletorGestaoDoc('ficha-assinatura-gestao');
   modal.querySelector('[data-imprimir-ficha]').addEventListener('click', () => imprimirFichaMatricula(a));
   modal.querySelector('[data-imprimir-autorizacoes]').addEventListener('click', () => imprimirAutorizacoes(a));
