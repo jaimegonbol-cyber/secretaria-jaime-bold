@@ -465,6 +465,11 @@ async function iniciar(){
     renderizarLogin();
     return;
   }
+  // Verificação em duas etapas: se a conta tem autenticador ativado e esta sessão ainda não passou pelo código, pede o código
+  try{
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if(aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2'){ renderizarDesafioMFA(); return; }
+  }catch(_e){ /* sem MFA disponível: segue o fluxo normal */ }
   if(!ESTADO.perfil || ESTADO.perfil.status !== 'ativo'){
     renderizarSemAcesso();
     return;
@@ -476,6 +481,36 @@ async function iniciar(){
 supabase.auth.onAuthStateChange((evento) => {
   if(evento === 'SIGNED_OUT'){ ESTADO = {...ESTADO, sessao:null, perfil:null, carregado:false}; renderizarLogin(); }
 });
+
+function renderizarDesafioMFA(){
+  raiz.innerHTML = `
+  <div class="tela-auth">
+    <div class="cartao-auth">
+      <div class="selo"></div>
+      <h1>Verificação em duas etapas</h1>
+      <p class="sub">Abra o aplicativo autenticador no celular e digite o código de 6 dígitos.</p>
+      <div id="msg-mfa"></div>
+      <form id="form-mfa">
+        <div class="campo"><label>Código</label><input type="text" id="mfa-codigo" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" style="font-size:22px;letter-spacing:6px;text-align:center;" /></div>
+        <button class="botao" type="submit" id="btn-mfa">Confirmar</button>
+      </form>
+      <p style="margin-top:14px;text-align:center;"><button type="button" id="btn-mfa-sair" style="background:none;border:none;color:var(--terracota);font-size:12.5px;font-weight:600;cursor:pointer;">Sair</button></p>
+    </div>
+  </div>`;
+  document.getElementById('mfa-codigo').focus();
+  document.getElementById('btn-mfa-sair').addEventListener('click', () => supabase.auth.signOut());
+  document.getElementById('form-mfa').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-mfa'); const msg = document.getElementById('msg-mfa');
+    btn.disabled = true; btn.textContent = 'Verificando…';
+    const { data: fatores, error: e1 } = await supabase.auth.mfa.listFactors();
+    const fator = fatores && fatores.totp && fatores.totp[0];
+    if(e1 || !fator){ msg.innerHTML = `<div class="msg-erro">Não foi possível carregar a verificação. Saia e entre de novo.</div>`; btn.disabled = false; btn.textContent = 'Confirmar'; return; }
+    const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: fator.id, code: document.getElementById('mfa-codigo').value.trim() });
+    if(error){ msg.innerHTML = `<div class="msg-erro">Código inválido ou expirado. Confira o relógio do celular e tente de novo.</div>`; btn.disabled = false; btn.textContent = 'Confirmar'; document.getElementById('mfa-codigo').value = ''; document.getElementById('mfa-codigo').focus(); return; }
+    await iniciar();
+  });
+}
 
 function renderizarLogin(){
   raiz.innerHTML = `
@@ -582,16 +617,16 @@ function renderizarDefinirSenha(ehRecuperacao){
       <div id="msg-senha"></div>
       <form id="form-senha">
         <div class="campo">
-          <label>Nova senha (mín. 6 caracteres)</label>
+          <label>Nova senha (mín. 8 caracteres)</label>
           <div style="position:relative;">
-            <input type="password" id="nova-senha" minlength="6" required autocomplete="new-password" style="padding-right:38px;" />
+            <input type="password" id="nova-senha" minlength="8" required autocomplete="new-password" style="padding-right:38px;" />
             <button type="button" id="nova-senha-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
           </div>
         </div>
         <div class="campo">
           <label>Confirmar senha</label>
           <div style="position:relative;">
-            <input type="password" id="conf-senha" minlength="6" required autocomplete="new-password" style="padding-right:38px;" />
+            <input type="password" id="conf-senha" minlength="8" required autocomplete="new-password" style="padding-right:38px;" />
             <button type="button" id="conf-senha-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
           </div>
         </div>
@@ -787,6 +822,7 @@ function renderizarApp(){
       <div class="rodape">
         <div class="usuario">${esc(ESTADO.perfil.nome)}<span class="tag-papel">${rotuloPapel(ESTADO.perfil.role)}</span></div>
         <a id="btn-trocar-senha" style="padding:0;color:#9FC0B7;display:block;margin-bottom:10px;">Trocar senha</a>
+        <a id="btn-mfa" style="padding:0;color:#9FC0B7;display:block;margin-bottom:10px;cursor:pointer;">Verificação em 2 etapas</a>
         <button id="btn-sair-app" class="botao" style="width:auto;padding:7px 16px;font-size:13px;background:var(--erro);color:#fff;">Sair</button>
       </div>
     </nav>
@@ -799,6 +835,7 @@ function renderizarApp(){
   document.getElementById('btn-sair-app').addEventListener('click', () => supabase.auth.signOut());
   document.getElementById('btn-sair-mobile').addEventListener('click', () => { if(confirm('Sair do aplicativo?')) supabase.auth.signOut(); });
   document.getElementById('btn-trocar-senha').addEventListener('click', abrirModalTrocarSenha);
+  document.getElementById('btn-mfa').addEventListener('click', abrirModalMFA);
 
   const principal = document.getElementById('principal');
   principal.innerHTML = ESTADO.pagina !== 'painel'
@@ -828,6 +865,66 @@ function renderizarApp(){
 // ---------------------------------------------------------------
 // TROCAR SENHA
 // ---------------------------------------------------------------
+async function abrirModalMFA(){
+  const modal = document.createElement('div');
+  modal.className = 'fundo-modal';
+  modal.innerHTML = `<div class="modal" style="max-width:420px;"><div class="modal-topo"><h3>Verificação em duas etapas</h3><button data-fechar>✕</button></div><div id="mfa-corpo"><div class="carregando"><div class="spinner"></div>Carregando…</div></div></div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  const corpo = modal.querySelector('#mfa-corpo');
+
+  async function desenhar(){
+    const { data: fs, error } = await supabase.auth.mfa.listFactors();
+    if(error){ corpo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    const ativo = (fs.totp || [])[0]; // só lista fatores já verificados
+    if(ativo){
+      corpo.innerHTML = `
+        <div class="msg-ok">Ativada. Ao entrar, o sistema pede o código do aplicativo autenticador.</div>
+        <p style="font-size:12.5px;color:var(--texto-suave);">Para desativar, digite o código atual do aplicativo.</p>
+        <div id="mfa-msg"></div>
+        <form id="form-mfa-off"><div class="campo"><label>Código atual</label><input type="text" id="mfa-off-codigo" inputmode="numeric" maxlength="6" required autocomplete="one-time-code" /></div>
+        <button class="botao secundario" type="submit" style="width:100%;">Desativar verificação</button></form>`;
+      corpo.querySelector('#form-mfa-off').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const m = corpo.querySelector('#mfa-msg');
+        const { error: e2 } = await supabase.auth.mfa.challengeAndVerify({ factorId: ativo.id, code: corpo.querySelector('#mfa-off-codigo').value.trim() });
+        if(e2){ m.innerHTML = `<div class="msg-erro">Código inválido.</div>`; return; }
+        const { error: e3 } = await supabase.auth.mfa.unenroll({ factorId: ativo.id });
+        if(e3){ m.innerHTML = `<div class="msg-erro">${esc(e3.message)}</div>`; return; }
+        await desenhar();
+      });
+      return;
+    }
+    corpo.innerHTML = `
+      <p style="font-size:13px;margin:0 0 10px;">Protege sua conta mesmo que alguém descubra sua senha. Você precisa de um aplicativo autenticador no celular (Google Authenticator, Microsoft Authenticator, Authy…).</p>
+      <button class="botao terracota" id="mfa-iniciar" style="width:100%;">Ativar agora</button><div id="mfa-msg" style="margin-top:8px;"></div>`;
+    corpo.querySelector('#mfa-iniciar').addEventListener('click', async () => {
+      const m = corpo.querySelector('#mfa-msg');
+      // remove tentativas antigas não concluídas
+      const { data: todos } = await supabase.auth.mfa.listFactors();
+      for(const f of (todos?.all || [])){ if(f.status !== 'verified'){ await supabase.auth.mfa.unenroll({ factorId: f.id }); } }
+      const { data, error: e1 } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Autenticador ' + new Date().toISOString().slice(0,10) });
+      if(e1){ m.innerHTML = `<div class="msg-erro">${esc(e1.message)}${/disabled|not enabled/i.test(e1.message) ? ' — peça ao administrador do Supabase para habilitar TOTP em Authentication › Multi-Factor.' : ''}</div>`; return; }
+      corpo.innerHTML = `
+        <ol style="font-size:13px;padding-left:18px;margin:0 0 10px;"><li>No aplicativo autenticador, escolha adicionar conta e leia o QR code abaixo.</li><li>Digite o código de 6 dígitos que o aplicativo mostrar.</li></ol>
+        <div style="text-align:center;"><img src="${data.totp.qr_code}" alt="QR code" style="width:180px;height:180px;background:#fff;padding:6px;border:1px solid var(--borda);" /></div>
+        <p style="font-size:12px;margin:8px 0;word-break:break-all;">Se não conseguir ler o QR, digite esta chave: <b>${esc(data.totp.secret)}</b></p>
+        <div id="mfa-msg"></div>
+        <form id="form-mfa-on"><div class="campo"><label>Código de 6 dígitos</label><input type="text" id="mfa-on-codigo" inputmode="numeric" maxlength="6" required autocomplete="one-time-code" /></div>
+        <button class="botao terracota" type="submit" style="width:100%;">Confirmar e ativar</button></form>`;
+      corpo.querySelector('#form-mfa-on').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const mm = corpo.querySelector('#mfa-msg');
+        const { error: e2 } = await supabase.auth.mfa.challengeAndVerify({ factorId: data.id, code: corpo.querySelector('#mfa-on-codigo').value.trim() });
+        if(e2){ mm.innerHTML = `<div class="msg-erro">Código inválido. Confira e tente de novo.</div>`; return; }
+        await desenhar();
+      });
+    });
+  }
+  await desenhar();
+}
+
 function abrirModalTrocarSenha(){
   const modal = document.createElement('div');
   modal.className = 'fundo-modal';
@@ -837,8 +934,8 @@ function abrirModalTrocarSenha(){
       <div id="msg-troca-senha"></div>
       <form id="form-troca-senha">
         <div class="campo"><label>Senha atual</label><input type="password" id="senha-atual" required autocomplete="current-password" /></div>
-        <div class="campo"><label>Nova senha (mín. 6 caracteres)</label><input type="password" id="senha-nova" minlength="6" required autocomplete="new-password" /></div>
-        <div class="campo"><label>Confirmar nova senha</label><input type="password" id="senha-nova-conf" minlength="6" required autocomplete="new-password" /></div>
+        <div class="campo"><label>Nova senha (mín. 8 caracteres)</label><input type="password" id="senha-nova" minlength="8" required autocomplete="new-password" /></div>
+        <div class="campo"><label>Confirmar nova senha</label><input type="password" id="senha-nova-conf" minlength="8" required autocomplete="new-password" /></div>
         <button class="botao terracota" type="submit" id="btn-troca-senha">Salvar nova senha</button>
       </form>
     </div>`;
@@ -860,7 +957,8 @@ function abrirModalTrocarSenha(){
     btn.disabled = true; btn.textContent = 'Salvando…';
 
     // reautentica com a senha atual antes de trocar, por segurança
-    const { error: erroLogin } = await supabase.auth.signInWithPassword({ email: ESTADO.perfil.email, password: atual });
+    const verificador = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+    const { error: erroLogin } = await verificador.auth.signInWithPassword({ email: ESTADO.perfil.email, password: atual });
     if(erroLogin){
       msg.innerHTML = `<div class="msg-erro">Senha atual incorreta.</div>`;
       btn.disabled = false; btn.textContent = 'Salvar nova senha';
@@ -6415,6 +6513,7 @@ function renderizarUsuarios(el){
       <td style="white-space:nowrap;">
         <button class="botao secundario pequeno" data-editar-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar</button>
         <button class="botao secundario pequeno" data-resetar-senha="${p.id}" style="width:auto;padding:4px 10px;">Resetar senha</button>
+        ${p.id !== ESTADO.perfil.id ? `<button class="botao secundario pequeno" data-remover-mfa="${p.id}" title="Use se a pessoa perdeu o celular do autenticador" style="width:auto;padding:4px 10px;">Remover 2 etapas</button>` : ''}
         ${p.role !== 'admin' ? `<button class="botao secundario pequeno" data-permissoes-usuario="${p.id}" style="width:auto;padding:4px 10px;">Editar permissões</button>` : ''}
         ${p.role !== 'admin' && Array.isArray(p.permissoes) ? `<button class="botao secundario pequeno" data-excluir-permissoes="${p.id}" style="width:auto;padding:4px 10px;">Excluir permissões</button>` : ''}
         ${p.id !== ESTADO.perfil.id ? `<button class="botao ${p.status==='ativo'?'secundario':'terracota'} pequeno" data-bloquear-usuario="${p.id}" data-status-atual="${p.status}" style="width:auto;padding:4px 10px;">${p.status==='ativo'?'Bloquear':'Liberar'}</button>` : ''}
@@ -6485,6 +6584,25 @@ function renderizarUsuarios(el){
     const perfil = ESTADO.perfis.find(p => p.id === b.dataset.editarUsuario);
     abrirModalEditarUsuario(perfil, el);
   }));
+  el.querySelectorAll('[data-remover-mfa]').forEach(b => b.addEventListener('click', async () => {
+    const perfil = ESTADO.perfis.find(p => p.id === b.dataset.removerMfa);
+    if(!perfil) return;
+    if(!confirm(`Remover a verificação em duas etapas de ${perfil.nome}?\n\nUse isto só se a pessoa perdeu o celular do autenticador. Ela poderá ativar de novo depois, pelo menu.`)) return;
+    b.disabled = true;
+    try{
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${EDGE_URL}/remover-mfa-usuario`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ user_id: perfil.id }),
+      });
+      const resultado = await resp.json();
+      if(!resp.ok) throw new Error(resultado.error || 'Erro ao remover a verificação.');
+      alert(resultado.removidos > 0 ? `Verificação em duas etapas removida de ${perfil.nome}.` : `${perfil.nome} não tinha verificação em duas etapas ativa.`);
+    }catch(err){
+      alert(err.message);
+    }finally{ b.disabled = false; }
+  }));
   el.querySelectorAll('[data-resetar-senha]').forEach(b => b.addEventListener('click', () => {
     const perfil = ESTADO.perfis.find(p => p.id === b.dataset.resetarSenha);
     abrirModalResetarSenha(perfil, el);
@@ -6501,9 +6619,9 @@ function abrirModalResetarSenha(perfil, elPai){
       <div id="msg-resetar-senha"></div>
       <form id="form-resetar-senha">
         <div class="campo">
-          <label>Nova senha (mín. 6 caracteres)</label>
+          <label>Nova senha (mín. 8 caracteres)</label>
           <div style="position:relative;">
-            <input type="password" id="rs-senha" minlength="6" required autocomplete="new-password" style="padding-right:38px;" />
+            <input type="password" id="rs-senha" minlength="8" required autocomplete="new-password" style="padding-right:38px;" />
             <button type="button" id="rs-toggle-olho" title="Mostrar/ocultar senha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;">👁️</button>
           </div>
         </div>
@@ -6674,7 +6792,7 @@ function abrirModalConvite(){
         <div class="campo">
           <label>Senha inicial</label>
           <div style="display:flex;gap:8px;">
-            <input type="text" id="conv-senha" required minlength="6" value="${gerarSenhaAleatoria()}" />
+            <input type="text" id="conv-senha" required minlength="8" value="${gerarSenhaAleatoria()}" />
             <button type="button" class="botao secundario pequeno" id="btn-gerar-senha" style="white-space:nowrap;">Gerar outra</button>
           </div>
         </div>
