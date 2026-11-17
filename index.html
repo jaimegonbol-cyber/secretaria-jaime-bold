@@ -7123,24 +7123,19 @@ async function renderizarPendenciasChamada(el, elPai){
 
   const alvo = document.getElementById('pend-resultado');
   try{
-    const ini = P.periodo === 'ano' ? `${ano}-01-01` : `${P.periodo}-01`;
-    let fim = hoje;
-    if(P.periodo !== 'ano'){
-      const [a, m] = P.periodo.split('-').map(Number);
-      const ultimo = new Date(a, m, 0).getDate();
-      const fimMes = `${P.periodo}-${String(ultimo).padStart(2,'0')}`;
-      fim = fimMes < hoje ? fimMes : hoje;
-    }
+    // Sempre busca o ano todo até hoje: o período escolhido é só um recorte, e os totais de todos os meses vêm do mesmo conjunto.
+    const iniAno = `${ano}-01-01`;
+    const fim = hoje;
     const [registros, feriados, primeira] = await Promise.all([
-      pendBuscarTudo(() => supabase.from('chamadas_dia').select('turma_id, data').gte('data', ini).lte('data', fim).order('data')),
-      supabase.from('feriados').select('data, tipo, turno_afetado, descricao').gte('data', ini).lte('data', fim).then(r => r.data || []),
+      pendBuscarTudo(() => supabase.from('chamadas_dia').select('turma_id, data').gte('data', iniAno).lte('data', fim).order('data')),
+      supabase.from('feriados').select('data, tipo, turno_afetado, descricao').gte('data', iniAno).lte('data', fim).then(r => r.data || []),
       supabase.from('chamadas_dia').select('data').order('data', { ascending: true }).limit(1).then(r => (r.data && r.data[0] && r.data[0].data) || null),
     ]);
-    const inicioUso = primeira && primeira > ini ? primeira : ini; // antes da 1ª chamada lançada no sistema não há como cobrar
+    const inicioUso = primeira && primeira > iniAno ? primeira : iniAno; // antes da 1ª chamada lançada no sistema não há como cobrar
     const feriadoPorData = {}; feriados.forEach(f => { feriadoPorData[f.data] = f; });
     const feitas = {}; registros.forEach(r => { (feitas[r.turma_id] = feitas[r.turma_id] || new Set()).add(r.data); });
 
-    // dias úteis do período (seg–sex)
+    // dias úteis (seg–sex) do ano, a partir do início de uso
     const dias = [];
     for(let d = new Date(inicioUso + 'T00:00:00'); ; d.setDate(d.getDate() + 1)){
       const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -7148,30 +7143,82 @@ async function renderizarPendenciasChamada(el, elPai){
       if(d.getDay() !== 0 && d.getDay() !== 6) dias.push(iso);
     }
 
+    // recorte do período escolhido
+    let pIni = iniAno, pFim = hoje;
+    if(P.periodo !== 'ano'){
+      const [a, m] = P.periodo.split('-').map(Number);
+      const ultimo = new Date(a, m, 0).getDate();
+      const fimMes = `${P.periodo}-${String(ultimo).padStart(2,'0')}`;
+      pIni = `${P.periodo}-01`; pFim = fimMes < hoje ? fimMes : hoje;
+    }
+    if(pIni < inicioUso) pIni = inicioUso;
+    const diasPeriodo = dias.filter(d => d >= pIni && d <= pFim);
+
     const turmas = turmasAnoAtual().filter(t => (!P.turno || String(t.turno).toUpperCase() === P.turno) && alunosFardamentoDaTurma(t.id).length > 0)
       .slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'));
-    const linhas = turmas.map(t => {
-      const letivos = dias.filter(d => !pendDiaBloqueadoParaTurma(feriadoPorData[d], t));
+    const calcular = (lista) => turmas.map(t => {
+      const letivos = lista.filter(d => !pendDiaBloqueadoParaTurma(feriadoPorData[d], t));
       const set = feitas[t.id] || new Set();
       const pendentes = letivos.filter(d => d < hoje && !set.has(d));
       const hojeAberto = letivos.includes(hoje) && !set.has(hoje);
       const registradas = letivos.filter(d => set.has(d)).length;
       return { t, letivos: letivos.length, registradas, pendentes, hojeAberto };
     });
+    const somar = (ls) => ({
+      turmas: ls.length,
+      comPend: ls.filter(l => l.pendentes.length).length,
+      pend: ls.reduce((s, l) => s + l.pendentes.length, 0),
+      esperadas: ls.reduce((s, l) => s + l.letivos, 0),
+      feitas: ls.reduce((s, l) => s + l.registradas, 0),
+    });
+    const linhas = calcular(diasPeriodo);
     const comPendencia = linhas.filter(l => l.pendentes.length);
     const totalPend = comPendencia.reduce((s, l) => s + l.pendentes.length, 0);
+    const resAno = somar(calcular(dias));
+    const meses = [];
+    for(let m = Number(inicioUso.slice(5,7)); m <= mesAtual; m++){
+      const chave = `${ano}-${String(m).padStart(2,'0')}`;
+      const dm = dias.filter(d => d.startsWith(chave));
+      if(dm.length) meses.push({ chave, nome: nomeMes[m-1], dias: dm.length, ...somar(calcular(dm)) });
+    }
     const exibidas = P.soPendentes ? comPendencia : linhas;
     const fmt = (iso) => { const d = new Date(iso + 'T00:00:00'); return `${PEND_ROTULO_DIA[d.getDay()]} ${iso.slice(8,10)}/${iso.slice(5,7)}`; };
     const cartao = (rot, val, cor) => `<div style="flex:1;min-width:150px;border:1px solid var(--borda);border-radius:10px;padding:10px 14px;background:#fff;"><div style="font-size:12.5px;font-weight:700;color:#374151;">${rot}</div><div style="font-size:26px;font-weight:800;color:${cor};">${val}</div></div>`;
+    const rotuloPeriodo = P.periodo === 'ano' ? 'Ano todo até hoje' : `${nomeMes[Number(P.periodo.slice(5,7)) - 1]} de ${ano}`;
+    const corPend = (n) => n ? '#b91c1c' : '#166534';
+    const pct = (f, e) => e ? Math.round(100 * f / e) + '%' : '—';
+    const celula = 'padding:6px 10px;border-top:1px solid var(--borda);font-size:13.5px;color:#111827;';
 
     alvo.innerHTML = `
+      <h4 style="margin:0 0 6px;font-size:14.5px;color:#111827;">Total do período selecionado: ${esc(rotuloPeriodo)}</h4>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
         ${cartao('Turmas conferidas', linhas.length, '#1f2937')}
         ${cartao('Turmas em dia', linhas.length - comPendencia.length, '#166534')}
-        ${cartao('Turmas com pendência', comPendencia.length, comPendencia.length ? '#b91c1c' : '#166534')}
-        ${cartao('Chamadas pendentes', totalPend, totalPend ? '#b91c1c' : '#166534')}
+        ${cartao('Turmas com pendência', comPendencia.length, corPend(comPendencia.length))}
+        ${cartao('Chamadas pendentes', totalPend, corPend(totalPend))}
       </div>
-      <p style="font-size:12.5px;color:#374151;margin:0 0 10px;">Conferência de <b>${fmtData(inicioUso)}</b> a <b>${fmtData(fim)}</b>, só dias letivos (de segunda a sexta, sem feriados, recessos e suspensões). A chamada de hoje só vira pendência a partir de amanhã.${inicioUso > ini ? ` Dias antes de ${fmtData(inicioUso)}, primeira chamada lançada no sistema, não são cobrados.` : ''}</p>
+      <h4 style="margin:0 0 6px;font-size:14.5px;color:#111827;">Total de todos os meses (${fmtData(inicioUso)} a ${fmtData(fim)})</h4>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        ${cartao('Turmas com pendência', resAno.comPend + ' de ' + resAno.turmas, corPend(resAno.comPend))}
+        ${cartao('Chamadas pendentes', resAno.pend, corPend(resAno.pend))}
+        ${cartao('Chamadas registradas', resAno.feitas + ' de ' + resAno.esperadas, '#1f2937')}
+        ${cartao('Cumprimento', pct(resAno.feitas, resAno.esperadas), '#1f2937')}
+      </div>
+      <div class="painel" style="margin-bottom:12px;padding:0;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="text-align:left;background:var(--areia-escura);">
+            <th style="padding:7px 10px;font-size:13px;color:#111827;">Mês</th><th style="padding:7px 10px;font-size:13px;color:#111827;">Dias letivos</th><th style="padding:7px 10px;font-size:13px;color:#111827;">Chamadas registradas</th><th style="padding:7px 10px;font-size:13px;color:#111827;">Chamadas pendentes</th><th style="padding:7px 10px;font-size:13px;color:#111827;">Turmas com pendência</th><th style="padding:7px 10px;font-size:13px;color:#111827;">Cumprimento</th>
+          </tr></thead>
+          <tbody>
+            ${meses.map(m => `<tr style="${P.periodo === m.chave ? 'background:#fef3c7;' : ''}">
+              <td style="${celula}font-weight:700;text-transform:capitalize;">${m.nome}</td><td style="${celula}">${m.dias}</td><td style="${celula}">${m.feitas} de ${m.esperadas}</td>
+              <td style="${celula}font-weight:700;color:${corPend(m.pend)};">${m.pend}</td><td style="${celula}">${m.comPend} de ${m.turmas}</td><td style="${celula}">${pct(m.feitas, m.esperadas)}</td></tr>`).join('')}
+            <tr style="background:var(--areia-escura);"><td style="${celula}font-weight:800;">Total de todos os meses</td><td style="${celula}font-weight:700;">${dias.length}</td><td style="${celula}font-weight:700;">${resAno.feitas} de ${resAno.esperadas}</td>
+              <td style="${celula}font-weight:800;color:${corPend(resAno.pend)};">${resAno.pend}</td><td style="${celula}font-weight:700;">${resAno.comPend} de ${resAno.turmas}</td><td style="${celula}font-weight:700;">${pct(resAno.feitas, resAno.esperadas)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:12.5px;color:#374151;margin:0 0 10px;">Lista abaixo: <b>${fmtData(pIni)}</b> a <b>${fmtData(pFim)}</b>, só dias letivos (de segunda a sexta, sem feriados, recessos e suspensões). A chamada de hoje só vira pendência a partir de amanhã.${inicioUso > iniAno ? ` Dias antes de ${fmtData(inicioUso)}, primeira chamada lançada no sistema, não são cobrados.` : ''}</p>
       ${exibidas.length ? exibidas.map(l => `
         <details class="painel" style="margin-bottom:8px;padding:10px 14px;" ${l.pendentes.length && exibidas.length <= 6 ? 'open' : ''}>
           <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px;color:#111827;">
@@ -7206,11 +7253,13 @@ async function renderizarPendenciasChamada(el, elPai){
             .topo{ font-size:15px; } .qtd{ font-size:13px; font-weight:400; margin-left:8px; }
             .datas{ margin-top:5px; display:flex; flex-wrap:wrap; gap:5px; }
             .datas span{ border:1px solid #000; border-radius:3px; padding:1px 7px; font-size:13.5px; font-weight:700; }
+            table.meses{ width:100%; border-collapse:collapse; margin:0 0 12px; } table.meses th, table.meses td{ border:1px solid #000; padding:3px 7px; font-size:13px; text-align:left; text-transform:capitalize; } table.meses tr.tot td{ font-weight:800; background:#eee; }
             .ok{ font-size:15px; font-weight:700; } .rodape{ margin-top:14px; font-size:12px; }
           </style></head><body>
           <h1>Escola Municipal Jaime Gonçalves Bold — Pendências de chamada</h1>
-          <p class="sub">Período conferido: ${fmtData(inicioUso)} a ${fmtData(fim)}${P.turno ? ' · Turno: ' + (P.turno === 'MANHÃ' ? 'Manhã' : 'Tarde') : ''} · Só dias letivos (segunda a sexta, sem feriados e suspensões).</p>
-          <div class="resumo">${linhas.length} turmas conferidas · ${linhas.length - comPendencia.length} em dia · ${comPendencia.length} com pendência · ${totalPend} chamadas pendentes</div>
+          <p class="sub">Período: ${esc(rotuloPeriodo)} (${fmtData(pIni)} a ${fmtData(pFim)})${P.turno ? ' · Turno: ' + (P.turno === 'MANHÃ' ? 'Manhã' : 'Tarde') : ''} · Só dias letivos (segunda a sexta, sem feriados e suspensões).</p>
+          <div class="resumo">Total do período: ${linhas.length} turmas conferidas · ${linhas.length - comPendencia.length} em dia · ${comPendencia.length} com pendência · ${totalPend} chamadas pendentes<br/>Total de todos os meses (${fmtData(inicioUso)} a ${fmtData(fim)}): ${resAno.pend} chamadas pendentes em ${resAno.comPend} de ${resAno.turmas} turmas · cumprimento ${pct(resAno.feitas, resAno.esperadas)}</div>
+          <table class="meses"><tr><th>Mês</th><th>Dias letivos</th><th>Registradas</th><th>Pendentes</th><th>Turmas com pendência</th></tr>${meses.map(m => `<tr><td>${m.nome}</td><td>${m.dias}</td><td>${m.feitas} de ${m.esperadas}</td><td><b>${m.pend}</b></td><td>${m.comPend} de ${m.turmas}</td></tr>`).join('')}<tr class="tot"><td>Total de todos os meses</td><td>${dias.length}</td><td>${resAno.feitas} de ${resAno.esperadas}</td><td><b>${resAno.pend}</b></td><td>${resAno.comPend} de ${resAno.turmas}</td></tr></table>
           ${corpo}
           <p class="rodape">Emitido em ${quando}.</p>
           <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 250); };<\/script>
