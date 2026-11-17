@@ -7067,6 +7067,7 @@ function renderizarFrequenciaEstudantes(el){
   const abas = [
     { id:'chamada', label:'Chamada diária' },
     { id:'historico', label:'Histórico' },
+    ...(ESTADO.perfil.role !== 'professor' ? [{ id:'pendencias', label:'Pendências de chamada' }] : []),
   ];
   const barra = abas.map(a => `<button class="aba-cadastro ${ESTADO.subFrequenciaEstudantes===a.id?'ativa':''}" data-aba="${a.id}">${a.label}</button>`).join('');
   el.innerHTML = `
@@ -7077,7 +7078,156 @@ function renderizarFrequenciaEstudantes(el){
   }));
   const alvo = el.querySelector('#conteudo-frequencia');
   if(ESTADO.subFrequenciaEstudantes === 'historico') renderizarHistoricoFrequencia(alvo);
+  else if(ESTADO.subFrequenciaEstudantes === 'pendencias' && ESTADO.perfil.role !== 'professor') renderizarPendenciasChamada(alvo, el);
   else renderizarChamada(alvo);
+}
+
+// ---------------------------------------------------------------
+// PENDÊNCIAS DE CHAMADA — quais turmas já tiveram a chamada registrada em cada dia letivo e quais estão pendentes
+// ---------------------------------------------------------------
+const PEND_ROTULO_DIA = ['dom','seg','ter','qua','qui','sex','sáb'];
+function pendDiaBloqueadoParaTurma(feriado, turma){
+  if(!feriado) return false;
+  if(ehDiaParcial(feriado)) return turnoAfetaSuspensao(turma.turno, feriado.turno_afetado);
+  return true; // feriado, recesso, ponto facultativo e suspensão de dia todo
+}
+async function pendBuscarTudo(construir){
+  const todos = [];
+  for(let de = 0; ; de += 1000){
+    const { data, error } = await construir().range(de, de + 999);
+    if(error) throw error;
+    todos.push(...(data || []));
+    if(!data || data.length < 1000) break;
+  }
+  return todos;
+}
+async function renderizarPendenciasChamada(el, elPai){
+  const hoje = hojeISO();
+  const ano = Number(hoje.slice(0,4));
+  const mesAtual = Number(hoje.slice(5,7));
+  const P = ESTADO.pendChamada = ESTADO.pendChamada || { periodo: hoje.slice(0,7), turno: '', soPendentes: true };
+  const nomeMes = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const opcoesPeriodo = Array.from({ length: mesAtual }, (_, i) => { const v = `${ano}-${String(i+1).padStart(2,'0')}`; return `<option value="${v}" ${P.periodo===v?'selected':''}>${nomeMes[i]} de ${ano}</option>`; }).join('')
+    + `<option value="ano" ${P.periodo==='ano'?'selected':''}>Ano todo até hoje</option>`;
+  el.innerHTML = `
+    <div class="painel" style="margin-bottom:12px;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="campo" style="margin:0;"><label>Período</label><select id="pend-periodo">${opcoesPeriodo}</select></div>
+      <div class="campo" style="margin:0;"><label>Turno</label><select id="pend-turno"><option value="">Todos</option><option value="MANHÃ" ${P.turno==='MANHÃ'?'selected':''}>Manhã</option><option value="TARDE" ${P.turno==='TARDE'?'selected':''}>Tarde</option></select></div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13.5px;font-weight:600;color:#1f2937;"><input type="checkbox" id="pend-so" ${P.soPendentes?'checked':''} style="width:16px;height:16px;" /> Mostrar só turmas com pendência</label>
+      <button type="button" class="botao secundario pequeno" id="pend-imprimir" style="width:auto;margin-left:auto;" disabled>🖨️ Imprimir pendências</button>
+    </div>
+    <div id="pend-resultado"><div class="carregando"><div class="spinner"></div>Conferindo as chamadas…</div></div>`;
+  document.getElementById('pend-periodo').addEventListener('change', (e) => { P.periodo = e.target.value; renderizarPendenciasChamada(el, elPai); });
+  document.getElementById('pend-turno').addEventListener('change', (e) => { P.turno = e.target.value; renderizarPendenciasChamada(el, elPai); });
+  document.getElementById('pend-so').addEventListener('change', (e) => { P.soPendentes = e.target.checked; renderizarPendenciasChamada(el, elPai); });
+
+  const alvo = document.getElementById('pend-resultado');
+  try{
+    const ini = P.periodo === 'ano' ? `${ano}-01-01` : `${P.periodo}-01`;
+    let fim = hoje;
+    if(P.periodo !== 'ano'){
+      const [a, m] = P.periodo.split('-').map(Number);
+      const ultimo = new Date(a, m, 0).getDate();
+      const fimMes = `${P.periodo}-${String(ultimo).padStart(2,'0')}`;
+      fim = fimMes < hoje ? fimMes : hoje;
+    }
+    const [registros, feriados, primeira] = await Promise.all([
+      pendBuscarTudo(() => supabase.from('chamadas_dia').select('turma_id, data').gte('data', ini).lte('data', fim).order('data')),
+      supabase.from('feriados').select('data, tipo, turno_afetado, descricao').gte('data', ini).lte('data', fim).then(r => r.data || []),
+      supabase.from('chamadas_dia').select('data').order('data', { ascending: true }).limit(1).then(r => (r.data && r.data[0] && r.data[0].data) || null),
+    ]);
+    const inicioUso = primeira && primeira > ini ? primeira : ini; // antes da 1ª chamada lançada no sistema não há como cobrar
+    const feriadoPorData = {}; feriados.forEach(f => { feriadoPorData[f.data] = f; });
+    const feitas = {}; registros.forEach(r => { (feitas[r.turma_id] = feitas[r.turma_id] || new Set()).add(r.data); });
+
+    // dias úteis do período (seg–sex)
+    const dias = [];
+    for(let d = new Date(inicioUso + 'T00:00:00'); ; d.setDate(d.getDate() + 1)){
+      const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if(iso > fim) break;
+      if(d.getDay() !== 0 && d.getDay() !== 6) dias.push(iso);
+    }
+
+    const turmas = turmasAnoAtual().filter(t => (!P.turno || String(t.turno).toUpperCase() === P.turno) && alunosFardamentoDaTurma(t.id).length > 0)
+      .slice().sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR') || String(a.turno).localeCompare(String(b.turno), 'pt-BR'));
+    const linhas = turmas.map(t => {
+      const letivos = dias.filter(d => !pendDiaBloqueadoParaTurma(feriadoPorData[d], t));
+      const set = feitas[t.id] || new Set();
+      const pendentes = letivos.filter(d => d < hoje && !set.has(d));
+      const hojeAberto = letivos.includes(hoje) && !set.has(hoje);
+      const registradas = letivos.filter(d => set.has(d)).length;
+      return { t, letivos: letivos.length, registradas, pendentes, hojeAberto };
+    });
+    const comPendencia = linhas.filter(l => l.pendentes.length);
+    const totalPend = comPendencia.reduce((s, l) => s + l.pendentes.length, 0);
+    const exibidas = P.soPendentes ? comPendencia : linhas;
+    const fmt = (iso) => { const d = new Date(iso + 'T00:00:00'); return `${PEND_ROTULO_DIA[d.getDay()]} ${iso.slice(8,10)}/${iso.slice(5,7)}`; };
+    const cartao = (rot, val, cor) => `<div style="flex:1;min-width:150px;border:1px solid var(--borda);border-radius:10px;padding:10px 14px;background:#fff;"><div style="font-size:12.5px;font-weight:700;color:#374151;">${rot}</div><div style="font-size:26px;font-weight:800;color:${cor};">${val}</div></div>`;
+
+    alvo.innerHTML = `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        ${cartao('Turmas conferidas', linhas.length, '#1f2937')}
+        ${cartao('Turmas em dia', linhas.length - comPendencia.length, '#166534')}
+        ${cartao('Turmas com pendência', comPendencia.length, comPendencia.length ? '#b91c1c' : '#166534')}
+        ${cartao('Chamadas pendentes', totalPend, totalPend ? '#b91c1c' : '#166534')}
+      </div>
+      <p style="font-size:12.5px;color:#374151;margin:0 0 10px;">Conferência de <b>${fmtData(inicioUso)}</b> a <b>${fmtData(fim)}</b>, só dias letivos (de segunda a sexta, sem feriados, recessos e suspensões). A chamada de hoje só vira pendência a partir de amanhã.${inicioUso > ini ? ` Dias antes de ${fmtData(inicioUso)}, primeira chamada lançada no sistema, não são cobrados.` : ''}</p>
+      ${exibidas.length ? exibidas.map(l => `
+        <details class="painel" style="margin-bottom:8px;padding:10px 14px;" ${l.pendentes.length && exibidas.length <= 6 ? 'open' : ''}>
+          <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px;color:#111827;">
+            <b>${esc(l.t.nome)}</b><span style="color:#374151;">${esc(l.t.turno)}</span>
+            <span class="pill ${l.pendentes.length ? 'vermelho' : 'verde'}">${l.pendentes.length ? l.pendentes.length + ' pendente' + (l.pendentes.length > 1 ? 's' : '') : 'Em dia'}</span>
+            <span style="color:#374151;font-size:13px;">${l.registradas} de ${l.letivos} dias com chamada registrada${l.hojeAberto ? ' · hoje ainda em aberto' : ''}</span>
+          </summary>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+            ${l.pendentes.length ? l.pendentes.map(d => `<button type="button" class="botao secundario pequeno" data-pend-turma="${l.t.id}" data-pend-data="${d}" style="width:auto;padding:3px 9px;" title="Abrir a chamada deste dia">${fmt(d)}</button>`).join('') : '<span style="font-size:13px;color:#166534;font-weight:600;">Todas as chamadas do período foram registradas.</span>'}
+          </div>
+        </details>`).join('') : `<div class="painel" style="padding:16px;font-size:14px;color:#166534;font-weight:600;">Nenhuma pendência no período. Todas as chamadas foram registradas.</div>`}`;
+    const btnImp = document.getElementById('pend-imprimir');
+    if(btnImp){
+      btnImp.disabled = false;
+      btnImp.addEventListener('click', () => {
+        const janela = window.open('', '_blank');
+        if(!janela){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.'); return; }
+        const emitido = new Date();
+        const quando = `${emitido.toLocaleDateString('pt-BR')} às ${emitido.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}`;
+        const corpo = comPendencia.length ? comPendencia.map(l => `
+          <div class="bloco">
+            <div class="topo"><b>${esc(l.t.nome)}</b> · ${esc(l.t.turno)} <span class="qtd">${l.pendentes.length} pendente${l.pendentes.length > 1 ? 's' : ''} (${l.registradas} de ${l.letivos} dias com chamada)</span></div>
+            <div class="datas">${l.pendentes.map(d => `<span>${fmt(d)}</span>`).join('')}</div>
+          </div>`).join('') : `<p class="ok">Nenhuma pendência no período. Todas as chamadas foram registradas.</p>`;
+        janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Pendências de chamada</title>
+          <style>
+            @page{ size:A4; margin:12mm; }
+            body{ font-family:Arial,Helvetica,sans-serif; color:#000; font-size:14px; }
+            h1{ font-size:19px; margin:0 0 2px; } .sub{ font-size:13.5px; margin:0 0 10px; }
+            .resumo{ font-size:14px; font-weight:700; margin:8px 0 12px; padding:6px 0; border-top:1px solid #000; border-bottom:1px solid #000; }
+            .bloco{ border:1px solid #000; border-radius:4px; padding:6px 10px; margin-bottom:7px; page-break-inside:avoid; }
+            .topo{ font-size:15px; } .qtd{ font-size:13px; font-weight:400; margin-left:8px; }
+            .datas{ margin-top:5px; display:flex; flex-wrap:wrap; gap:5px; }
+            .datas span{ border:1px solid #000; border-radius:3px; padding:1px 7px; font-size:13.5px; font-weight:700; }
+            .ok{ font-size:15px; font-weight:700; } .rodape{ margin-top:14px; font-size:12px; }
+          </style></head><body>
+          <h1>Escola Municipal Jaime Gonçalves Bold — Pendências de chamada</h1>
+          <p class="sub">Período conferido: ${fmtData(inicioUso)} a ${fmtData(fim)}${P.turno ? ' · Turno: ' + (P.turno === 'MANHÃ' ? 'Manhã' : 'Tarde') : ''} · Só dias letivos (segunda a sexta, sem feriados e suspensões).</p>
+          <div class="resumo">${linhas.length} turmas conferidas · ${linhas.length - comPendencia.length} em dia · ${comPendencia.length} com pendência · ${totalPend} chamadas pendentes</div>
+          ${corpo}
+          <p class="rodape">Emitido em ${quando}.</p>
+          <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 250); };<\/script>
+          </body></html>`);
+        janela.document.close();
+      });
+    }
+    alvo.querySelectorAll('[data-pend-turma]').forEach(b => b.addEventListener('click', () => {
+      ESTADO.chamadaTurma = b.dataset.pendTurma;
+      ESTADO.chamadaData = b.dataset.pendData;
+      ESTADO.chamadaDataSincronizada = '';
+      ESTADO.subFrequenciaEstudantes = 'chamada';
+      renderizarFrequenciaEstudantes(elPai);
+    }));
+  }catch(err){
+    alvo.innerHTML = `<div class="msg-erro">Não foi possível conferir as chamadas: ${esc(err.message || String(err))}</div>`;
+  }
 }
 
 // Suspensão de Aulas, ou Ponto Facultativo que vale só para um turno (ex.: prédio cedido ao TRE só de manhã):
