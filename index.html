@@ -12513,7 +12513,6 @@ async function renderizarAvaliacaoInstitucional(el){
     ...(ehAdmin ? [{ id: 'resultados', label: 'Resultados' }, { id: 'respostas', label: 'Respostas' }] : []),
     { id: 'lancar', label: 'Lançar impressos' },
     { id: 'qrcode', label: 'QR Code e cartaz' },
-    { id: 'google', label: 'Google Forms e cartaz' },
     { id: 'impresso', label: 'Questionário impresso' },
   ];
   if(!abas.some(a => a.id === ESTADO.subAvalInst)) ESTADO.subAvalInst = abas[0].id;
@@ -12526,7 +12525,6 @@ async function renderizarAvaliacaoInstitucional(el){
   else if(ESTADO.subAvalInst === 'respostas') await avalTelaRespostas(alvo);
   else if(ESTADO.subAvalInst === 'lancar') avalTelaLancar(alvo);
   else if(ESTADO.subAvalInst === 'qrcode') await avalTelaQr(alvo);
-  else if(ESTADO.subAvalInst === 'google') await avalTelaGoogle(alvo);
   else avalTelaImpresso(alvo);
 }
 
@@ -12538,7 +12536,7 @@ function avalTelaImpresso(el){
       <ul style="font-size:13.5px;color:#1f2937;line-height:1.6;margin:0 0 14px;padding-left:20px;">
         <li>Na impressora, escolha <b>frente e verso</b> (virar na borda longa) e tamanho real, sem reduzir.</li>
         <li>Quem responde marca um X em cada linha; a escola devolve as folhas à secretaria.</li>
-        <li>Depois, use a aba <b>Lançar impressos</b> para digitar cada folha. Os resultados juntam impressos e Google Forms.</li>
+        <li>Depois, use a aba <b>Lançar impressos</b> para digitar cada folha. Os resultados juntam impressos e QR Code.</li>
       </ul>
       <button class="botao terracota" id="ai-imprimir" style="width:auto;">🖨️ Imprimir questionário</button>
     </div>`;
@@ -12718,7 +12716,7 @@ function avalFiltrosHtml(f, dados){
   const A = AVAL_INST;
   const opts = (lista, atual, vazio) => `<option value="">${vazio}</option>` + lista.map(o => `<option value="${o.c}" ${atual === o.c ? 'selected' : ''}>${esc(o.t)}</option>`).join('');
   return `<div class="painel" style="margin-bottom:12px;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
-    <div class="campo" style="margin:0;"><label>Origem</label><select id="ai-f-origem"><option value="">Todas</option><option value="impresso" ${f.origem === 'impresso' ? 'selected' : ''}>Impressos</option><option value="google" ${f.origem === 'google' ? 'selected' : ''}>Google Forms</option><option value="qrcode" ${f.origem === 'qrcode' ? 'selected' : ''}>QR Code</option></select></div>
+    <div class="campo" style="margin:0;"><label>Origem</label><select id="ai-f-origem"><option value="">Todas</option><option value="impresso" ${f.origem === 'impresso' ? 'selected' : ''}>Impressos</option><option value="qrcode" ${f.origem === 'qrcode' ? 'selected' : ''}>QR Code</option></select></div>
     <div class="campo" style="margin:0;"><label>Quem respondeu</label><select id="ai-f-resp">${opts(A.q1.op, f.respondente, 'Todos')}</select></div>
     <div class="campo" style="margin:0;"><label>Etapa</label><select id="ai-f-etapa">${opts(A.q2.op, f.etapa, 'Todas')}</select></div>
     <button type="button" class="botao secundario pequeno" id="ai-atualizar" style="width:auto;">↻ Atualizar</button>
@@ -12772,14 +12770,14 @@ async function avalTelaResultados(el){
     const itens = dados.map(r => ({ t: (r.abertas || {})['q' + q.n], r })).filter(x => x.t && (!busca || x.t.toLowerCase().includes(busca)));
     return `<details class="painel" style="padding:10px 14px;margin-bottom:8px;" ${busca ? 'open' : ''}>
       <summary style="cursor:pointer;font-size:14px;color:#111827;"><b>${q.n}.</b> ${esc(q.t)} <span class="pill azul">${itens.length} resposta${itens.length === 1 ? '' : 's'}</span></summary>
-      <div style="margin-top:8px;">${itens.length ? itens.map(x => `<div style="border-left:3px solid var(--borda);padding:4px 10px;margin:6px 0;font-size:13.5px;color:#111827;white-space:pre-wrap;">${esc(x.t)}<div style="font-size:11.5px;color:#4b5563;margin-top:2px;">${x.r.origem === 'google' ? 'Google Forms' : 'Impresso'} · ${esc(AVAL_ROTULO(A.q1.op, x.r.respondente))}</div></div>`).join('') : '<span style="font-size:13px;color:#4b5563;">Nenhuma resposta escrita.</span>'}</div></details>`;
+      <div style="margin-top:8px;">${itens.length ? itens.map(x => `<div style="border-left:3px solid var(--borda);padding:4px 10px;margin:6px 0;font-size:13.5px;color:#111827;white-space:pre-wrap;">${esc(x.t)}<div style="font-size:11.5px;color:#4b5563;margin-top:2px;">${esc(avalOrigemRotulo(x.r.origem))} · ${esc(AVAL_ROTULO(A.q1.op, x.r.respondente))}</div></div>`).join('') : '<span style="font-size:13px;color:#4b5563;">Nenhuma resposta escrita.</span>'}</div></details>`;
   }).join('');
 
   el.innerHTML = `
     ${avalFiltrosHtml(f, todas)}
-    ${dados.length ? '' : '<div class="painel" style="padding:16px;font-size:14px;color:#1f2937;margin-bottom:12px;">Ainda não há respostas para este filtro. Lance os questionários impressos ou traga as respostas do Google Forms.</div>'}
+    ${dados.length ? '' : '<div class="painel" style="padding:16px;font-size:14px;color:#1f2937;margin-bottom:12px;">Ainda não há respostas para este filtro. Lance os questionários impressos ou abra a coleta por QR Code.</div>'}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-      ${cartao('Respostas', dados.length, `${nImp} impressas · ${nQrc} QR Code · ${nGoo} Google Forms`)}
+      ${cartao('Respostas', dados.length, `${nImp} impressas · ${nQrc} QR Code`)}
       ${cartao('Avaliação geral (Q30)', m30 == null ? '—' : avalFmtNum(m30) + ' de 5', m30 == null ? '' : esc(AVAL_ROTULO(A.geral.op, (A.geral.op.slice().sort((a, b) => Math.abs(a.v - m30) - Math.abs(b.v - m30)))[0].c)) + ' · ' + n30 + ' resposta(s)', '#1f3a5f')}
       ${cartao('Gestão escolar (Q3 a Q7)', mGestao == null ? '—' : avalFmtNum(mGestao) + ' de 4', 'média das 5 questões da seção')}
       ${cartao('Média de todas as questões', mGeral == null ? '—' : avalFmtNum(mGeral) + ' de 4', 'Ótimo = 4 · Bom = 3 · Regular = 2 · Ruim = 1')}
