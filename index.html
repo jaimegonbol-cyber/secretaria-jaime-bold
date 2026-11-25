@@ -448,6 +448,8 @@ async function carregarPerfil(userId){
 }
 
 async function iniciar(){
+  // Página pública do questionário (aberta pelo QR Code): sem login
+  if(new URLSearchParams(location.search).has('avaliacao')){ await renderizarAvaliacaoPublica(); return; }
   raiz.innerHTML = `<div class="carregando"><div class="spinner"></div>Carregando…</div>`;
   const tipoLink = await tratarLinkConvite();
   const { data: { session } } = await supabase.auth.getSession();
@@ -12092,6 +12094,988 @@ function exibirFormularioEventoAgenda(formEl, evento, elPai, dataPadrao){
   });
 }
 
+// ===== AVALIAÇÃO INSTITUCIONAL (início) =====
+// Banco único de perguntas: usado no questionário impresso, no lançamento das respostas, no script do Google Forms, na importação e nos resultados.
+const AVAL_INST = {
+  ano: 2026,
+  escola: 'ESCOLA MUNICIPAL JAIME GONÇALVES BOLD',
+  titulo: 'QUESTIONÁRIO DE AVALIAÇÃO INSTITUCIONAL – ANO LETIVO 2026',
+  chamada: 'Sua opinião é muito importante!',
+  intro: [
+    'Este questionário tem como objetivo conhecer a opinião da comunidade escolar sobre o trabalho desenvolvido pela Escola Municipal Jaime Gonçalves Bold durante o ano letivo de 2026. As respostas contribuirão para identificar conquistas, desafios e possibilidades de melhoria para o próximo ano.',
+    'A participação é voluntária e as respostas serão utilizadas para fins de avaliação e planejamento institucional.',
+  ],
+  q1: { n: 1, t: 'Você está respondendo como:', op: [
+    { c: 'responsavel', t: 'Pai, mãe ou responsável por estudante' },
+    { c: 'estudante', t: 'Estudante' },
+    { c: 'professor', t: 'Professor(a)' },
+    { c: 'funcionario', t: 'Funcionário(a)' },
+    { c: 'gestora', t: 'Equipe gestora' },
+    { c: 'outro', t: 'Outro' },
+  ] },
+  q2: { n: 2, t: 'Qual etapa/modalidade está relacionada à sua participação?', op: [
+    { c: 'infantil', t: 'Educação Infantil' },
+    { c: 'iniciais', t: 'Anos Iniciais – 1º ao 5º ano' },
+    { c: 'finais', t: 'Anos Finais – 6º ao 9º ano' },
+    { c: 'nao_se_aplica', t: 'Não se aplica' },
+  ] },
+  escala: [
+    { c: 'otimo', t: 'Ótimo', v: 4, cor: '#16a34a', tom: '#dcfce7' },
+    { c: 'bom', t: 'Bom', v: 3, cor: '#2563eb', tom: '#dbeafe' },
+    { c: 'regular', t: 'Regular', v: 2, cor: '#d97706', tom: '#fef3c7' },
+    { c: 'ruim', t: 'Ruim', v: 1, cor: '#dc2626', tom: '#fee2e2' },
+    { c: 'nsa', t: 'Não sei', v: null, cor: '#9ca3af', tom: '#f3f4f6' },
+  ],
+  secoes: [
+    { n: 2, titulo: '2. GESTÃO ESCOLAR', curto: 'Gestão escolar', ajuda: 'Avalie os seguintes aspectos:', perguntas: [
+      { n: 3, t: 'A gestão escolar demonstra organização no funcionamento da escola?' },
+      { n: 4, t: 'A equipe gestora é acessível e mantém um bom relacionamento com a comunidade escolar?' },
+      { n: 5, t: 'A escola mantém uma comunicação clara sobre avisos, eventos, reuniões e atividades?' },
+      { n: 6, t: 'A gestão demonstra atenção às necessidades dos estudantes, professores e funcionários?' },
+      { n: 7, t: 'As decisões e ações da escola favorecem a participação da comunidade escolar?' },
+    ] },
+    { n: 3, titulo: '3. ENSINO E APRENDIZAGEM', curto: 'Ensino e aprendizagem', perguntas: [
+      { n: 8, t: 'Você considera que a escola oferece um ensino de qualidade?' },
+      { n: 9, t: 'Os professores demonstram compromisso com a aprendizagem dos estudantes?' },
+      { n: 10, t: 'As atividades pedagógicas são adequadas à faixa etária e ao nível de aprendizagem dos estudantes?' },
+      { n: 11, t: 'A escola desenvolve projetos e atividades que estimulam a participação e o interesse dos estudantes?' },
+      { n: 12, t: 'A escola acompanha as dificuldades de aprendizagem e busca estratégias para superá-las?' },
+      { n: 13, t: 'Os estudantes recebem orientações e apoio para melhorar seu desempenho escolar?' },
+    ] },
+    { n: 4, titulo: '4. AMBIENTE ESCOLAR E CONVIVÊNCIA', curto: 'Ambiente escolar e convivência', perguntas: [
+      { n: 14, t: 'A escola oferece um ambiente acolhedor e respeitoso?' },
+      { n: 15, t: 'Existe respeito entre estudantes, professores e funcionários?' },
+      { n: 16, t: 'A escola desenvolve ações de prevenção ao bullying e à violência?' },
+      { n: 17, t: 'Os estudantes são incentivados a cuidar do patrimônio e dos espaços escolares?' },
+      { n: 18, t: 'Você considera a escola um ambiente seguro para os estudantes?' },
+    ] },
+    { n: 5, titulo: '5. INFRAESTRUTURA E RECURSOS', curto: 'Infraestrutura e recursos', perguntas: [
+      { n: 19, t: 'As salas de aula oferecem condições adequadas para o desenvolvimento das atividades?' },
+      { n: 20, t: 'Os espaços de convivência e recreação atendem às necessidades dos estudantes?' },
+      { n: 21, t: 'Os banheiros e demais dependências da escola são mantidos limpos e organizados?' },
+      { n: 22, t: 'Os materiais pedagógicos e recursos disponíveis contribuem para o processo de ensino e aprendizagem?' },
+      { n: 23, t: 'A alimentação escolar é oferecida de maneira satisfatória?' },
+    ] },
+    { n: 6, titulo: '6. PARTICIPAÇÃO DA FAMÍLIA E COMUNIDADE', curto: 'Participação da família e comunidade', perguntas: [
+      { n: 24, t: 'A escola incentiva a participação das famílias nas atividades e decisões escolares?' },
+      { n: 25, t: 'As reuniões e os encontros promovidos pela escola são importantes para acompanhar a vida escolar dos estudantes?' },
+      { n: 26, t: 'Você considera que existe uma boa parceria entre família e escola?' },
+    ] },
+    { n: 7, titulo: '7. PROJETOS, EVENTOS E ATIVIDADES', curto: 'Projetos, eventos e atividades', perguntas: [
+      { n: 27, t: 'Como você avalia os projetos pedagógicos desenvolvidos durante o ano?' },
+      { n: 28, t: 'Como você avalia os eventos, comemorações, atividades culturais, esportivas e recreativas realizados pela escola?' },
+      { n: 29, t: 'As atividades desenvolvidas contribuem para a formação integral dos estudantes?' },
+    ] },
+  ],
+  geral: { n: 30, t: 'De maneira geral, como você avalia o trabalho desenvolvido pela Escola Municipal Jaime Gonçalves Bold em 2026?', op: [
+    { c: 'excelente', t: 'Excelente', v: 5, cor: '#15803d' },
+    { c: 'muito_bom', t: 'Muito bom', v: 4, cor: '#16a34a' },
+    { c: 'bom', t: 'Bom', v: 3, cor: '#2563eb' },
+    { c: 'regular', t: 'Regular', v: 2, cor: '#d97706' },
+    { c: 'precisa_melhorar', t: 'Precisa melhorar', v: 1, cor: '#dc2626' },
+  ] },
+  recomenda: { n: 31, t: 'Você recomendaria a Escola Municipal Jaime Gonçalves Bold para outras famílias?', op: [
+    { c: 'sim', t: 'Sim', cor: '#16a34a' },
+    { c: 'talvez', t: 'Talvez', cor: '#d97706' },
+    { c: 'nao', t: 'Não', cor: '#dc2626' },
+  ] },
+  tituloAbertas: '9. QUESTÕES ABERTAS – SUA OPINIÃO É FUNDAMENTAL!',
+  abertas: [
+    { n: 32, t: 'Quais foram os principais pontos positivos da escola durante o ano letivo de 2026?' },
+    { n: 33, t: 'O que você considera que precisa melhorar na escola?' },
+    { n: 34, t: 'Que sugestões você apresenta para melhorar o trabalho da escola no ano letivo de 2027?' },
+    { n: 35, t: 'Gostaria de deixar algum elogio, comentário ou contribuição para a equipe gestora e toda a comunidade escolar?' },
+  ],
+  agradecimento: 'AGRADECEMOS SUA PARTICIPAÇÃO!',
+  agradecimentoTexto: 'Sua contribuição é essencial para construirmos uma escola cada vez melhor, acolhedora, democrática e comprometida com a aprendizagem e o desenvolvimento dos nossos estudantes.',
+  fecho: 'Juntos, avaliamos o presente e construímos um futuro melhor!',
+};
+const AVAL_PERGUNTAS_GRADE = AVAL_INST.secoes.flatMap(s => s.perguntas.map(p => ({ ...p, secao: s })));
+const AVAL_ROTULO = (lista, c) => ((lista.find(o => o.c === c) || {}).t) || (c || '—');
+const AVAL_NORM = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+// ---------- Questionário impresso: 1 folha A4, frente e verso ----------
+function htmlQuestionarioAvalInst(){
+  const A = AVAL_INST;
+  const tabela = (s) => `
+    <table class="g"><thead><tr><th class="sec">${esc(s.titulo)}</th>${A.escala.map(e => `<th class="col">${esc(e.t)}</th>`).join('')}</tr></thead>
+    <tbody>${s.perguntas.map(p => `<tr><td class="pq"><b>${p.n}.</b> ${esc(p.t)}</td>${A.escala.map(() => `<td class="bb"><i class="b"></i></td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const opcoes = (lista, extra) => lista.map(o => `<span class="op"><i class="q"></i>${esc(o.t)}${o.c === 'outro' ? ': ' + (extra || '<span class="lin"></span>') : ''}</span>`).join('');
+  const abertas = A.abertas.map(q => `<div class="ab"><div class="abt"><b>${q.n}.</b> ${esc(q.t)}</div><div class="linhas"></div></div>`).join('');
+  const cabec = `
+    <div class="cabec">
+      <img class="lg" src="${LOGO_ESCOLA_URL}" alt="" />
+      <div class="ct"><div class="esc">${esc(A.escola)}</div><div class="tit">${esc(A.titulo)}</div><div class="cham">${esc(A.chamada)}</div></div>
+      <img class="lg" src="${LOGO_PREFEITURA_URL}" alt="" />
+    </div>`;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Questionário de Avaliação Institucional ${A.ano}</title>
+  <style>
+    @page{ size:A4; margin:7mm 9mm; }
+    *{ box-sizing:border-box; }
+    body{ font-family:Arial,Helvetica,sans-serif; color:#000; font-size:12px; margin:0; }
+    .pag{ height:283mm; page-break-after:always; display:flex; flex-direction:column; }
+    .pag:last-of-type{ page-break-after:auto; }
+    .cabec{ display:flex; align-items:center; gap:10px; border-bottom:2px solid #000; padding-bottom:4px; margin-bottom:5px; }
+    .lg{ height:17mm; width:auto; max-width:34mm; object-fit:contain; }
+    .ct{ flex:1; text-align:center; } .esc{ font-size:13px; font-weight:800; } .tit{ font-size:14px; font-weight:800; margin-top:1px; } .cham{ font-size:12.5px; font-weight:700; margin-top:1px; }
+    .intro{ font-size:11px; line-height:1.28; margin:0 0 4px; text-align:justify; }
+    h2{ font-size:12.5px; margin:5px 0 3px; background:#000; color:#fff; padding:2px 6px; }
+    .perg{ font-size:12px; margin:3px 0 2px; } .op{ display:inline-flex; align-items:center; gap:4px; margin:1px 14px 1px 0; font-size:12px; }
+    .q{ display:inline-block; width:3.6mm; height:3.6mm; border:0.35mm solid #000; border-radius:50%; flex:none; }
+    .lin{ display:inline-block; width:52mm; border-bottom:0.3mm solid #000; height:3mm; }
+    table.g{ width:100%; border-collapse:collapse; margin:0 0 4px; }
+    table.g th, table.g td{ border:0.3mm solid #000; padding:3px 4px; }
+    table.g th.sec{ text-align:left; font-size:12px; background:#e5e5e5; } table.g th.col{ width:15.5mm; font-size:10.5px; text-align:center; background:#e5e5e5; }
+    td.pq{ font-size:12.3px; line-height:1.22; } td.bb{ text-align:center; vertical-align:middle; }
+    .b{ display:inline-block; width:4.2mm; height:4.2mm; border:0.35mm solid #000; border-radius:50%; vertical-align:middle; }
+    .ab{ margin:0 0 3px; } .abt{ font-size:12.5px; margin-bottom:1px; }
+    .linhas{ height:34mm; background-image:repeating-linear-gradient(to bottom, transparent 0, transparent 7.9mm, #000 7.9mm, #000 8.15mm); border-top:0; }
+    .fim{ margin-top:auto; text-align:center; border-top:2px solid #000; padding-top:3px; } .fim b{ font-size:13px; } .fim p{ margin:1px 0; font-size:11px; } .fim .f{ font-weight:800; font-size:12px; }
+  </style></head><body>
+  <div class="pag">
+    ${cabec}
+    ${A.intro.map(t => `<p class="intro">${esc(t)}</p>`).join('')}
+    <h2>1. IDENTIFICAÇÃO</h2>
+    <div class="perg"><b>1.</b> ${esc(A.q1.t)}</div><div>${opcoes(A.q1.op)}</div>
+    <div class="perg"><b>2.</b> ${esc(A.q2.t)}</div><div>${opcoes(A.q2.op)}</div>
+    <div class="perg" style="margin-top:4px;font-weight:700;">Para as questões 3 a 29, marque com um X uma opção em cada linha. Se não souber responder, marque “Não sei”.</div>
+    ${A.secoes.slice(0, 4).map(tabela).join('')}
+  </div>
+  <div class="pag">
+    ${A.secoes.slice(4).map(tabela).join('')}
+    <h2>8. AVALIAÇÃO GERAL</h2>
+    <div class="perg"><b>${A.geral.n}.</b> ${esc(A.geral.t)}</div><div>${opcoes(A.geral.op)}</div>
+    <div class="perg"><b>${A.recomenda.n}.</b> ${esc(A.recomenda.t)}</div><div>${opcoes(A.recomenda.op)}</div>
+    <h2>${esc(A.tituloAbertas)}</h2>
+    ${abertas}
+    <div class="fim"><b>${esc(A.agradecimento)}</b><p>${esc(A.agradecimentoTexto)}</p><p class="f">${esc(A.escola)} — ${esc(A.fecho)}</p></div>
+  </div>
+  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 300); };<\/script>
+  </body></html>`;
+}
+function imprimirQuestionarioAvalInst(){
+  const janela = window.open('', '_blank');
+  if(!janela){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.'); return; }
+  janela.document.write(htmlQuestionarioAvalInst());
+  janela.document.close();
+}
+
+// ---------- Cartaz com QR code ----------
+function htmlCartazAvalInst(qrDataUrl, link){
+  const A = AVAL_INST;
+  const linkCurto = String(link || '').replace(/^https?:\/\//, '');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Cartaz — Avaliação Institucional ${A.ano}</title>
+  <style>
+    @page{ size:A4; margin:0; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family:Arial,Helvetica,sans-serif; color:#000; }
+    .folha{ width:210mm; height:297mm; padding:12mm 14mm; display:flex; flex-direction:column; align-items:center; text-align:center; border:3mm solid #1f3a5f; }
+    .logos{ display:flex; align-items:center; justify-content:space-between; width:100%; }
+    .logos img{ height:24mm; width:auto; max-width:60mm; object-fit:contain; }
+    .esc{ font-size:20px; font-weight:800; margin-top:4mm; }
+    h1{ font-size:50px; line-height:1.05; margin:7mm 0 2mm; color:#1f3a5f; font-weight:900; }
+    .sub{ font-size:25px; font-weight:700; margin:0 0 5mm; }
+    .qr{ width:112mm; height:112mm; border:2mm solid #000; padding:3mm; background:#fff; }
+    .qr img{ width:100%; height:100%; display:block; }
+    .apon{ font-size:26px; font-weight:800; margin:6mm 0 1mm; }
+    .link{ font-size:17px; font-weight:700; word-break:break-all; margin:0 10mm; }
+    .info{ margin-top:auto; font-size:18px; font-weight:700; line-height:1.4; border-top:0.6mm solid #000; padding-top:4mm; width:100%; }
+  </style></head><body>
+  <div class="folha">
+    <div class="logos"><img src="${LOGO_ESCOLA_URL}" alt="" /><img src="${LOGO_PREFEITURA_URL}" alt="" /></div>
+    <div class="esc">${esc(A.escola)}</div>
+    <h1>AVALIE NOSSA ESCOLA</h1>
+    <div class="sub">Avaliação Institucional ${A.ano} — ${esc(A.chamada)}</div>
+    <div class="qr"><img src="${qrDataUrl}" alt="QR Code do formulário" /></div>
+    <div class="apon">Aponte a câmera do celular para o QR Code</div>
+    <div class="link">${esc(linkCurto)}</div>
+    <div class="info">Leva cerca de 5 minutos · Identificação opcional · Participação voluntária<br/>Prefere responder no papel? Peça o questionário impresso na secretaria.</div>
+  </div>
+  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 400); };<\/script>
+  </body></html>`;
+}
+
+// ---------- Script que cria o Google Forms (para colar em script.google.com) ----------
+function gerarScriptGoogleFormsAvalInst(){
+  const A = AVAL_INST;
+  const D = {
+    titulo: `Avaliação Institucional ${A.ano} — Escola Municipal Jaime Gonçalves Bold`,
+    descricao: `${A.chamada}\n\n${A.intro.join('\n\n')}\n\nNão é preciso se identificar.`,
+    confirmacao: 'Obrigado pela sua participação! Sua opinião ajuda a construir uma escola cada vez melhor.',
+    q1: { t: `${A.q1.n}. ${A.q1.t}`, op: A.q1.op.filter(o => o.c !== 'outro').map(o => o.t) },
+    q2: { t: `${A.q2.n}. ${A.q2.t}`, op: A.q2.op.map(o => o.t) },
+    escala: A.escala.map(e => e.t),
+    secoes: A.secoes.map(s => ({ titulo: s.titulo, curto: s.curto, ajuda: 'Avalie os seguintes aspectos:', perguntas: s.perguntas.map(p => `${p.n}. ${p.t}`) })),
+    tituloGeral: '8. AVALIAÇÃO GERAL',
+    geral: { t: `${A.geral.n}. ${A.geral.t}`, op: A.geral.op.map(o => o.t) },
+    recomenda: { t: `${A.recomenda.n}. ${A.recomenda.t}`, op: A.recomenda.op.map(o => o.t) },
+    tituloAbertas: A.tituloAbertas,
+    abertas: A.abertas.map(q => `${q.n}. ${q.t}`),
+  };
+  return `// Como usar: abra https://script.google.com > Novo projeto > apague o que estiver lá > cole este texto inteiro > clique em Executar.
+// Autorize quando o Google pedir. Ao terminar, abra "Registro de execução" (ou Ver > Registros) para ver o link do formulário.
+const D = ${JSON.stringify(D, null, 2)};
+
+function criarFormularioAvaliacaoInstitucional() {
+  var form = FormApp.create(D.titulo);
+  form.setDescription(D.descricao);
+  form.setCollectEmail(false);
+  form.setProgressBar(true);
+  form.setShowLinkToRespondAgain(true);
+  form.setAllowResponseEdits(false);
+  form.setLimitOneResponsePerUser(false);
+  form.setConfirmationMessage(D.confirmacao);
+
+  form.addSectionHeaderItem().setTitle('1. IDENTIFICAÇÃO');
+  var q1 = form.addMultipleChoiceItem();
+  q1.setTitle(D.q1.t).setChoiceValues(D.q1.op).showOtherOption(true).setRequired(true);
+  form.addMultipleChoiceItem().setTitle(D.q2.t).setChoiceValues(D.q2.op).setRequired(true);
+
+  D.secoes.forEach(function (s) {
+    form.addPageBreakItem().setTitle(s.titulo).setHelpText(s.ajuda);
+    form.addGridItem().setTitle(s.curto).setRows(s.perguntas).setColumns(D.escala).setRequired(true);
+  });
+
+  form.addPageBreakItem().setTitle(D.tituloGeral);
+  form.addMultipleChoiceItem().setTitle(D.geral.t).setChoiceValues(D.geral.op).setRequired(true);
+  form.addMultipleChoiceItem().setTitle(D.recomenda.t).setChoiceValues(D.recomenda.op).setRequired(true);
+
+  form.addPageBreakItem().setTitle(D.tituloAbertas);
+  D.abertas.forEach(function (t) {
+    form.addParagraphTextItem().setTitle(t).setRequired(false);
+  });
+
+  var planilha = SpreadsheetApp.create('Respostas - ' + D.titulo);
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, planilha.getId());
+  try { form.setAcceptingResponses(true); } catch (e) {}
+  try { form.setPublished(true); } catch (e) {}
+
+  Logger.log('LINK PARA RESPONDER (use no QR Code): ' + form.getPublishedUrl());
+  Logger.log('Editar o formulário: ' + form.getEditUrl());
+  Logger.log('Planilha de respostas: ' + planilha.getUrl());
+}
+`;
+}
+// ===== AVALIAÇÃO INSTITUCIONAL (fim da parte 1) =====
+
+// ===== AVALIAÇÃO INSTITUCIONAL (parte 2: telas) =====
+function avalFmtNum(n, casas = 1){ return (n == null || Number.isNaN(n)) ? '—' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas }); }
+function avalPct(n, t){ return t ? Math.round(100 * n / t) + '%' : '—'; }
+function avalFmtDataHora(iso){
+  if(!iso) return '—';
+  const d = new Date(iso); if(Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+function avalContar(dados, n){
+  const c = {};
+  dados.forEach(r => { const v = r.notas && r.notas['q' + n]; if(v) c[v] = (c[v] || 0) + 1; });
+  return c;
+}
+function avalMediaEscala(c){
+  let soma = 0, total = 0;
+  AVAL_INST.escala.forEach(e => { if(e.v != null && c[e.c]){ soma += e.v * c[e.c]; total += c[e.c]; } });
+  return total ? soma / total : null;
+}
+function avalFiltrar(dados, f){
+  return dados.filter(r => (!f.origem || r.origem === f.origem) && (!f.respondente || r.respondente === f.respondente) && (!f.etapa || r.etapa === f.etapa));
+}
+async function avalCarregarRespostas(){
+  const todas = [];
+  for(let de = 0; ; de += 1000){
+    const { data, error } = await supabase.from('aval_inst_respostas').select('*').eq('ano_letivo', AVAL_INST.ano).order('criado_em', { ascending: false }).range(de, de + 999);
+    if(error) throw error;
+    todas.push(...(data || []));
+    if(!data || data.length < 1000) break;
+  }
+  return todas;
+}
+function avalBarra(contagem, lista){
+  const total = lista.reduce((s, o) => s + (contagem[o.c] || 0), 0);
+  if(!total) return '<div style="height:12px;background:#e5e7eb;border-radius:6px;"></div>';
+  return `<div style="display:flex;height:12px;border-radius:6px;overflow:hidden;background:#e5e7eb;">${lista.map(o => contagem[o.c] ? `<div title="${esc(o.t)}: ${contagem[o.c]}" style="width:${100 * contagem[o.c] / total}%;background:${o.cor};"></div>` : '').join('')}</div>`;
+}
+
+let _avalQrLib = null;
+async function avalGerarQr(link){
+  if(!_avalQrLib){ const m = await import('https://esm.sh/qrcode@1.5.3'); _avalQrLib = m.default || m; }
+  return _avalQrLib.toDataURL(link, { errorCorrectionLevel: 'M', margin: 1, width: 900 });
+}
+function avalLinkValido(l){ return /^https:\/\/[^\s]+\.[^\s]+$/i.test(String(l || '').trim()); }
+
+// ---------- CSV (exportar/importar) ----------
+function avalParseCsv(texto){
+  let t = String(texto || '').replace(/^﻿/, '');
+  const primeira = t.split(/\r?\n/)[0] || '';
+  const sep = (primeira.match(/;/g) || []).length > (primeira.match(/,/g) || []).length ? ';' : ',';
+  const linhas = []; let linha = [], campo = '', aspas = false;
+  for(let i = 0; i < t.length; i++){
+    const ch = t[i];
+    if(aspas){
+      if(ch === '"'){ if(t[i + 1] === '"'){ campo += '"'; i++; } else aspas = false; }
+      else campo += ch;
+    } else if(ch === '"') aspas = true;
+    else if(ch === sep){ linha.push(campo); campo = ''; }
+    else if(ch === '\n' || ch === '\r'){
+      if(ch === '\r' && t[i + 1] === '\n') i++;
+      linha.push(campo); campo = ''; linhas.push(linha); linha = [];
+    } else campo += ch;
+  }
+  if(campo.length || linha.length){ linha.push(campo); linhas.push(linha); }
+  return linhas.filter(l => l.some(c => String(c).trim() !== ''));
+}
+function avalNumeroDoCabecalho(h){
+  let t = String(h || '').trim();
+  const i = t.lastIndexOf('[');
+  if(i >= 0 && t.endsWith(']')) t = t.slice(i + 1, -1).trim();
+  const m = t.match(/^(\d+)\s*[.)]/);
+  return m ? Number(m[1]) : null;
+}
+function avalCodigoEscala(v){
+  const n = AVAL_NORM(v);
+  if(n === 'otimo') return 'otimo'; if(n === 'bom') return 'bom'; if(n === 'regular') return 'regular'; if(n === 'ruim') return 'ruim';
+  if(n.startsWith('nao sei') || n === 'nsa' || n === 'ns') return 'nsa';
+  return null;
+}
+function avalDataGoogle(txt){
+  const s = String(txt || '').trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(m){ const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)); return Number.isNaN(d.getTime()) ? null : d.toISOString(); }
+  m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)?/i);
+  if(m){ let h = Number(m[4]); if(m[7]){ const pm = m[7].toUpperCase() === 'PM'; if(pm && h < 12) h += 12; if(!pm && h === 12) h = 0; } const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, Number(m[5]), Number(m[6])); return Number.isNaN(d.getTime()) ? null : d.toISOString(); }
+  return null;
+}
+function avalMapearGoogle(linhas){
+  if(linhas.length < 2) return { erro: 'O arquivo não tem respostas.', respostas: [] };
+  const cab = linhas[0];
+  const idxTempo = cab.findIndex(h => /carimbo|timestamp/i.test(String(h)));
+  const colunas = cab.map((h, i) => ({ i, n: avalNumeroDoCabecalho(h) })).filter(c => c.n != null && c.i !== idxTempo);
+  if(!colunas.some(c => c.n >= 3 && c.n <= 29)) return { erro: 'Não reconheci as perguntas. Use o CSV da planilha de respostas do formulário criado pelo script (as colunas começam com o número da pergunta).', respostas: [] };
+  const respostas = [];
+  for(let r = 1; r < linhas.length; r++){
+    const lin = linhas[r];
+    const reg = { origem: 'google', ano_letivo: AVAL_INST.ano, origem_id: null, respondente: null, etapa: null, notas: {}, geral: null, recomenda: null, abertas: {}, data_resposta: null };
+    if(idxTempo >= 0){ reg.origem_id = String(lin[idxTempo] || '').trim() || null; reg.data_resposta = avalDataGoogle(lin[idxTempo]); }
+    colunas.forEach(({ i, n }) => {
+      const v = String(lin[i] == null ? '' : lin[i]).trim();
+      if(!v) return;
+      if(n === 1){
+        const nv = AVAL_NORM(v);
+        if(nv.startsWith('pai')) reg.respondente = 'responsavel';
+        else if(nv.startsWith('estudante')) reg.respondente = 'estudante';
+        else if(nv.startsWith('professor')) reg.respondente = 'professor';
+        else if(nv.startsWith('funcionario')) reg.respondente = 'funcionario';
+        else if(nv.startsWith('equipe gestora')) reg.respondente = 'gestora';
+        else { reg.respondente = 'outro'; reg.abertas.q1_outro = v; }
+      } else if(n === 2){
+        const nv = AVAL_NORM(v);
+        reg.etapa = nv.includes('infantil') ? 'infantil' : nv.includes('iniciais') ? 'iniciais' : nv.includes('finais') ? 'finais' : nv.includes('nao se aplica') ? 'nao_se_aplica' : null;
+      } else if(n >= 3 && n <= 29){
+        const c = avalCodigoEscala(v); if(c) reg.notas['q' + n] = c;
+      } else if(n === 30){
+        const nv = AVAL_NORM(v);
+        reg.geral = nv === 'excelente' ? 'excelente' : nv === 'muito bom' ? 'muito_bom' : nv === 'bom' ? 'bom' : nv === 'regular' ? 'regular' : nv.startsWith('precisa') ? 'precisa_melhorar' : null;
+      } else if(n === 31){
+        const nv = AVAL_NORM(v);
+        reg.recomenda = nv === 'sim' ? 'sim' : nv === 'nao' ? 'nao' : nv === 'talvez' ? 'talvez' : null;
+      } else if(n >= 32 && n <= 35){
+        reg.abertas['q' + n] = v;
+      }
+    });
+    if(Object.keys(reg.notas).length || reg.geral || reg.recomenda || Object.keys(reg.abertas).length) respostas.push(reg);
+  }
+  return { erro: null, respostas };
+}
+function avalBaixar(nome, conteudo, tipo){
+  const blob = new Blob([conteudo], { type: tipo || 'text/plain;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function avalExportarCsv(dados){
+  const A = AVAL_INST;
+  const cab = ['Origem', 'Data', 'Identificação (opcional)', 'Respondente', 'Etapa', ...AVAL_PERGUNTAS_GRADE.map(p => 'Q' + p.n), 'Q30 Avaliação geral', 'Q31 Recomendaria', ...A.abertas.map(q => 'Q' + q.n)];
+  const cel = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const linhas = dados.map(r => [
+    avalOrigemRotulo(r.origem), avalFmtDataHora(r.data_resposta || r.criado_em), r.identificacao || '', AVAL_ROTULO(A.q1.op, r.respondente), AVAL_ROTULO(A.q2.op, r.etapa),
+    ...AVAL_PERGUNTAS_GRADE.map(p => AVAL_ROTULO(A.escala, (r.notas || {})['q' + p.n]) === '—' ? '' : AVAL_ROTULO(A.escala, (r.notas || {})['q' + p.n])),
+    r.geral ? AVAL_ROTULO(A.geral.op, r.geral) : '', r.recomenda ? AVAL_ROTULO(A.recomenda.op, r.recomenda) : '',
+    ...A.abertas.map(q => (r.abertas || {})['q' + q.n] || ''),
+  ].map(cel).join(';'));
+  avalBaixar('avaliacao-institucional-respostas.csv', '﻿' + [cab.map(cel).join(';'), ...linhas].join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+// ---------- Tela principal ----------
+async function renderizarAvaliacaoInstitucional(el){
+  const ehAdmin = ESTADO.perfil.role === 'admin';
+  const abas = [
+    ...(ehAdmin ? [{ id: 'resultados', label: 'Resultados' }, { id: 'respostas', label: 'Respostas' }] : []),
+    { id: 'lancar', label: 'Lançar impressos' },
+    { id: 'qrcode', label: 'QR Code e cartaz' },
+    { id: 'google', label: 'Google Forms e cartaz' },
+    { id: 'impresso', label: 'Questionário impresso' },
+  ];
+  if(!abas.some(a => a.id === ESTADO.subAvalInst)) ESTADO.subAvalInst = abas[0].id;
+  el.innerHTML = `
+    <div class="subtabs" style="margin-bottom:10px;">${abas.map(a => `<button class="aba-cadastro ${ESTADO.subAvalInst === a.id ? 'ativa' : ''}" data-aba-ai="${a.id}">${a.label}</button>`).join('')}</div>
+    <div id="conteudo-aval-inst"></div>`;
+  el.querySelectorAll('[data-aba-ai]').forEach(b => b.addEventListener('click', () => { ESTADO.subAvalInst = b.dataset.abaAi; renderizarAvaliacaoInstitucional(el); }));
+  const alvo = el.querySelector('#conteudo-aval-inst');
+  if(ESTADO.subAvalInst === 'resultados') await avalTelaResultados(alvo);
+  else if(ESTADO.subAvalInst === 'respostas') await avalTelaRespostas(alvo);
+  else if(ESTADO.subAvalInst === 'lancar') avalTelaLancar(alvo);
+  else if(ESTADO.subAvalInst === 'qrcode') await avalTelaQr(alvo);
+  else if(ESTADO.subAvalInst === 'google') await avalTelaGoogle(alvo);
+  else avalTelaImpresso(alvo);
+}
+
+function avalTelaImpresso(el){
+  el.innerHTML = `
+    <div class="painel" style="padding:18px;max-width:760px;">
+      <h3 style="margin:0 0 6px;color:#111827;">Questionário impresso — avaliação institucional ${AVAL_INST.ano}</h3>
+      <p style="font-size:14px;color:#1f2937;line-height:1.5;margin:0 0 10px;">Uma folha A4, <b>frente e verso</b>, com as 35 perguntas: identificação, 27 questões para marcar (Ótimo, Bom, Regular, Ruim ou Não sei), avaliação geral e 4 perguntas abertas com espaço para escrever.</p>
+      <ul style="font-size:13.5px;color:#1f2937;line-height:1.6;margin:0 0 14px;padding-left:20px;">
+        <li>Na impressora, escolha <b>frente e verso</b> (virar na borda longa) e tamanho real, sem reduzir.</li>
+        <li>Quem responde marca um X em cada linha; a escola devolve as folhas à secretaria.</li>
+        <li>Depois, use a aba <b>Lançar impressos</b> para digitar cada folha. Os resultados juntam impressos e Google Forms.</li>
+      </ul>
+      <button class="botao terracota" id="ai-imprimir" style="width:auto;">🖨️ Imprimir questionário</button>
+    </div>`;
+  el.querySelector('#ai-imprimir').addEventListener('click', imprimirQuestionarioAvalInst);
+}
+
+async function avalTelaGoogle(el){
+  const ehAdmin = ESTADO.perfil.role === 'admin';
+  el.innerHTML = `<div class="carregando"><div class="spinner"></div>Carregando…</div>`;
+  const { data: cfg } = await supabase.from('aval_inst_config').select('form_url').eq('id', 1).maybeSingle();
+  let link = (cfg && cfg.form_url) || '';
+  el.innerHTML = `
+    <div class="painel" style="padding:18px;margin-bottom:12px;">
+      <h3 style="margin:0 0 8px;color:#111827;">1. Criar o formulário no Google Forms</h3>
+      <ol style="font-size:14px;color:#1f2937;line-height:1.65;margin:0 0 12px;padding-left:20px;">
+        <li>Clique em <b>Baixar script do formulário</b> (ou copie o texto).</li>
+        <li>Abra <b>script.google.com</b> com a conta Google da escola › <b>Novo projeto</b> › apague o código que aparece › cole o script › clique em <b>Executar</b> e autorize.</li>
+        <li>Em <b>Registro de execução</b> aparecem três links. Copie o <b>link para responder</b> e cole abaixo.</li>
+        <li>No Google Forms, em <b>Enviar</b>, confirme que está como “Qualquer pessoa com o link” e que não pede login.</li>
+      </ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="botao secundario" id="ai-baixar-script" style="width:auto;">⬇️ Baixar script do formulário</button>
+        <button class="botao secundario" id="ai-copiar-script" style="width:auto;">📋 Copiar script</button>
+      </div>
+      <div id="ai-msg-script" style="margin-top:8px;"></div>
+    </div>
+    <div class="painel" style="padding:18px;margin-bottom:12px;">
+      <h3 style="margin:0 0 8px;color:#111827;">2. Link do formulário e cartaz com QR Code</h3>
+      <div class="campo" style="max-width:640px;"><label>Link para responder o formulário</label>
+        <input type="url" id="ai-link" value="${esc(link)}" placeholder="https://docs.google.com/forms/d/e/…/viewform" ${ehAdmin ? '' : 'readonly'} /></div>
+      <div id="ai-msg-link"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        ${ehAdmin ? `<button class="botao terracota" id="ai-salvar-link" style="width:auto;">Salvar link</button>` : ''}
+        <button class="botao secundario" id="ai-imprimir-cartaz" style="width:auto;" disabled>🖨️ Imprimir cartaz para o mural</button>
+      </div>
+      <div id="ai-qr" style="min-height:40px;"></div>
+    </div>
+    ${ehAdmin ? `
+    <div class="painel" style="padding:18px;">
+      <h3 style="margin:0 0 8px;color:#111827;">3. Trazer as respostas do Google Forms para cá</h3>
+      <p style="font-size:14px;color:#1f2937;line-height:1.55;margin:0 0 10px;">Na planilha de respostas do formulário: <b>Arquivo › Fazer download › Valores separados por vírgula (.csv)</b>. Depois escolha o arquivo aqui. Pode repetir quando quiser: respostas já trazidas não são duplicadas.</p>
+      <input type="file" id="ai-csv" accept=".csv,text/csv" />
+      <div id="ai-import" style="margin-top:10px;"></div>
+    </div>` : ''}`;
+
+  el.querySelector('#ai-baixar-script').addEventListener('click', () => {
+    avalBaixar('criar-formulario-avaliacao.gs', gerarScriptGoogleFormsAvalInst());
+    el.querySelector('#ai-msg-script').innerHTML = '<div class="msg-ok">Arquivo baixado. Abra-o no bloco de notas, copie tudo e cole no Google Apps Script.</div>';
+  });
+  el.querySelector('#ai-copiar-script').addEventListener('click', async () => {
+    const m = el.querySelector('#ai-msg-script');
+    try{ await navigator.clipboard.writeText(gerarScriptGoogleFormsAvalInst()); m.innerHTML = '<div class="msg-ok">Script copiado. Cole no Google Apps Script.</div>'; }
+    catch(_e){ m.innerHTML = '<div class="msg-erro">Não consegui copiar. Use o botão Baixar script.</div>'; }
+  });
+
+  let qrUrl = null;
+  const campoLink = el.querySelector('#ai-link'), btnCartaz = el.querySelector('#ai-imprimir-cartaz'), caixaQr = el.querySelector('#ai-qr');
+  async function atualizarQr(){
+    qrUrl = null; btnCartaz.disabled = true;
+    const l = campoLink.value.trim();
+    if(!l){ caixaQr.innerHTML = '<span style="font-size:13px;color:#374151;">Cole o link do formulário para gerar o QR Code.</span>'; return; }
+    if(!avalLinkValido(l)){ caixaQr.innerHTML = '<div class="msg-erro">O link precisa começar com https://</div>'; return; }
+    caixaQr.innerHTML = '<span style="font-size:13px;">Gerando QR Code…</span>';
+    try{
+      qrUrl = await avalGerarQr(l);
+      caixaQr.innerHTML = `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;"><img src="${qrUrl}" alt="QR Code" style="width:170px;height:170px;border:1px solid var(--borda);background:#fff;" /><div style="font-size:13px;color:#1f2937;max-width:420px;">Teste agora: aponte a câmera do celular para este QR Code e confira se abre o formulário antes de imprimir o cartaz.</div></div>`;
+      btnCartaz.disabled = false;
+    }catch(e){ caixaQr.innerHTML = `<div class="msg-erro">Não foi possível gerar o QR Code: ${esc(e.message || e)}</div>`; }
+  }
+  campoLink.addEventListener('input', () => { clearTimeout(campoLink._t); campoLink._t = setTimeout(atualizarQr, 400); });
+  btnCartaz.addEventListener('click', () => {
+    if(!qrUrl) return;
+    const janela = window.open('', '_blank');
+    if(!janela){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.'); return; }
+    janela.document.write(htmlCartazAvalInst(qrUrl, campoLink.value.trim()));
+    janela.document.close();
+  });
+  const btnSalvar = el.querySelector('#ai-salvar-link');
+  if(btnSalvar) btnSalvar.addEventListener('click', async () => {
+    const m = el.querySelector('#ai-msg-link'); const l = campoLink.value.trim();
+    if(l && !avalLinkValido(l)){ m.innerHTML = '<div class="msg-erro">O link precisa começar com https://</div>'; return; }
+    const { error } = await supabase.from('aval_inst_config').update({ form_url: l || null, atualizado_em: new Date().toISOString() }).eq('id', 1);
+    m.innerHTML = error ? `<div class="msg-erro">${esc(error.message)}</div>` : '<div class="msg-ok">Link salvo.</div>';
+  });
+  atualizarQr();
+
+  const arq = el.querySelector('#ai-csv');
+  if(arq) arq.addEventListener('change', async () => {
+    const caixa = el.querySelector('#ai-import'); const f = arq.files && arq.files[0]; if(!f) return;
+    caixa.innerHTML = '<span style="font-size:13px;">Lendo o arquivo…</span>';
+    try{
+      const lido = avalMapearGoogle(avalParseCsv(await f.text()));
+      if(lido.erro){ caixa.innerHTML = `<div class="msg-erro">${esc(lido.erro)}</div>`; return; }
+      const existentes = new Set();
+      for(let de = 0; ; de += 1000){
+        const { data: ja, error } = await supabase.from('aval_inst_respostas').select('origem_id').eq('origem', 'google').not('origem_id', 'is', null).range(de, de + 999);
+        if(error) throw error;
+        (ja || []).forEach(x => existentes.add(x.origem_id));
+        if(!ja || ja.length < 1000) break;
+      }
+      const novas = lido.respostas.filter(r => !r.origem_id || !existentes.has(r.origem_id));
+      caixa.innerHTML = `<div class="msg-ok" style="margin-bottom:8px;">${lido.respostas.length} resposta(s) no arquivo · <b>${novas.length} nova(s)</b> · ${lido.respostas.length - novas.length} já trazida(s) antes.</div>
+        ${novas.length ? `<button class="botao terracota" id="ai-confirmar-import" style="width:auto;">Trazer ${novas.length} resposta(s)</button>` : ''}`;
+      const bt = caixa.querySelector('#ai-confirmar-import');
+      if(bt) bt.addEventListener('click', async () => {
+        bt.disabled = true; bt.textContent = 'Importando…';
+        let feitas = 0;
+        for(let i = 0; i < novas.length; i += 100){
+          const { error: e2 } = await supabase.from('aval_inst_respostas').insert(novas.slice(i, i + 100));
+          if(e2){ caixa.innerHTML = `<div class="msg-erro">Falhou depois de ${feitas} resposta(s): ${esc(e2.message)}</div>`; return; }
+          feitas += Math.min(100, novas.length - i);
+        }
+        ESTADO.avalInstDados = null;
+        caixa.innerHTML = `<div class="msg-ok">${feitas} resposta(s) trazidas. Veja na aba <b>Resultados</b>.</div>`;
+        arq.value = '';
+      });
+    }catch(e){ caixa.innerHTML = `<div class="msg-erro">Não foi possível ler o arquivo: ${esc(e.message || e)}</div>`; }
+  });
+}
+
+function avalTelaLancar(el){
+  const A = AVAL_INST;
+  ESTADO.avalLancados = ESTADO.avalLancados || 0;
+  const radios = (n) => A.escala.map(e => `<td style="text-align:center;border-top:1px solid var(--borda);"><label style="display:block;padding:5px 0;cursor:pointer;"><input type="radio" name="ai-q${n}" value="${e.c}" style="width:17px;height:17px;" /></label></td>`).join('');
+  const secoes = A.secoes.map(s => `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px;background:#fff;border:1px solid var(--borda);">
+      <thead><tr style="background:var(--areia-escura);"><th style="text-align:left;padding:7px 10px;font-size:13px;color:#111827;">${esc(s.titulo)}</th>${A.escala.map(e => `<th style="width:64px;font-size:12px;color:#111827;">${esc(e.t)}</th>`).join('')}</tr></thead>
+      <tbody>${s.perguntas.map(p => `<tr><td style="padding:6px 10px;font-size:13.5px;color:#111827;border-top:1px solid var(--borda);"><b>${p.n}.</b> ${esc(p.t)}</td>${radios(p.n)}</tr>`).join('')}</tbody>
+    </table>`).join('');
+  const grupo = (nome, ops) => ops.map(o => `<label style="display:inline-flex;gap:6px;align-items:center;margin:3px 16px 3px 0;font-size:14px;color:#111827;cursor:pointer;"><input type="radio" name="${nome}" value="${o.c}" style="width:17px;height:17px;" />${esc(o.t)}</label>`).join('');
+  el.innerHTML = `
+    <div class="painel" style="padding:12px 18px;margin-bottom:12px;font-size:13.5px;color:#1f2937;">Digite aqui cada folha respondida no papel. Deixe em branco o que a pessoa não marcou. Cada folha vira uma resposta anônima. <b>Lançadas nesta sessão: <span id="ai-contador">${ESTADO.avalLancados}</span></b></div>
+    <form id="ai-form-lancar">
+      <div class="painel" style="padding:14px 18px;margin-bottom:12px;">
+        <div style="font-weight:700;color:#111827;margin-bottom:4px;">1. ${esc(A.q1.t)}</div>${grupo('ai-q1', A.q1.op)}
+        <div id="ai-outro-box" style="margin:4px 0 8px;display:none;"><input type="text" id="ai-q1-outro" placeholder="Outro: qual?" style="max-width:320px;" /></div>
+        <div style="font-weight:700;color:#111827;margin:8px 0 4px;">2. ${esc(A.q2.t)}</div>${grupo('ai-q2', A.q2.op)}
+      </div>
+      ${secoes}
+      <div class="painel" style="padding:14px 18px;margin-bottom:12px;">
+        <div style="font-weight:700;color:#111827;margin-bottom:4px;">${A.geral.n}. ${esc(A.geral.t)}</div>${grupo('ai-q30', A.geral.op)}
+        <div style="font-weight:700;color:#111827;margin:10px 0 4px;">${A.recomenda.n}. ${esc(A.recomenda.t)}</div>${grupo('ai-q31', A.recomenda.op)}
+      </div>
+      <div class="painel" style="padding:14px 18px;margin-bottom:12px;">
+        ${A.abertas.map(q => `<div class="campo"><label>${q.n}. ${esc(q.t)}</label><textarea id="ai-q${q.n}" rows="3" style="width:100%;"></textarea></div>`).join('')}
+      </div>
+      <div id="ai-msg-lancar"></div>
+      <button class="botao terracota" type="submit" id="ai-btn-lancar" style="width:auto;">Salvar esta folha</button>
+    </form>`;
+  const form = el.querySelector('#ai-form-lancar');
+  const marcado = (nome) => { const r = form.querySelector(`input[name="${nome}"]:checked`); return r ? r.value : null; };
+  form.querySelectorAll('input[name="ai-q1"]').forEach(r => r.addEventListener('change', () => { el.querySelector('#ai-outro-box').style.display = marcado('ai-q1') === 'outro' ? 'block' : 'none'; }));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const m = el.querySelector('#ai-msg-lancar'), btn = el.querySelector('#ai-btn-lancar');
+    const notas = {}; AVAL_PERGUNTAS_GRADE.forEach(p => { const v = marcado('ai-q' + p.n); if(v) notas['q' + p.n] = v; });
+    const abertas = {}; A.abertas.forEach(q => { const v = form.querySelector('#ai-q' + q.n).value.trim(); if(v) abertas['q' + q.n] = v; });
+    const outro = form.querySelector('#ai-q1-outro').value.trim(); if(marcado('ai-q1') === 'outro' && outro) abertas.q1_outro = outro;
+    const reg = { origem: 'impresso', ano_letivo: A.ano, respondente: marcado('ai-q1'), etapa: marcado('ai-q2'), notas, geral: marcado('ai-q30'), recomenda: marcado('ai-q31'), abertas, data_resposta: new Date().toISOString() };
+    if(!Object.keys(notas).length && !reg.geral && !reg.recomenda && !Object.keys(abertas).length){ m.innerHTML = '<div class="msg-erro">A folha está vazia. Marque ao menos uma resposta.</div>'; return; }
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { error } = await supabase.from('aval_inst_respostas').insert(reg);
+    btn.disabled = false; btn.textContent = 'Salvar esta folha';
+    if(error){ m.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+    ESTADO.avalLancados++; ESTADO.avalInstDados = null;
+    avalTelaLancar(el);
+    el.querySelector('#ai-msg-lancar').innerHTML = '<div class="msg-ok">Folha salva. Pode digitar a próxima.</div>';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
+async function avalDados(forcar){
+  if(forcar || !ESTADO.avalInstDados) ESTADO.avalInstDados = await avalCarregarRespostas();
+  return ESTADO.avalInstDados;
+}
+function avalFiltrosHtml(f, dados){
+  const A = AVAL_INST;
+  const opts = (lista, atual, vazio) => `<option value="">${vazio}</option>` + lista.map(o => `<option value="${o.c}" ${atual === o.c ? 'selected' : ''}>${esc(o.t)}</option>`).join('');
+  return `<div class="painel" style="margin-bottom:12px;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+    <div class="campo" style="margin:0;"><label>Origem</label><select id="ai-f-origem"><option value="">Todas</option><option value="impresso" ${f.origem === 'impresso' ? 'selected' : ''}>Impressos</option><option value="google" ${f.origem === 'google' ? 'selected' : ''}>Google Forms</option><option value="qrcode" ${f.origem === 'qrcode' ? 'selected' : ''}>QR Code</option></select></div>
+    <div class="campo" style="margin:0;"><label>Quem respondeu</label><select id="ai-f-resp">${opts(A.q1.op, f.respondente, 'Todos')}</select></div>
+    <div class="campo" style="margin:0;"><label>Etapa</label><select id="ai-f-etapa">${opts(A.q2.op, f.etapa, 'Todas')}</select></div>
+    <button type="button" class="botao secundario pequeno" id="ai-atualizar" style="width:auto;">↻ Atualizar</button>
+    <button type="button" class="botao secundario pequeno" id="ai-exportar" style="width:auto;margin-left:auto;">⬇️ Exportar CSV</button>
+  </div>`;
+}
+function avalLigarFiltros(el, f, redesenhar, dadosFiltrados){
+  el.querySelector('#ai-f-origem').addEventListener('change', (e) => { f.origem = e.target.value; redesenhar(); });
+  el.querySelector('#ai-f-resp').addEventListener('change', (e) => { f.respondente = e.target.value; redesenhar(); });
+  el.querySelector('#ai-f-etapa').addEventListener('change', (e) => { f.etapa = e.target.value; redesenhar(); });
+  el.querySelector('#ai-atualizar').addEventListener('click', async () => { ESTADO.avalInstDados = null; redesenhar(); });
+  el.querySelector('#ai-exportar').addEventListener('click', () => avalExportarCsv(dadosFiltrados));
+}
+
+async function avalTelaResultados(el){
+  el.innerHTML = `<div class="carregando"><div class="spinner"></div>Carregando as respostas…</div>`;
+  let todas;
+  try{ todas = await avalDados(false); }catch(e){ el.innerHTML = `<div class="msg-erro">Não foi possível carregar as respostas: ${esc(e.message || e)}</div>`; return; }
+  const f = ESTADO.avalInstFiltro = ESTADO.avalInstFiltro || { origem: '', respondente: '', etapa: '' };
+  const dados = avalFiltrar(todas, f);
+  const A = AVAL_INST;
+  const nImp = dados.filter(r => r.origem === 'impresso').length, nGoo = dados.filter(r => r.origem === 'google').length, nQrc = dados.filter(r => r.origem === 'qrcode').length;
+
+  // médias
+  const mediaDe = (perguntas) => { const c = {}; perguntas.forEach(p => { const cc = avalContar(dados, p.n); Object.keys(cc).forEach(k => { c[k] = (c[k] || 0) + cc[k]; }); }); return avalMediaEscala(c); };
+  const mGestao = mediaDe(A.secoes[0].perguntas);
+  const mGeral = mediaDe(AVAL_PERGUNTAS_GRADE);
+  const c30 = {}; dados.forEach(r => { if(r.geral) c30[r.geral] = (c30[r.geral] || 0) + 1; });
+  const n30 = Object.values(c30).reduce((s, v) => s + v, 0);
+  const m30 = n30 ? A.geral.op.reduce((s, o) => s + (c30[o.c] || 0) * o.v, 0) / n30 : null;
+  const c31 = {}; dados.forEach(r => { if(r.recomenda) c31[r.recomenda] = (c31[r.recomenda] || 0) + 1; });
+  const n31 = Object.values(c31).reduce((s, v) => s + v, 0);
+
+  const cartao = (rot, val, sub, cor) => `<div style="flex:1;min-width:170px;border:1px solid var(--borda);border-radius:10px;padding:10px 14px;background:#fff;"><div style="font-size:12.5px;font-weight:700;color:#374151;">${rot}</div><div style="font-size:26px;font-weight:800;color:${cor || '#111827'};">${val}</div><div style="font-size:12px;color:#374151;">${sub || ''}</div></div>`;
+  const celNum = (e, c, total) => `<td style="text-align:center;background:${c[e.c] ? e.tom : 'transparent'};border-top:1px solid var(--borda);font-size:13.5px;color:#111827;padding:5px 4px;">${c[e.c] ? `<b>${c[e.c]}</b> <span style="font-size:11.5px;">(${avalPct(c[e.c], total)})</span>` : '<span style="color:#6b7280;">0</span>'}</td>`;
+  const tabelaSecao = (s) => {
+    const linhas = s.perguntas.map(p => {
+      const c = avalContar(dados, p.n); const total = Object.values(c).reduce((a, b) => a + b, 0);
+      return `<tr><td style="padding:6px 10px;border-top:1px solid var(--borda);font-size:13.5px;color:#111827;"><b>${p.n}.</b> ${esc(p.t)}<div style="margin-top:4px;">${avalBarra(c, A.escala)}</div></td>${A.escala.map(e => celNum(e, c, total)).join('')}<td style="text-align:center;font-weight:800;border-top:1px solid var(--borda);font-size:14px;color:#111827;">${avalFmtNum(avalMediaEscala(c))}</td></tr>`;
+    }).join('');
+    const mSec = mediaDe(s.perguntas);
+    return `<div class="painel" style="padding:0;margin-bottom:12px;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:640px;">
+      <thead><tr style="background:var(--areia-escura);"><th style="text-align:left;padding:8px 10px;font-size:13.5px;color:#111827;">${esc(s.titulo)} <span style="font-weight:600;">— média ${avalFmtNum(mSec)} de 4</span></th>${A.escala.map(e => `<th style="width:78px;font-size:12px;color:#111827;">${esc(e.t)}</th>`).join('')}<th style="width:64px;font-size:12px;color:#111827;">Média</th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>`;
+  };
+  const distrib = (titulo, lista, c, n) => `<div class="painel" style="padding:14px 18px;margin-bottom:12px;"><div style="font-weight:700;color:#111827;margin-bottom:8px;">${titulo}</div>
+    ${lista.map(o => `<div style="display:flex;align-items:center;gap:10px;margin:4px 0;"><div style="width:140px;font-size:13.5px;color:#111827;">${esc(o.t)}</div><div style="flex:1;background:#e5e7eb;border-radius:6px;height:16px;overflow:hidden;"><div style="width:${n ? 100 * (c[o.c] || 0) / n : 0}%;background:${o.cor};height:100%;"></div></div><div style="width:84px;font-size:13.5px;font-weight:700;color:#111827;text-align:right;">${c[o.c] || 0} (${avalPct(c[o.c] || 0, n)})</div></div>`).join('')}</div>`;
+
+  const busca = (ESTADO.avalInstBusca || '').trim().toLowerCase();
+  const abertasHtml = A.abertas.map(q => {
+    const itens = dados.map(r => ({ t: (r.abertas || {})['q' + q.n], r })).filter(x => x.t && (!busca || x.t.toLowerCase().includes(busca)));
+    return `<details class="painel" style="padding:10px 14px;margin-bottom:8px;" ${busca ? 'open' : ''}>
+      <summary style="cursor:pointer;font-size:14px;color:#111827;"><b>${q.n}.</b> ${esc(q.t)} <span class="pill azul">${itens.length} resposta${itens.length === 1 ? '' : 's'}</span></summary>
+      <div style="margin-top:8px;">${itens.length ? itens.map(x => `<div style="border-left:3px solid var(--borda);padding:4px 10px;margin:6px 0;font-size:13.5px;color:#111827;white-space:pre-wrap;">${esc(x.t)}<div style="font-size:11.5px;color:#4b5563;margin-top:2px;">${x.r.origem === 'google' ? 'Google Forms' : 'Impresso'} · ${esc(AVAL_ROTULO(A.q1.op, x.r.respondente))}</div></div>`).join('') : '<span style="font-size:13px;color:#4b5563;">Nenhuma resposta escrita.</span>'}</div></details>`;
+  }).join('');
+
+  el.innerHTML = `
+    ${avalFiltrosHtml(f, todas)}
+    ${dados.length ? '' : '<div class="painel" style="padding:16px;font-size:14px;color:#1f2937;margin-bottom:12px;">Ainda não há respostas para este filtro. Lance os questionários impressos ou traga as respostas do Google Forms.</div>'}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      ${cartao('Respostas', dados.length, `${nImp} impressas · ${nQrc} QR Code · ${nGoo} Google Forms`)}
+      ${cartao('Avaliação geral (Q30)', m30 == null ? '—' : avalFmtNum(m30) + ' de 5', m30 == null ? '' : esc(AVAL_ROTULO(A.geral.op, (A.geral.op.slice().sort((a, b) => Math.abs(a.v - m30) - Math.abs(b.v - m30)))[0].c)) + ' · ' + n30 + ' resposta(s)', '#1f3a5f')}
+      ${cartao('Gestão escolar (Q3 a Q7)', mGestao == null ? '—' : avalFmtNum(mGestao) + ' de 4', 'média das 5 questões da seção')}
+      ${cartao('Média de todas as questões', mGeral == null ? '—' : avalFmtNum(mGeral) + ' de 4', 'Ótimo = 4 · Bom = 3 · Regular = 2 · Ruim = 1')}
+      ${cartao('Recomendariam a escola', n31 ? avalPct(c31.sim || 0, n31) : '—', n31 ? `${c31.sim || 0} sim · ${c31.talvez || 0} talvez · ${c31.nao || 0} não` : '', '#166534')}
+    </div>
+    ${A.secoes.map(tabelaSecao).join('')}
+    ${distrib(`${A.geral.n}. ${esc(A.geral.t)}`, A.geral.op, c30, n30)}
+    ${distrib(`${A.recomenda.n}. ${esc(A.recomenda.t)}`, A.recomenda.op, c31, n31)}
+    <h3 style="margin:16px 0 8px;color:#111827;">Respostas escritas</h3>
+    <div class="campo" style="max-width:380px;"><label>Buscar nas respostas escritas</label><input type="search" id="ai-busca" value="${esc(ESTADO.avalInstBusca || '')}" placeholder="palavra ou trecho" /></div>
+    ${abertasHtml}`;
+  avalLigarFiltros(el, f, () => avalTelaResultados(el), dados);
+  el.querySelector('#ai-busca').addEventListener('change', (e) => { ESTADO.avalInstBusca = e.target.value; avalTelaResultados(el); });
+}
+
+
+// Sinais de repetição / robô nas respostas recebidas por QR Code (só o administrador vê)
+function avalSuspeitas(todas){
+  const sus = new Map();   // id -> [motivos]
+  const dup = new Set();   // ids "repetidos" (candidatos a apagar, mantendo o mais antigo de cada grupo)
+  const marca = (r, m) => { if(!sus.has(r.id)) sus.set(r.id, []); sus.get(r.id).push(m); };
+  const qr = todas.filter(r => r.origem === 'qrcode').sort((a, b) => new Date(a.criado_em) - new Date(b.criado_em));
+  const grupos = (chave) => { const g = new Map(); qr.forEach(r => { const k = chave(r); if(k){ if(!g.has(k)) g.set(k, []); g.get(k).push(r); } }); return [...g.values()].filter(x => x.length > 1); };
+  grupos(r => r.aparelho).forEach(g => g.forEach((r, i) => { marca(r, `mesmo aparelho (${g.length} respostas)`); if(i > 0) dup.add(r.id); }));
+  grupos(r => (Object.keys(r.notas || {}).length >= 10) ? JSON.stringify([r.notas, r.geral, r.recomenda, r.abertas]) : null)
+    .forEach(g => g.forEach((r, i) => { marca(r, `respostas idênticas (${g.length})`); if(i > 0) dup.add(r.id); }));
+  grupos(r => r.ip_hash).forEach(g => {
+    if(g.length >= 10) g.forEach(r => marca(r, `mesma rede (${g.length} respostas; pode ser o wi-fi da escola)`));
+    g.forEach((r, i) => { const t = new Date(r.criado_em).getTime(); const vizinhas = g.filter(x => Math.abs(new Date(x.criado_em).getTime() - t) <= 600000).length; if(vizinhas >= 5) marca(r, 'rajada (5+ em 10 min, mesma rede)'); });
+  });
+  return { sus, dup };
+}
+
+async function avalTelaRespostas(el){
+  el.innerHTML = `<div class="carregando"><div class="spinner"></div>Carregando as respostas…</div>`;
+  let todas;
+  try{ todas = await avalDados(false); }catch(e){ el.innerHTML = `<div class="msg-erro">Não foi possível carregar as respostas: ${esc(e.message || e)}</div>`; return; }
+  const f = ESTADO.avalInstFiltro = ESTADO.avalInstFiltro || { origem: '', respondente: '', etapa: '' };
+  const { sus, dup } = avalSuspeitas(todas);
+  const dados = avalFiltrar(todas, f).filter(r => !f.suspeitas || sus.has(r.id));
+  const A = AVAL_INST;
+  el.innerHTML = `
+    ${avalFiltrosHtml(f, todas)}
+    <div class="painel" style="padding:10px 16px;margin-bottom:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13.5px;color:#111827;">
+      <span>${sus.size ? `<b>${sus.size}</b> resposta(s) com sinais de repetição ou robô` : 'Nenhum sinal de repetição ou robô nas respostas do QR Code.'}</span>
+      <label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer;"><input type="checkbox" id="ai-so-susp" ${f.suspeitas ? 'checked' : ''} /> Mostrar só as suspeitas</label>
+      ${dup.size ? `<button class="botao secundario pequeno" id="ai-apagar-dup" style="width:auto;padding:4px 10px;color:var(--erro);">Apagar ${dup.size} repetida(s), mantendo a primeira de cada grupo</button>` : ''}
+    </div>
+    <div class="painel" style="padding:0;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:620px;">
+      <thead><tr style="background:var(--areia-escura);text-align:left;"><th style="padding:8px 10px;font-size:13px;color:#111827;">Data</th><th style="font-size:13px;color:#111827;">Origem</th><th style="font-size:13px;color:#111827;">Identificação</th><th style="font-size:13px;color:#111827;">Quem respondeu</th><th style="font-size:13px;color:#111827;">Etapa</th><th style="font-size:13px;color:#111827;">Avaliação geral</th><th style="font-size:13px;color:#111827;">Alertas</th><th></th></tr></thead>
+      <tbody>${dados.length ? dados.map(r => `<tr style="border-top:1px solid var(--borda);">
+        <td style="padding:7px 10px;font-size:13.5px;color:#111827;">${esc(avalFmtDataHora(r.data_resposta || r.criado_em))}</td>
+        <td><span class="pill ${avalOrigemCor(r.origem)}">${avalOrigemRotulo(r.origem)}</span></td>
+        <td style="font-size:13.5px;color:#111827;">${esc(r.identificacao || '—')}</td><td style="font-size:13.5px;color:#111827;">${esc(AVAL_ROTULO(A.q1.op, r.respondente))}</td><td style="font-size:13.5px;color:#111827;">${esc(AVAL_ROTULO(A.q2.op, r.etapa))}</td>
+        <td style="font-size:13.5px;color:#111827;">${esc(r.geral ? AVAL_ROTULO(A.geral.op, r.geral) : '—')}</td>
+        <td style="font-size:12.5px;color:#991b1b;font-weight:700;max-width:230px;">${sus.has(r.id) ? esc(sus.get(r.id).join(' · ')) : ''}</td>
+        <td style="white-space:nowrap;"><button class="botao secundario pequeno" data-ai-ver="${r.id}" style="width:auto;padding:3px 9px;">Ver</button> <button class="botao secundario pequeno" data-ai-apagar="${r.id}" style="width:auto;padding:3px 9px;color:var(--erro);">Apagar</button></td></tr>`).join('') : '<tr><td colspan="8" style="padding:14px;font-size:14px;color:#1f2937;">Nenhuma resposta para este filtro.</td></tr>'}</tbody></table></div>`;
+  avalLigarFiltros(el, f, () => avalTelaRespostas(el), dados);
+  el.querySelector('#ai-so-susp').addEventListener('change', (e) => { f.suspeitas = e.target.checked; avalTelaRespostas(el); });
+  const bDup = el.querySelector('#ai-apagar-dup');
+  if(bDup) bDup.addEventListener('click', async () => {
+    if(!confirm(`Apagar ${dup.size} resposta(s) repetida(s)? A primeira de cada grupo é mantida. Não dá para desfazer.`)) return;
+    const ids = [...dup];
+    for(let i = 0; i < ids.length; i += 100){
+      const { error } = await supabase.from('aval_inst_respostas').delete().in('id', ids.slice(i, i + 100));
+      if(error){ alert(error.message); return; }
+    }
+    ESTADO.avalInstDados = null; avalTelaRespostas(el);
+  });
+  el.querySelectorAll('[data-ai-ver]').forEach(b => b.addEventListener('click', () => avalVerResposta(todas.find(r => r.id === b.dataset.aiVer))));
+  el.querySelectorAll('[data-ai-apagar]').forEach(b => b.addEventListener('click', async () => {
+    if(!confirm('Apagar esta resposta? Não dá para desfazer.')) return;
+    const { error } = await supabase.from('aval_inst_respostas').delete().eq('id', b.dataset.aiApagar);
+    if(error){ alert(error.message); return; }
+    ESTADO.avalInstDados = null; avalTelaRespostas(el);
+  }));
+}
+function avalVerResposta(r){
+  if(!r) return;
+  const A = AVAL_INST;
+  const modal = document.createElement('div'); modal.className = 'fundo-modal';
+  modal.innerHTML = `<div class="modal" style="max-width:720px;max-height:90vh;overflow:auto;"><div class="modal-topo"><h3>Resposta — ${esc(avalOrigemRotulo(r.origem))}</h3><button data-fechar>✕</button></div>
+    <p style="font-size:13.5px;color:#111827;margin:0 0 8px;">${esc(avalFmtDataHora(r.data_resposta || r.criado_em))} · <b>${esc(AVAL_ROTULO(A.q1.op, r.respondente))}</b>${(r.abertas || {}).q1_outro ? ' (' + esc(r.abertas.q1_outro) + ')' : ''} · ${esc(AVAL_ROTULO(A.q2.op, r.etapa))}${r.identificacao ? ' · Identificação: <b>' + esc(r.identificacao) + '</b>' : ''}</p>
+    ${A.secoes.map(s => `<div style="font-weight:700;color:#111827;margin:8px 0 2px;">${esc(s.titulo)}</div>${s.perguntas.map(p => { const v = (r.notas || {})['q' + p.n]; const e = A.escala.find(x => x.c === v); return `<div style="display:flex;gap:8px;font-size:13px;color:#111827;padding:2px 0;"><span style="flex:1;"><b>${p.n}.</b> ${esc(p.t)}</span><span style="min-width:62px;text-align:center;border-radius:5px;padding:0 6px;background:${e ? e.tom : '#f3f4f6'};font-weight:700;">${esc(e ? e.t : '—')}</span></div>`; }).join('')}`).join('')}
+    <div style="font-weight:700;color:#111827;margin:10px 0 2px;">8. AVALIAÇÃO GERAL</div>
+    <div style="font-size:13px;color:#111827;"><b>${A.geral.n}.</b> ${esc(r.geral ? AVAL_ROTULO(A.geral.op, r.geral) : '—')} · <b>${A.recomenda.n}.</b> recomendaria: ${esc(r.recomenda ? AVAL_ROTULO(A.recomenda.op, r.recomenda) : '—')}</div>
+    ${A.abertas.map(q => `<div style="margin-top:8px;"><div style="font-weight:700;font-size:13px;color:#111827;">${q.n}. ${esc(q.t)}</div><div style="font-size:13.5px;color:#111827;white-space:pre-wrap;">${esc((r.abertas || {})['q' + q.n] || '—')}</div></div>`).join('')}
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => modal.remove()));
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+}
+// ----- QR Code público (início) -----
+// ---------- QR Code: página pública do questionário + painel de controle ----------
+const AVAL_PUBLICADO = 'https://jaimegonbol-cyber.github.io/secretaria-jaime-bold/';
+const AVAL_ORIGENS = { impresso: { t: 'Impresso', cor: 'verde' }, google: { t: 'Google Forms', cor: 'azul' }, qrcode: { t: 'QR Code', cor: 'amarelo' } };
+const avalOrigemRotulo = (o) => (AVAL_ORIGENS[o] || { t: o || '—' }).t;
+const avalOrigemCor = (o) => (AVAL_ORIGENS[o] || { cor: 'verde' }).cor;
+function avalLinkPublico(){
+  const base = /^https?:$/.test(location.protocol) ? location.origin + location.pathname : AVAL_PUBLICADO;
+  return base + '?avaliacao=1';
+}
+async function avalChamarPublico(corpo){
+  const r = await fetch(EDGE_URL + '/enviar-avaliacao', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+    body: JSON.stringify(corpo),
+  });
+  let dados = {}; try{ dados = await r.json(); }catch(_e){ /* resposta sem corpo */ }
+  return { ok: r.ok, status: r.status, dados };
+}
+
+// Página aberta pelo QR Code: sem login, sem acesso a nenhum outro dado do sistema.
+async function renderizarAvaliacaoPublica(){
+  const A = AVAL_INST;
+  document.title = 'Avaliação Institucional ' + A.ano + ' — ' + A.escola;
+  const css = `<style>
+    .avp{ max-width:760px; margin:0 auto; padding:14px 12px 60px; color:#111827; font-family:inherit; }
+    .avp h1{ font-size:22px; line-height:1.2; margin:8px 0 4px; color:#1f3a5f; }
+    .avp .cx{ background:#fff; border:1px solid var(--borda,#d6d3d1); border-radius:12px; padding:14px 14px; margin-bottom:12px; }
+    .avp .cx h2{ font-size:16px; margin:0 0 8px; color:#1f3a5f; }
+    .avp .perg{ padding:10px 0; border-top:1px solid #e7e5e4; }
+    .avp .perg:first-of-type{ border-top:0; }
+    .avp .perg .t{ font-size:15.5px; font-weight:600; line-height:1.35; margin-bottom:8px; }
+    .avp .ops{ display:flex; flex-wrap:wrap; gap:6px; }
+    .avp .op{ flex:1 1 auto; min-width:76px; }
+    .avp .op input{ position:absolute; opacity:0; pointer-events:none; }
+    .avp .op span{ display:block; text-align:center; padding:10px 8px; border:2px solid #d6d3d1; border-radius:10px; font-size:14.5px; font-weight:700; color:#111827; background:#fff; cursor:pointer; user-select:none; }
+    .avp .op input:checked + span{ color:#fff; border-color:var(--cor); background:var(--cor); }
+    .avp .op input:focus-visible + span{ outline:3px solid #93c5fd; }
+    .avp .lista .op{ flex:1 1 100%; }
+    .avp .lista .op span{ text-align:left; }
+    .avp textarea, .avp input[type=text]{ width:100%; font-size:16px; }
+    .avp .rodape{ position:sticky; bottom:0; background:#fff; border-top:1px solid #d6d3d1; padding:10px 12px; margin:0 -12px; display:flex; gap:10px; align-items:center; justify-content:space-between; }
+    .avp .isca{ position:absolute; left:-5000px; width:1px; height:1px; overflow:hidden; }
+  </style>`;
+  const topo = `<div style="text-align:center;"><img src="${LOGO_ESCOLA_URL}" alt="" style="height:70px;width:auto;max-width:90%;object-fit:contain;" /></div>
+    <h1 style="text-align:center;">Avaliação Institucional ${A.ano}</h1>
+    <div style="text-align:center;font-weight:700;font-size:14px;margin-bottom:10px;">${esc(A.escola)}</div>`;
+  raiz.innerHTML = css + `<div class="avp">${topo}<div class="carregando"><div class="spinner"></div>Carregando…</div></div>`;
+
+  let estado;
+  try{ estado = await avalChamarPublico({ acao: 'status' }); }catch(_e){ estado = null; }
+  const pagina = raiz.querySelector('.avp');
+  if(!estado || !estado.ok){
+    pagina.innerHTML = topo + `<div class="cx" style="text-align:center;font-size:15.5px;">Não foi possível abrir o questionário agora. Verifique a internet e tente novamente.</div>`;
+    return;
+  }
+  if(!estado.dados.aberta){
+    pagina.innerHTML = topo + `<div class="cx" style="text-align:center;font-size:16px;line-height:1.5;"><b>A avaliação não está recebendo respostas no momento.</b><br/>Se você ainda quer participar, procure a secretaria da escola.</div>`;
+    return;
+  }
+
+  let aparelho = null;
+  try{ aparelho = localStorage.getItem('aval_aparelho'); if(!aparelho){ aparelho = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2)); localStorage.setItem('aval_aparelho', aparelho); } }catch(_e){ /* sem armazenamento: segue sem identificar o aparelho */ }
+  const inicio = Date.now();
+
+  const chips = (nome, ops, lista) => `<div class="ops ${lista ? 'lista' : ''}">${ops.map(o => `<label class="op" style="--cor:${o.cor || '#1f3a5f'};"><input type="radio" name="${nome}" value="${o.c}" /><span>${esc(o.t)}</span></label>`).join('')}</div>`;
+  const total = AVAL_PERGUNTAS_GRADE.length;
+  pagina.innerHTML = topo + `
+    <div class="cx" style="font-size:15px;line-height:1.5;"><b>${esc(A.chamada)}</b><br/>${A.intro.map(esc).join('<br/><br/>')}<br/><br/><b>Leva cerca de 5 minutos.</b> Você pode responder só o que quiser.</div>
+    <form id="avp-form" autocomplete="off">
+      <div class="cx"><h2>1. Identificação</h2>
+        <div class="perg"><div class="t">${A.q1.n}. ${esc(A.q1.t)}</div>${chips('q1', A.q1.op, true)}
+          <div id="avp-outro" style="display:none;margin-top:8px;"><input type="text" id="avp-q1-outro" maxlength="100" placeholder="Qual?" /></div></div>
+        <div class="perg"><div class="t">${A.q2.n}. ${esc(A.q2.t)}</div>${chips('q2', A.q2.op, true)}</div>
+      </div>
+      ${A.secoes.map(s => `<div class="cx"><h2>${esc(s.titulo)}</h2>${s.ajuda ? `<div style="font-size:14px;margin-bottom:4px;">${esc(s.ajuda)}</div>` : ''}${s.perguntas.map(p => `<div class="perg"><div class="t">${p.n}. ${esc(p.t)}</div>${chips('q' + p.n, A.escala)}</div>`).join('')}</div>`).join('')}
+      <div class="cx"><h2>8. AVALIAÇÃO GERAL</h2>
+        <div class="perg"><div class="t">${A.geral.n}. ${esc(A.geral.t)}</div>${chips('q30', A.geral.op, true)}</div>
+        <div class="perg"><div class="t">${A.recomenda.n}. ${esc(A.recomenda.t)}</div>${chips('q31', A.recomenda.op)}</div>
+      </div>
+      <div class="cx"><h2>${esc(A.tituloAbertas)}</h2>
+        ${A.abertas.map(q => `<div class="perg"><div class="t">${q.n}. ${esc(q.t)}</div><textarea id="avp-q${q.n}" rows="3" maxlength="2000"></textarea></div>`).join('')}
+      </div>
+      <div class="cx"><h2>Identificação (opcional)</h2>
+        <div style="font-size:14.5px;line-height:1.45;margin-bottom:8px;">Se quiser, escreva seu nome ou a turma do estudante. <b>Pode deixar em branco</b>: sua resposta vale do mesmo jeito. Quando informado, o nome só é visto pela gestão da escola.</div>
+        <input type="text" id="avp-ident" maxlength="120" placeholder="Nome ou turma (opcional)" />
+      </div>
+      <div class="isca" aria-hidden="true"><label>Não preencha<input type="text" id="avp-site" tabindex="-1" autocomplete="off" /></label></div>
+      <div id="avp-msg"></div>
+      <div class="rodape"><span id="avp-prog" style="font-size:14px;font-weight:700;">0 de ${total} respondidas</span>
+        <button class="botao terracota" type="submit" id="avp-enviar" style="width:auto;padding:12px 22px;font-size:16px;">Enviar respostas</button></div>
+    </form>`;
+  const form = pagina.querySelector('#avp-form');
+  const marcado = (n) => { const r = form.querySelector(`input[name="${n}"]:checked`); return r ? r.value : null; };
+  const progresso = () => { const n = AVAL_PERGUNTAS_GRADE.filter(p => marcado('q' + p.n)).length; pagina.querySelector('#avp-prog').textContent = `${n} de ${total} respondidas`; };
+  form.addEventListener('change', (e) => {
+    if(e.target.name === 'q1') pagina.querySelector('#avp-outro').style.display = marcado('q1') === 'outro' ? 'block' : 'none';
+    progresso();
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const m = pagina.querySelector('#avp-msg'), btn = pagina.querySelector('#avp-enviar');
+    const notas = {}; AVAL_PERGUNTAS_GRADE.forEach(p => { const v = marcado('q' + p.n); if(v) notas['q' + p.n] = v; });
+    const abertas = {}; A.abertas.forEach(q => { const v = form.querySelector('#avp-q' + q.n).value.trim(); if(v) abertas['q' + q.n] = v; });
+    const outro = form.querySelector('#avp-q1-outro').value.trim(); if(marcado('q1') === 'outro' && outro) abertas.q1_outro = outro;
+    const corpo = { acao: 'enviar', respondente: marcado('q1'), etapa: marcado('q2'), notas, geral: marcado('q30'), recomenda: marcado('q31'), abertas,
+      identificacao: form.querySelector('#avp-ident').value.trim(), site: form.querySelector('#avp-site').value, aparelho, tempo: Date.now() - inicio };
+    if(!Object.keys(notas).length && !corpo.geral && !corpo.recomenda && !Object.keys(abertas).length){ m.innerHTML = '<div class="msg-erro">Responda ao menos uma pergunta antes de enviar.</div>'; return; }
+    btn.disabled = true; btn.textContent = 'Enviando…'; m.innerHTML = '';
+    let r;
+    try{ r = await avalChamarPublico(corpo); }catch(_e){ r = null; }
+    btn.disabled = false; btn.textContent = 'Enviar respostas';
+    if(!r){ m.innerHTML = '<div class="msg-erro">Sem conexão. Verifique a internet e toque em Enviar de novo; suas respostas continuam na tela.</div>'; return; }
+    if(r.ok){
+      pagina.innerHTML = topo + `<div class="cx" style="text-align:center;font-size:17px;line-height:1.55;"><div style="font-size:44px;">✅</div><b>Obrigado pela sua participação!</b><br/>Sua opinião ajuda a construir uma escola cada vez melhor.<br/><br/><span style="font-size:14px;">${esc(A.fecho)}</span></div>`;
+      window.scrollTo({ top: 0 });
+      return;
+    }
+    const msgs = {
+      fechada: 'A avaliação foi encerrada e não está mais recebendo respostas.',
+      rapido: 'Responda com um pouco mais de calma e toque em Enviar novamente.',
+      limite: 'Este aparelho já enviou respostas demais por hoje. Se ainda precisa responder, procure a secretaria.',
+      vazia: 'Responda ao menos uma pergunta antes de enviar.',
+    };
+    m.innerHTML = `<div class="msg-erro">${esc(msgs[(r.dados || {}).erro] || 'Não foi possível enviar agora. Tente novamente em instantes.')}</div>`;
+  });
+}
+
+// ---------- Painel (secretaria/admin): controlar coleta, QR code e cartaz ----------
+async function avalTelaQr(el){
+  const ehAdmin = ESTADO.perfil.role === 'admin';
+  el.innerHTML = `<div class="carregando"><div class="spinner"></div>Carregando…</div>`;
+  const { data: cfg, error } = await supabase.from('aval_inst_config').select('coleta_aberta, encerra_em').eq('id', 1).maybeSingle();
+  if(error){ el.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
+  const { count: nQr } = await supabase.from('aval_inst_respostas').select('id', { count: 'exact', head: true }).eq('origem', 'qrcode');
+  const link = avalLinkPublico();
+  const aberta = !!(cfg && cfg.coleta_aberta);
+  const encerra = cfg && cfg.encerra_em ? new Date(cfg.encerra_em) : null;
+  const vencida = !!(aberta && encerra && encerra < new Date());
+  const paraInput = (d) => { if(!d) return ''; const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+  el.innerHTML = `
+    <div class="painel" style="padding:18px;margin-bottom:12px;">
+      <h3 style="margin:0 0 6px;color:#111827;">Questionário por QR Code (página do próprio sistema)</h3>
+      <p style="font-size:14px;color:#1f2937;line-height:1.55;margin:0 0 10px;">O QR Code do cartaz abre uma página com as mesmas 35 perguntas, sem login e sem acesso a nenhum outro dado. As respostas chegam direto nos <b>Resultados</b>, junto com as impressas. O nome ou a turma é opcional.</p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <span class="pill ${aberta && !vencida ? 'verde' : 'vermelho'}" style="font-size:14px;">${aberta && !vencida ? 'Coleta ABERTA' : (vencida ? 'Coleta encerrada (prazo terminou)' : 'Coleta FECHADA')}</span>
+        <span style="font-size:14px;color:#111827;"><b>${nQr || 0}</b> resposta(s) recebida(s) por QR Code</span>
+      </div>
+      ${ehAdmin ? `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="campo" style="margin:0;"><label>Encerrar automaticamente em (opcional)</label><input type="datetime-local" id="aq-fim" value="${paraInput(encerra)}" /></div>
+        <button class="botao ${aberta ? 'secundario' : 'terracota'}" id="aq-alternar" style="width:auto;">${aberta ? '⏹️ Encerrar coleta agora' : '▶️ Abrir coleta'}</button>
+        <button class="botao secundario" id="aq-salvar-fim" style="width:auto;">Salvar prazo</button>
+      </div>
+      <div id="aq-msg" style="margin-top:8px;"></div>` : `<p style="font-size:13px;color:#374151;margin:0;">Só o administrador abre e encerra a coleta.</p>`}
+    </div>
+    <div class="painel" style="padding:18px;">
+      <h3 style="margin:0 0 8px;color:#111827;">QR Code e cartaz para o mural</h3>
+      <div style="font-size:14px;color:#111827;word-break:break-all;margin-bottom:8px;"><b>Link:</b> ${esc(link)}</div>
+      <div id="aq-qr" style="min-height:40px;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="botao terracota" id="aq-cartaz" style="width:auto;" disabled>🖨️ Imprimir cartaz para o mural</button>
+        <button class="botao secundario" id="aq-abrir" style="width:auto;">🔗 Abrir a página (testar)</button>
+        <button class="botao secundario" id="aq-copiar" style="width:auto;">📋 Copiar link</button>
+      </div>
+      <p style="font-size:13px;color:#374151;margin:10px 0 0;">Antes de imprimir: abra a coleta, aponte a câmera do celular para o QR Code e confira se o questionário abre. Respostas de teste podem ser apagadas na aba Respostas.</p>
+    </div>`;
+
+  const m = el.querySelector('#aq-msg');
+  async function gravar(campos, ok){
+    const { error: e2 } = await supabase.from('aval_inst_config').update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', 1);
+    if(e2){ m.innerHTML = `<div class="msg-erro">${esc(e2.message)}</div>`; return; }
+    await avalTelaQr(el);
+    const m2 = el.querySelector('#aq-msg'); if(m2) m2.innerHTML = `<div class="msg-ok">${ok}</div>`;
+  }
+  const lerFim = () => { const v = el.querySelector('#aq-fim').value; return v ? new Date(v).toISOString() : null; };
+  const bAlt = el.querySelector('#aq-alternar');
+  if(bAlt) bAlt.addEventListener('click', () => {
+    if(aberta && !confirm('Encerrar a coleta? O QR Code deixa de aceitar respostas.')) return;
+    gravar(aberta ? { coleta_aberta: false } : { coleta_aberta: true, encerra_em: lerFim() }, aberta ? 'Coleta encerrada.' : 'Coleta aberta. O QR Code já aceita respostas.');
+  });
+  const bFim = el.querySelector('#aq-salvar-fim');
+  if(bFim) bFim.addEventListener('click', () => gravar({ encerra_em: lerFim() }, 'Prazo salvo.'));
+
+  el.querySelector('#aq-abrir').addEventListener('click', () => window.open(link, '_blank'));
+  el.querySelector('#aq-copiar').addEventListener('click', async () => {
+    try{ await navigator.clipboard.writeText(link); alert('Link copiado.'); }catch(_e){ prompt('Copie o link:', link); }
+  });
+  const caixa = el.querySelector('#aq-qr'), btnCartaz = el.querySelector('#aq-cartaz');
+  let qrUrl = null;
+  try{
+    qrUrl = await avalGerarQr(link);
+    caixa.innerHTML = `<img src="${qrUrl}" alt="QR Code" style="width:190px;height:190px;border:1px solid var(--borda);background:#fff;" />`;
+    btnCartaz.disabled = false;
+  }catch(e){ caixa.innerHTML = `<div class="msg-erro">Não foi possível gerar o QR Code: ${esc(e.message || e)}</div>`; }
+  btnCartaz.addEventListener('click', () => {
+    if(!qrUrl) return;
+    const janela = window.open('', '_blank');
+    if(!janela){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.'); return; }
+    janela.document.write(htmlCartazAvalInst(qrUrl, link));
+    janela.document.close();
+  });
+}
+// ----- QR Code público (fim) -----
+
+// ===== AVALIAÇÃO INSTITUCIONAL (fim) =====
+
 function renderizarAvaliacoes(el){
   const abasTopo = [
     { id:'fluencia', label:'Avaliação de Fluência' },
@@ -12099,6 +13083,7 @@ function renderizarAvaliacoes(el){
     { id:'personalizada', label:'Avaliação Personalizada' },
     { id:'gabarito', label:'Gabarito de Provas' },
     { id:'conselho', label:'Conselho de Classe' },
+    ...((ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria') ? [{ id:'institucional', label:'Avaliação Institucional' }] : []),
   ];
   if(ESTADO.perfil.role === 'professor'){
     // Professor: tudo, menos o Conselho de Classe — e só das suas turmas (o banco também restringe).
@@ -12119,6 +13104,7 @@ function renderizarAvaliacoes(el){
   else if(ESTADO.subAvaliacoes === 'personalizada') renderizarAvaliacaoPersonalizada(alvoTopo);
   else if(ESTADO.subAvaliacoes === 'gabarito') renderizarGabaritoProvas(alvoTopo);
   else if(ESTADO.subAvaliacoes === 'conselho') renderizarConselhoClasse(alvoTopo);
+  else if(ESTADO.subAvaliacoes === 'institucional' && (ESTADO.perfil.role === 'admin' || ESTADO.perfil.role === 'secretaria')) renderizarAvaliacaoInstitucional(alvoTopo);
   else renderizarAvaliacaoFluencia(alvoTopo);
 }
 
