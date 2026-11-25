@@ -12898,6 +12898,7 @@ async function renderizarAvaliacaoPublica(){
   const A = AVAL_INST;
   document.title = 'Avaliação Institucional ' + A.ano + ' — ' + A.escola;
   const css = `<style>
+    .avp-rolagem{ position:fixed; inset:0; height:100vh; height:100dvh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; background:var(--areia,#f3f1ec); }
     .avp{ max-width:760px; margin:0 auto; padding:14px 12px 60px; color:#111827; font-family:inherit; }
     .avp h1{ font-size:22px; line-height:1.2; margin:8px 0 4px; color:#1f3a5f; }
     .avp .cx{ background:#fff; border:1px solid var(--borda,#d6d3d1); border-radius:12px; padding:14px 14px; margin-bottom:12px; }
@@ -12920,7 +12921,7 @@ async function renderizarAvaliacaoPublica(){
   const topo = `<div style="text-align:center;"><img src="${LOGO_ESCOLA_URL}" alt="" style="height:70px;width:auto;max-width:90%;object-fit:contain;" /></div>
     <h1 style="text-align:center;">Avaliação Institucional ${A.ano}</h1>
     <div style="text-align:center;font-weight:700;font-size:14px;margin-bottom:10px;">${esc(A.escola)}</div>`;
-  raiz.innerHTML = css + `<div class="avp">${topo}<div class="carregando"><div class="spinner"></div>Carregando…</div></div>`;
+  raiz.innerHTML = css + `<div class="avp-rolagem"><div class="avp">${topo}<div class="carregando"><div class="spinner"></div>Carregando…</div></div></div>`;
 
   let estado;
   try{ estado = await avalChamarPublico({ acao: 'status' }); }catch(_e){ estado = null; }
@@ -12988,7 +12989,7 @@ async function renderizarAvaliacaoPublica(){
     if(!r){ m.innerHTML = '<div class="msg-erro">Sem conexão. Verifique a internet e toque em Enviar de novo; suas respostas continuam na tela.</div>'; return; }
     if(r.ok){
       pagina.innerHTML = topo + `<div class="cx" style="text-align:center;font-size:17px;line-height:1.55;"><div style="font-size:44px;">✅</div><b>Obrigado pela sua participação!</b><br/>Sua opinião ajuda a construir uma escola cada vez melhor.<br/><br/><span style="font-size:14px;">${esc(A.fecho)}</span></div>`;
-      window.scrollTo({ top: 0 });
+      raiz.querySelector('.avp-rolagem').scrollTo({ top: 0 });
       return;
     }
     const msgs = {
