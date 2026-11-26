@@ -12511,7 +12511,7 @@ async function renderizarAvaliacaoInstitucional(el){
   const ehAdmin = ESTADO.perfil.role === 'admin';
   const abas = [
     ...(ehAdmin ? [{ id: 'resultados', label: 'Resultados' }, { id: 'respostas', label: 'Respostas' }] : []),
-    { id: 'lancar', label: 'Lançar impressos' },
+    { id: 'lancar', label: 'Ler ficha por foto' },
     { id: 'qrcode', label: 'QR Code e cartaz' },
     { id: 'impresso', label: 'Questionário impresso' },
   ];
@@ -12523,7 +12523,7 @@ async function renderizarAvaliacaoInstitucional(el){
   const alvo = el.querySelector('#conteudo-aval-inst');
   if(ESTADO.subAvalInst === 'resultados') await avalTelaResultados(alvo);
   else if(ESTADO.subAvalInst === 'respostas') await avalTelaRespostas(alvo);
-  else if(ESTADO.subAvalInst === 'lancar') avalTelaLancar(alvo);
+  else if(ESTADO.subAvalInst === 'lancar') avalTelaFoto(alvo);
   else if(ESTADO.subAvalInst === 'qrcode') await avalTelaQr(alvo);
   else avalTelaImpresso(alvo);
 }
@@ -12536,7 +12536,7 @@ function avalTelaImpresso(el){
       <ul style="font-size:13.5px;color:#1f2937;line-height:1.6;margin:0 0 14px;padding-left:20px;">
         <li>Na impressora, escolha <b>frente e verso</b> (virar na borda longa) e tamanho real, sem reduzir.</li>
         <li>Quem responde marca um X em cada linha; a escola devolve as folhas à secretaria.</li>
-        <li>Depois, use a aba <b>Lançar impressos</b> para digitar cada folha. Os resultados juntam impressos e QR Code.</li>
+        <li>Depois, use a aba <b>Ler ficha por foto</b>: fotografe cada folha e confira a leitura. Os resultados juntam impressos e QR Code.</li>
       </ul>
       <button class="botao terracota" id="ai-imprimir" style="width:auto;">🖨️ Imprimir questionário</button>
     </div>`;
@@ -12657,7 +12657,56 @@ async function avalTelaGoogle(el){
   });
 }
 
-function avalTelaLancar(el){
+// Ler a ficha impressa por foto (IA lê as marcações; a pessoa confere e salva)
+function avalTelaFoto(el, aviso){
+  ESTADO.avalLancados = ESTADO.avalLancados || 0;
+  const slot = (id, rot) => `<div class="campo" style="margin:0;"><label>${rot}</label><input type="file" accept="image/*" id="ai-foto-${id}" /><div id="ai-prev-${id}" style="margin-top:6px;"></div></div>`;
+  el.innerHTML = `
+    <div class="painel" style="padding:18px;max-width:860px;">
+      <h3 style="margin:0 0 6px;color:#111827;">Ler ficha respondida no papel (por foto)</h3>
+      <p style="font-size:14px;color:#1f2937;line-height:1.55;margin:0 0 10px;">Fotografe a <b>frente</b> e o <b>verso</b> de uma ficha respondida. A IA lê as marcações e preenche a ficha na tela; <b>você confere com o papel e salva</b>. Pode mandar só um lado, se for o único que foi respondido.</p>
+      <ul style="font-size:13.5px;color:#1f2937;line-height:1.6;margin:0 0 12px;padding-left:20px;">
+        <li>Folha reta sobre a mesa, com boa luz e sem sombra.</li>
+        <li>A página inteira dentro da foto, sem cortar as bordas da tabela.</li>
+        <li>Uma ficha por vez. Lidas nesta sessão: <b id="ai-contador-foto">${ESTADO.avalLancados}</b></li>
+      </ul>
+      ${aviso ? `<div class="msg-ok" style="margin-bottom:10px;">${esc(aviso)}</div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:12px;">${slot('frente', 'Frente (página 1)')}${slot('verso', 'Verso (página 2)')}</div>
+      <div id="ai-msg-foto"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="botao terracota" id="ai-ler-foto" style="width:auto;" disabled>📷 Ler ficha com IA</button>
+        <button class="botao secundario" id="ai-digitar" style="width:auto;">Digitar à mão (sem foto)</button>
+      </div>
+    </div>`;
+  const arquivos = { frente: null, verso: null };
+  const btn = el.querySelector('#ai-ler-foto'), msg = el.querySelector('#ai-msg-foto');
+  ['frente', 'verso'].forEach(id => el.querySelector('#ai-foto-' + id).addEventListener('change', (e) => {
+    arquivos[id] = e.target.files[0] || null;
+    el.querySelector('#ai-prev-' + id).innerHTML = arquivos[id] ? `<img src="${URL.createObjectURL(arquivos[id])}" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--borda);" />` : '';
+    btn.disabled = !(arquivos.frente || arquivos.verso);
+  }));
+  el.querySelector('#ai-digitar').addEventListener('click', () => avalTelaLancar(el, null));
+  btn.addEventListener('click', async () => {
+    const lista = [arquivos.frente, arquivos.verso].filter(Boolean);
+    if(!lista.length) return;
+    btn.disabled = true; btn.textContent = 'Lendo a ficha… (pode levar até 1 minuto)'; msg.innerHTML = '';
+    try{
+      const imagens = [];
+      for(const f of lista){ const { base64, mediaType } = await comprimirImagemParaBase64(f, 2000, 0.85); imagens.push({ base64, mediaType }); }
+      const { data: resposta, error } = await supabase.functions.invoke('ler-ficha-avaliacao', { body: { imagens } });
+      let texto = resposta && resposta.error;
+      if(error && !texto){ try{ const j = await error.context.json(); texto = j && j.error; }catch(_e){ /* sem detalhe */ } }
+      if(error || !resposta || resposta.error) throw new Error(texto || 'Falha ao ler a foto.');
+      avalTelaLancar(el, resposta.resultado);
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }catch(e){
+      msg.innerHTML = `<div class="msg-erro">${esc(e.message || e)}</div>`;
+      btn.disabled = false; btn.textContent = '📷 Ler ficha com IA';
+    }
+  });
+}
+
+function avalTelaLancar(el, pre){
   const A = AVAL_INST;
   ESTADO.avalLancados = ESTADO.avalLancados || 0;
   const radios = (n) => A.escala.map(e => `<td style="text-align:center;border-top:1px solid var(--borda);"><label style="display:block;padding:5px 0;cursor:pointer;"><input type="radio" name="ai-q${n}" value="${e.c}" style="width:17px;height:17px;" /></label></td>`).join('');
@@ -12668,7 +12717,7 @@ function avalTelaLancar(el){
     </table>`).join('');
   const grupo = (nome, ops) => ops.map(o => `<label style="display:inline-flex;gap:6px;align-items:center;margin:3px 16px 3px 0;font-size:14px;color:#111827;cursor:pointer;"><input type="radio" name="${nome}" value="${o.c}" style="width:17px;height:17px;" />${esc(o.t)}</label>`).join('');
   el.innerHTML = `
-    <div class="painel" style="padding:12px 18px;margin-bottom:12px;font-size:13.5px;color:#1f2937;">Digite aqui cada folha respondida no papel. Deixe em branco o que a pessoa não marcou. Cada folha vira uma resposta anônima. <b>Lançadas nesta sessão: <span id="ai-contador">${ESTADO.avalLancados}</span></b></div>
+    ${pre ? `<div class="painel" style="padding:12px 18px;margin-bottom:12px;font-size:14px;color:#111827;background:#fffbeb;border-color:#f59e0b;"><b>Ficha lida pela IA. Confira cada resposta com o papel antes de salvar.</b> Linhas em <span style="background:#fef08a;padding:0 4px;">amarelo</span> = a IA ficou em dúvida ou não achou marca. Corrija o que estiver diferente do papel.${pre.observacao ? `<br/><b>Observação da leitura:</b> ${esc(pre.observacao)}` : ''}</div>` : `<div class="painel" style="padding:12px 18px;margin-bottom:12px;font-size:13.5px;color:#1f2937;">Digite aqui cada folha respondida no papel. Deixe em branco o que a pessoa não marcou. Cada folha vira uma resposta anônima.</div>`}
     <form id="ai-form-lancar">
       <div class="painel" style="padding:14px 18px;margin-bottom:12px;">
         <div style="font-weight:700;color:#111827;margin-bottom:4px;">1. ${esc(A.q1.t)}</div>${grupo('ai-q1', A.q1.op)}
@@ -12685,8 +12734,24 @@ function avalTelaLancar(el){
       </div>
       <div id="ai-msg-lancar"></div>
       <button class="botao terracota" type="submit" id="ai-btn-lancar" style="width:auto;">Salvar esta folha</button>
+      <button type="button" class="botao secundario" id="ai-voltar" style="width:auto;margin-left:8px;">Voltar</button>
     </form>`;
+  el.querySelector('#ai-voltar').addEventListener('click', () => avalTelaFoto(el));
   const form = el.querySelector('#ai-form-lancar');
+  if(pre){
+    const setR = (nome, v) => { if(!v) return; const r = form.querySelector(`input[name="${nome}"][value="${v}"]`); if(r) r.checked = true; };
+    setR('ai-q1', pre.respondente); setR('ai-q2', pre.etapa); setR('ai-q30', pre.geral); setR('ai-q31', pre.recomenda);
+    Object.entries(pre.notas || {}).forEach(([k, v]) => setR('ai-' + k, v));
+    A.abertas.forEach(q => { const t = form.querySelector('#ai-q' + q.n); if(t && pre.abertas && pre.abertas['q' + q.n]) t.value = pre.abertas['q' + q.n]; });
+    if(pre.respondente === 'outro'){ el.querySelector('#ai-outro-box').style.display = 'block'; form.querySelector('#ai-q1-outro').value = (pre.abertas || {}).q1_outro || ''; }
+    (pre.incertas || []).forEach(n => {
+      const radios = form.querySelectorAll(`input[name="ai-q${n}"]`);
+      if(radios.length && (n <= 2 || n >= 30)){ radios.forEach(r => { const lb = r.closest('label'); if(lb) lb.style.background = '#fef08a'; }); return; }
+      const inp = radios[0] || form.querySelector('#ai-q' + n);
+      const alvo = inp && (inp.closest('tr') || inp.closest('.campo'));
+      if(alvo) alvo.style.background = '#fef08a';
+    });
+  }
   const marcado = (nome) => { const r = form.querySelector(`input[name="${nome}"]:checked`); return r ? r.value : null; };
   form.querySelectorAll('input[name="ai-q1"]').forEach(r => r.addEventListener('change', () => { el.querySelector('#ai-outro-box').style.display = marcado('ai-q1') === 'outro' ? 'block' : 'none'; }));
   form.addEventListener('submit', async (e) => {
@@ -12702,9 +12767,7 @@ function avalTelaLancar(el){
     btn.disabled = false; btn.textContent = 'Salvar esta folha';
     if(error){ m.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
     ESTADO.avalLancados++; ESTADO.avalInstDados = null;
-    avalTelaLancar(el);
-    el.querySelector('#ai-msg-lancar').innerHTML = '<div class="msg-ok">Folha salva. Pode digitar a próxima.</div>';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    avalTelaFoto(el, 'Ficha salva. Pode ler a próxima.');
   });
 }
 
