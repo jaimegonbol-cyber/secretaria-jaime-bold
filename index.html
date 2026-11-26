@@ -12511,7 +12511,7 @@ async function renderizarAvaliacaoInstitucional(el){
   const ehAdmin = ESTADO.perfil.role === 'admin';
   const abas = [
     ...(ehAdmin ? [{ id: 'resultados', label: 'Resultados' }, { id: 'respostas', label: 'Respostas' }] : []),
-    { id: 'lancar', label: 'Ler ficha por foto' },
+    { id: 'lancar', label: 'Leitura da ficha' },
     { id: 'qrcode', label: 'QR Code e cartaz' },
     { id: 'impresso', label: 'Questionário impresso' },
   ];
@@ -12536,7 +12536,7 @@ function avalTelaImpresso(el){
       <ul style="font-size:13.5px;color:#1f2937;line-height:1.6;margin:0 0 14px;padding-left:20px;">
         <li>Na impressora, escolha <b>frente e verso</b> (virar na borda longa) e tamanho real, sem reduzir.</li>
         <li>Quem responde marca um X em cada linha; a escola devolve as folhas à secretaria.</li>
-        <li>Depois, use a aba <b>Ler ficha por foto</b>: fotografe cada folha e confira a leitura. Os resultados juntam impressos e QR Code.</li>
+        <li>Depois, use a aba <b>Leitura da ficha</b>: fotografe cada folha com a câmera e confira a leitura. Os resultados juntam impressos e QR Code.</li>
       </ul>
       <button class="botao terracota" id="ai-imprimir" style="width:auto;">🖨️ Imprimir questionário</button>
     </div>`;
@@ -12657,14 +12657,76 @@ async function avalTelaGoogle(el){
   });
 }
 
-// Ler a ficha impressa por foto (IA lê as marcações; a pessoa confere e salva)
+// Câmera ao vivo para fotografar a ficha dentro do sistema
+function avalAbrirCamera(rotulo){
+  return new Promise((resolve) => {
+    const modal = document.createElement('div'); modal.className = 'fundo-modal';
+    modal.innerHTML = `<div class="modal" style="max-width:720px;max-height:96vh;overflow:auto;">
+      <div class="modal-topo"><h3>Câmera — ${esc(rotulo)}</h3><button data-fechar>✕</button></div>
+      <div id="cam-msg"></div>
+      <div id="cam-area" style="position:relative;background:#000;border-radius:10px;overflow:hidden;min-height:200px;">
+        <video id="cam-video" autoplay playsinline muted style="width:100%;max-height:68vh;display:block;"></video>
+        <img id="cam-foto" alt="" style="width:100%;max-height:68vh;object-fit:contain;display:none;background:#000;" />
+      </div>
+      <p style="font-size:13px;color:#1f2937;margin:8px 0;">Deixe a folha reta, com a página inteira dentro da tela e boa luz. Aproxime só até ler as palavras.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="botao terracota" id="cam-capturar" style="width:auto;" disabled>📸 Tirar foto</button>
+        <button class="botao secundario" id="cam-refazer" style="width:auto;display:none;">Tirar de novo</button>
+        <button class="botao terracota" id="cam-usar" style="width:auto;display:none;">✅ Usar esta foto</button>
+        <button class="botao secundario" id="cam-trocar" style="width:auto;display:none;">🔄 Trocar câmera</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    const q = (id) => modal.querySelector('#' + id);
+    let stream = null, blob = null, fim = false, frente = false;
+    const encerrar = (arquivo) => { if(fim) return; fim = true; if(stream) stream.getTracks().forEach(t => t.stop()); if(blob && q('cam-foto').src) URL.revokeObjectURL(q('cam-foto').src); modal.remove(); resolve(arquivo); };
+    modal.querySelectorAll('[data-fechar]').forEach(b => b.addEventListener('click', () => encerrar(null)));
+    async function ligar(){
+      if(stream) stream.getTracks().forEach(t => t.stop());
+      q('cam-capturar').disabled = true;
+      try{
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('semsuporte');
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: frente ? 'user' : { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+        q('cam-video').srcObject = stream;
+        q('cam-capturar').disabled = false; q('cam-trocar').style.display = '';
+        q('cam-msg').innerHTML = '';
+      }catch(e){
+        const negou = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+        q('cam-msg').innerHTML = `<div class="msg-erro">${negou ? 'O navegador não deixou usar a câmera. Permita o acesso à câmera para este site (ícone de cadeado na barra de endereço) e tente de novo.' : 'Não encontrei uma câmera neste aparelho. Use a opção de enviar um arquivo de foto.'}</div>`;
+      }
+    }
+    q('cam-trocar').addEventListener('click', () => { frente = !frente; ligar(); });
+    q('cam-capturar').addEventListener('click', () => {
+      const v = q('cam-video'); if(!v.videoWidth) return;
+      const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      c.toBlob((b) => {
+        if(!b) return; blob = b;
+        q('cam-foto').src = URL.createObjectURL(b); q('cam-foto').style.display = ''; v.style.display = 'none';
+        q('cam-capturar').style.display = 'none'; q('cam-trocar').style.display = 'none';
+        q('cam-refazer').style.display = ''; q('cam-usar').style.display = '';
+      }, 'image/jpeg', 0.92);
+    });
+    q('cam-refazer').addEventListener('click', () => {
+      blob = null; q('cam-foto').style.display = 'none'; q('cam-video').style.display = '';
+      q('cam-capturar').style.display = ''; q('cam-trocar').style.display = ''; q('cam-refazer').style.display = 'none'; q('cam-usar').style.display = 'none';
+    });
+    q('cam-usar').addEventListener('click', () => { if(!blob) return; encerrar(new File([blob], 'ficha-' + Date.now() + '.jpg', { type: 'image/jpeg' })); });
+    ligar();
+  });
+}
+
+// Leitura da ficha impressa (foto ou câmera): a IA lê as marcações; a pessoa confere e salva
 function avalTelaFoto(el, aviso){
   ESTADO.avalLancados = ESTADO.avalLancados || 0;
-  const slot = (id, rot) => `<div class="campo" style="margin:0;"><label>${rot}</label><input type="file" accept="image/*" id="ai-foto-${id}" /><div id="ai-prev-${id}" style="margin-top:6px;"></div></div>`;
+  const slot = (id, rot) => `<div class="campo" style="margin:0;"><label>${rot}</label>
+      <button type="button" class="botao secundario" id="ai-cam-${id}" style="width:auto;margin-bottom:6px;">📷 Usar a câmera</button>
+      <div style="font-size:12.5px;color:#374151;margin:2px 0 3px;">ou enviar um arquivo de foto:</div>
+      <input type="file" accept="image/*" id="ai-foto-${id}" /><div id="ai-prev-${id}" style="margin-top:6px;"></div></div>`;
   el.innerHTML = `
     <div class="painel" style="padding:18px;max-width:860px;">
-      <h3 style="margin:0 0 6px;color:#111827;">Ler ficha respondida no papel (por foto)</h3>
-      <p style="font-size:14px;color:#1f2937;line-height:1.55;margin:0 0 10px;">Fotografe a <b>frente</b> e o <b>verso</b> de uma ficha respondida. A IA lê as marcações e preenche a ficha na tela; <b>você confere com o papel e salva</b>. Pode mandar só um lado, se for o único que foi respondido.</p>
+      <h3 style="margin:0 0 6px;color:#111827;">Leitura da ficha respondida no papel</h3>
+      <p style="font-size:14px;color:#1f2937;line-height:1.55;margin:0 0 10px;">Fotografe a <b>frente</b> e o <b>verso</b> de uma ficha respondida, <b>direto pela câmera</b> ou enviando um arquivo de foto. A IA lê as marcações e preenche a ficha na tela; <b>você confere com o papel e salva</b>. Pode mandar só um lado, se for o único que foi respondido.</p>
       <ul style="font-size:13.5px;color:#1f2937;line-height:1.6;margin:0 0 12px;padding-left:20px;">
         <li>Folha reta sobre a mesa, com boa luz e sem sombra.</li>
         <li>A página inteira dentro da foto, sem cortar as bordas da tabela.</li>
@@ -12674,17 +12736,23 @@ function avalTelaFoto(el, aviso){
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:12px;">${slot('frente', 'Frente (página 1)')}${slot('verso', 'Verso (página 2)')}</div>
       <div id="ai-msg-foto"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="botao terracota" id="ai-ler-foto" style="width:auto;" disabled>📷 Ler ficha com IA</button>
+        <button class="botao terracota" id="ai-ler-foto" style="width:auto;" disabled>📖 Ler ficha com IA</button>
         <button class="botao secundario" id="ai-digitar" style="width:auto;">Digitar à mão (sem foto)</button>
       </div>
     </div>`;
   const arquivos = { frente: null, verso: null };
   const btn = el.querySelector('#ai-ler-foto'), msg = el.querySelector('#ai-msg-foto');
-  ['frente', 'verso'].forEach(id => el.querySelector('#ai-foto-' + id).addEventListener('change', (e) => {
-    arquivos[id] = e.target.files[0] || null;
+  const mostrar = (id) => {
     el.querySelector('#ai-prev-' + id).innerHTML = arquivos[id] ? `<img src="${URL.createObjectURL(arquivos[id])}" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--borda);" />` : '';
     btn.disabled = !(arquivos.frente || arquivos.verso);
-  }));
+  };
+  ['frente', 'verso'].forEach(id => {
+    el.querySelector('#ai-foto-' + id).addEventListener('change', (e) => { arquivos[id] = e.target.files[0] || null; mostrar(id); });
+    el.querySelector('#ai-cam-' + id).addEventListener('click', async () => {
+      const f = await avalAbrirCamera(id === 'frente' ? 'Frente (página 1)' : 'Verso (página 2)');
+      if(f){ arquivos[id] = f; el.querySelector('#ai-foto-' + id).value = ''; mostrar(id); }
+    });
+  });
   el.querySelector('#ai-digitar').addEventListener('click', () => avalTelaLancar(el, null));
   btn.addEventListener('click', async () => {
     const lista = [arquivos.frente, arquivos.verso].filter(Boolean);
@@ -12701,7 +12769,7 @@ function avalTelaFoto(el, aviso){
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }catch(e){
       msg.innerHTML = `<div class="msg-erro">${esc(e.message || e)}</div>`;
-      btn.disabled = false; btn.textContent = '📷 Ler ficha com IA';
+      btn.disabled = false; btn.textContent = '📖 Ler ficha com IA';
     }
   });
 }
