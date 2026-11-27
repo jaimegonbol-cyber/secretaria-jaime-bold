@@ -14791,250 +14791,27 @@ function abreviarDisciplina(d){
   return ABREVIACAO_DISCIPLINA[d] || d.slice(0, 4).toUpperCase();
 }
 
-// ---------------------------------------------------------------
-// PRÉ-CONSELHO — feito depois da 3ª unidade: aponta estudantes com risco de retenção;
-// a lista confirmada aparece no Conselho de Classe da 4ª unidade.
-// ---------------------------------------------------------------
-const PRE_LIMITES_PADRAO = { freqMin: 75, freqAtencao: 80, minDias: 30, nRecAlto: 3, nRecAtencao: 2 };
-function preLerLimites(){
-  try{ const s = JSON.parse(localStorage.getItem('preConselhoLimites') || 'null'); if(s && typeof s === 'object') return { ...PRE_LIMITES_PADRAO, ...s }; }catch(_e){ /* sem armazenamento */ }
-  return { ...PRE_LIMITES_PADRAO };
-}
-function preSalvarLimites(l){ try{ localStorage.setItem('preConselhoLimites', JSON.stringify(l)); }catch(_e){ /* sem armazenamento */ } }
-const PRE_RISCO = {
-  alto:    { t: 'Risco alto',  cor: '#B4432E', fundo: '#FBE0DC', ordem: 0 },
-  atencao: { t: 'Atenção',     cor: '#8A5A00', fundo: '#FDF0CF', ordem: 1 },
-  baixo:   { t: 'Sem alerta',  cor: '#1F6B3A', fundo: '#E3F3E8', ordem: 2 },
-};
-function preEhInfantil(turmaId){
-  const t = (ESTADO.turmas || []).find(x => x.id === turmaId);
-  return !!t && /INFANTIL/i.test(t.ensino || '');
-}
-// Critérios (todos mostrados na tela e ajustáveis): frequência, recuperação no 3º bimestre, recuperação repetida na mesma disciplina.
-function preCalcularRisco(r, lim){
-  const total = Number(r.total) || 0, pres = Number(r.presentes) || 0;
-  const pct = total ? (pres / total) * 100 : null;
-  const freqConfiavel = total >= lim.minDias;
-  const recs = Array.isArray(r.rec) ? r.rec : [];
-  const b3 = recs.find(x => Number(x.bimestre) === 3);
-  const disc3 = b3 ? (b3.disciplinas || []) : [];
-  const contagem = {};
-  recs.forEach(x => (x.disciplinas || []).forEach(d => { contagem[d] = (contagem[d] || 0) + 1; }));
-  const repetidas = Object.keys(contagem).filter(d => contagem[d] >= 2);
-  const motivos = [];
-  let alto = false, atencao = false;
-  if(pct !== null && freqConfiavel){
-    if(pct < lim.freqMin){ alto = true; motivos.push(`Frequência ${pct.toFixed(0)}% (abaixo de ${lim.freqMin}%; ${total} dias registrados)`); }
-    else if(pct < lim.freqAtencao){ atencao = true; motivos.push(`Frequência ${pct.toFixed(0)}% (perto do mínimo de ${lim.freqMin}%)`); }
-  }
-  if(disc3.length >= lim.nRecAlto){ alto = true; motivos.push(`Recuperação em ${disc3.length} disciplinas no 3º bimestre: ${disc3.join(', ')}`); }
-  else if(disc3.length >= lim.nRecAtencao){ atencao = true; motivos.push(`Recuperação em ${disc3.length} disciplinas no 3º bimestre: ${disc3.join(', ')}`); }
-  else if(disc3.length === 1 && !repetidas.length){ /* uma disciplina isolada não gera alerta */ }
-  if(repetidas.length){ atencao = true; motivos.push(`Em recuperação em mais de um bimestre: ${repetidas.join(', ')}`); }
-  return { risco: alto ? 'alto' : (atencao ? 'atencao' : 'baixo'), motivos, pct, total, disc3, semConselho3: !b3, freqConfiavel };
-}
-
-function preResumoMotivos(l){
-  const m = l.calc.motivos.slice();
-  return m.length ? m : ['Nenhum critério de risco atingido'];
-}
-
-async function renderizarPreConselho(el){
-  const anoLetivo = new Date().getFullYear();
-  const lim = preLerLimites();
-  const turmas = turmasAnoAtual().filter(t => !/INFANTIL/i.test(t.ensino || ''));
-  const f = ESTADO.preFiltro || 'risco';
-  el.innerHTML = `
-    <div class="painel" style="padding:14px 16px;margin-bottom:12px;font-size:14px;color:#111827;line-height:1.55;">
-      <b>Pré-Conselho — depois da 3ª unidade.</b> Mostra os estudantes que <b>podem ser retidos</b> segundo os critérios abaixo. A equipe confere, <b>marca quem fica indicado</b>, escreve o parecer e registra se a família foi informada. Na <b>4ª unidade</b>, esses estudantes aparecem destacados no Conselho de Classe.
-      <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:700;">Critérios usados (pode ajustar)</summary>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
-          ${[['freqMin', 'Frequência mínima (%) — abaixo disso: risco alto'], ['freqAtencao', 'Frequência de atenção (%)'], ['minDias', 'Mínimo de dias registrados para valer a frequência'], ['nRecAlto', 'Disciplinas em recuperação (3º bim.) para risco alto'], ['nRecAtencao', 'Disciplinas em recuperação (3º bim.) para atenção']].map(([k, r]) => `<div class="campo" style="margin:0;width:230px;"><label style="font-size:12.5px;">${r}</label><input type="number" min="0" max="999" id="pre-lim-${k}" value="${lim[k]}" /></div>`).join('')}
-        </div>
-        <p style="font-size:12.5px;color:#374151;margin:8px 0 0;">Também entra em <b>atenção</b> quem ficou em recuperação na <b>mesma disciplina em mais de um bimestre</b>. A <b>Educação Infantil</b> não entra (não há retenção). A frequência considera só os dias com chamada registrada; se a chamada estiver incompleta, ela pode estar errada. Confira com a aba Pendências de chamada.</p>
-        <button class="botao secundario pequeno" id="pre-aplicar-lim" style="width:auto;margin-top:6px;">Aplicar critérios</button>
-      </details>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
-      <div class="campo" style="margin:0;max-width:260px;"><label>Turma</label><select id="pre-turma"><option value="">Toda a escola</option>${turmas.map(t => `<option value="${t.id}" ${ESTADO.preTurmaId === t.id ? 'selected' : ''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('')}</select></div>
-      <div class="campo" style="margin:0;max-width:240px;"><label>Mostrar</label><select id="pre-filtro">
-        ${[['risco', 'Risco alto, atenção e indicados'], ['indicados', 'Só os indicados'], ['alto', 'Só risco alto'], ['todos', 'Todos os estudantes']].map(([v, t]) => `<option value="${v}" ${f === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <button class="botao terracota pequeno" id="pre-salvar" style="width:auto;">💾 Salvar alterações</button>
-      <button class="botao secundario pequeno" id="pre-imprimir" style="width:auto;">🖨️ Imprimir lista</button>
-      <button class="botao secundario pequeno" id="pre-marcar-altos" style="width:auto;">Indicar todos de risco alto</button>
-      <span id="pre-msg"></span>
-    </div>
-    <div id="pre-cartoes"></div>
-    <div id="pre-tabela"><div class="carregando"><div class="spinner"></div>Carregando…</div></div>`;
-
-  el.querySelector('#pre-aplicar-lim').addEventListener('click', () => {
-    const novo = {}; Object.keys(PRE_LIMITES_PADRAO).forEach(k => { const v = Number(el.querySelector('#pre-lim-' + k).value); novo[k] = Number.isFinite(v) && v >= 0 ? v : PRE_LIMITES_PADRAO[k]; });
-    preSalvarLimites(novo); renderizarPreConselho(el);
-  });
-  el.querySelector('#pre-turma').addEventListener('change', (e) => { ESTADO.preTurmaId = e.target.value; renderizarPreConselho(el); });
-  el.querySelector('#pre-filtro').addEventListener('change', (e) => { ESTADO.preFiltro = e.target.value; renderizarPreConselho(el); });
-
-  const turmaId = ESTADO.preTurmaId || null;
-  const [rpc, reg] = await Promise.all([
-    supabase.rpc('pre_conselho_dados', { p_ano: anoLetivo, p_turma: turmaId }),
-    (() => { let q = supabase.from('pre_conselho').select('*').eq('ano_letivo', anoLetivo); if(turmaId) q = q.eq('turma_id', turmaId); return q; })(),
-  ]);
-  const msg = el.querySelector('#pre-msg');
-  if(rpc.error || reg.error){ el.querySelector('#pre-tabela').innerHTML = `<div class="msg-erro">${esc((rpc.error || reg.error).message)}</div>`; return; }
-  const salvos = {}; (reg.data || []).forEach(r => { salvos[r.aluno_id] = r; });
-  const linhas = (rpc.data || []).filter(r => !preEhInfantil(r.turma_id)).map(r => {
-    const s = salvos[r.aluno_id];
-    return { r, calc: preCalcularRisco(r, lim), indicado: !!(s && s.indicado), parecer: (s && s.parecer) || '', familia: (s && s.familia_informada_em) || '', dirty: false };
-  });
-  ESTADO.preLinhas = linhas;
-
-  const cartoes = () => {
-    const n = (fn) => linhas.filter(fn).length;
-    const porTurma = {}; linhas.forEach(l => { const k = l.r.turma_nome; (porTurma[k] = porTurma[k] || []).push(l.calc.semConselho3); });
-    const sem3 = new Set(Object.keys(porTurma).filter(k => porTurma[k].every(Boolean)));
-    el.querySelector('#pre-cartoes').innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
-        ${[['Estudantes analisados', linhas.length, '#111827'], ['Risco alto', n(l => l.calc.risco === 'alto'), PRE_RISCO.alto.cor], ['Atenção', n(l => l.calc.risco === 'atencao'), PRE_RISCO.atencao.cor], ['Indicados (confirmados)', n(l => l.indicado), '#1D4E9B'], ['Família informada', n(l => l.indicado && l.familia), '#1F6B3A']].map(([t, v, c]) => `<div class="painel" style="padding:10px 12px;"><div style="font-size:12.5px;color:#374151;">${t}</div><div style="font-size:26px;font-weight:800;color:${c};">${v}</div></div>`).join('')}
-      </div>
-      ${sem3.size ? `<div class="msg-erro" style="margin-bottom:10px;background:#FDF0CF;border-color:#D98A1F;color:#5b3b00;">Turmas sem o Conselho do 3º bimestre registrado (a recuperação não foi considerada): <b>${[...sem3].map(esc).join(', ')}</b>.</div>` : ''}`;
-  };
-
-  const visiveis = () => linhas.filter(l => f === 'todos' ? true : f === 'indicados' ? l.indicado : f === 'alto' ? l.calc.risco === 'alto' : (l.calc.risco !== 'baixo' || l.indicado))
-    .sort((a, b) => a.r.turma_nome.localeCompare(b.r.turma_nome, 'pt-BR', { numeric: true }) || PRE_RISCO[a.calc.risco].ordem - PRE_RISCO[b.calc.risco].ordem || a.r.nome.localeCompare(b.r.nome, 'pt-BR'));
-
-  function desenhar(){
-    cartoes();
-    const lista = visiveis();
-    el.querySelector('#pre-tabela').innerHTML = lista.length ? `
-      <div class="painel" style="padding:0;overflow:auto;max-height:68vh;">
-        <table style="width:100%;border-collapse:collapse;min-width:980px;">
-          <thead><tr style="position:sticky;top:0;background:var(--areia-escura);z-index:5;">
-            ${['Estudante', 'Turma', 'Frequência', 'Recuperação 3º bim.', 'Situação', 'Indicar', 'Parecer / ações', 'Família informada em'].map(h => `<th style="text-align:left;padding:7px 8px;font-size:12.5px;color:#111827;">${h}</th>`).join('')}
-          </tr></thead>
-          <tbody>${lista.map((l, i) => {
-            const R = PRE_RISCO[l.calc.risco];
-            const freq = l.calc.pct === null ? '—' : `${l.calc.pct.toFixed(0)}%`;
-            const corF = l.calc.pct === null || !l.calc.freqConfiavel ? '#374151' : l.calc.pct < lim.freqMin ? '#B4432E' : l.calc.pct < lim.freqAtencao ? '#8A5A00' : '#1F6B3A';
-            return `<tr data-i="${linhas.indexOf(l)}" style="border-bottom:1px solid var(--borda);vertical-align:top;">
-              <td style="padding:6px 8px;font-size:13px;color:#111827;"><b>${esc(l.r.nome)}</b>${l.r.aee ? ' <span class="pill azul" style="font-size:10px;padding:1px 6px;">AEE</span>' : ''}</td>
-              <td style="padding:6px 8px;font-size:12.5px;color:#111827;white-space:nowrap;">${esc(l.r.turma_nome)}</td>
-              <td style="padding:6px 8px;font-size:13px;font-weight:700;color:${corF};white-space:nowrap;" title="${l.calc.total} dias com chamada registrada${l.calc.freqConfiavel ? '' : ' (poucos dias: não conta como critério)'}">${freq}<div style="font-size:11px;font-weight:400;color:#4b5563;">${l.calc.total} dias${l.calc.freqConfiavel ? '' : ' · poucos'}</div></td>
-              <td style="padding:6px 8px;font-size:12.5px;color:${l.calc.disc3.length ? '#B4432E' : '#4b5563'};font-weight:${l.calc.disc3.length ? 700 : 400};max-width:200px;">${l.calc.disc3.length ? esc(l.calc.disc3.join(', ')) : (l.calc.semConselho3 ? '<i>sem registro</i>' : '—')}</td>
-              <td style="padding:6px 8px;"><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:800;color:${R.cor};background:${R.fundo};">${R.t}</span>
-                <div style="font-size:11.5px;color:#374151;margin-top:3px;max-width:230px;">${l.calc.motivos.map(esc).join('<br/>')}</div></td>
-              <td style="padding:6px 8px;text-align:center;"><input type="checkbox" class="pre-ind" ${l.indicado ? 'checked' : ''} style="width:18px;height:18px;accent-color:#B4432E;" aria-label="Indicar para possível retenção" /></td>
-              <td style="padding:6px 8px;"><textarea class="pre-parecer" rows="2" maxlength="2000" placeholder="Parecer da equipe, ações e reforço combinados…" style="width:240px;font-size:12.5px;">${esc(l.parecer)}</textarea></td>
-              <td style="padding:6px 8px;"><input type="date" class="pre-fam" value="${esc(l.familia)}" style="font-size:12.5px;" /></td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table>
-      </div>` : `<div class="painel" style="padding:16px;font-size:14px;color:#111827;">Nenhum estudante nesse filtro. ${f === 'todos' ? '' : 'Mude "Mostrar" para ver todos os estudantes.'}</div>`;
-    el.querySelectorAll('#pre-tabela tr[data-i]').forEach(tr => {
-      const l = linhas[Number(tr.dataset.i)];
-      tr.querySelector('.pre-ind').addEventListener('change', (e) => { l.indicado = e.target.checked; l.dirty = true; cartoes(); });
-      tr.querySelector('.pre-parecer').addEventListener('input', (e) => { l.parecer = e.target.value; l.dirty = true; });
-      tr.querySelector('.pre-fam').addEventListener('change', (e) => { l.familia = e.target.value; l.dirty = true; cartoes(); });
-    });
-  }
-  desenhar();
-
-  el.querySelector('#pre-marcar-altos').addEventListener('click', () => {
-    const alvo = visiveis().filter(l => l.calc.risco === 'alto' && !l.indicado);
-    if(!alvo.length){ msg.innerHTML = '<span class="msg-ok">Todos os de risco alto desta lista já estão indicados.</span>'; return; }
-    if(!confirm(`Indicar ${alvo.length} estudante(s) de risco alto? Você ainda pode desmarcar um por um e precisa salvar.`)) return;
-    alvo.forEach(l => { l.indicado = true; l.dirty = true; }); desenhar();
-  });
-  el.querySelector('#pre-salvar').addEventListener('click', async () => {
-    const sujos = linhas.filter(l => l.dirty);
-    if(!sujos.length){ msg.innerHTML = '<span class="msg-ok">Nada para salvar.</span>'; return; }
-    const btn = el.querySelector('#pre-salvar'); btn.disabled = true; btn.textContent = 'Salvando…';
-    const agora = new Date().toISOString();
-    const regs = sujos.map(l => ({
-      aluno_id: l.r.aluno_id, turma_id: l.r.turma_id, ano_letivo: anoLetivo, indicado: l.indicado, parecer: l.parecer.trim() || null,
-      familia_informada_em: l.familia || null, motivos: { risco: l.calc.risco, texto: preResumoMotivos(l), frequencia: l.calc.pct === null ? null : Math.round(l.calc.pct), dias: l.calc.total, recuperacao3: l.calc.disc3 },
-      atualizado_por: ESTADO.perfil.id, atualizado_em: agora,
-    }));
-    let erro = null;
-    for(let i = 0; i < regs.length && !erro; i += 100){ const r = await supabase.from('pre_conselho').upsert(regs.slice(i, i + 100), { onConflict: 'aluno_id,ano_letivo' }); erro = r.error; }
-    btn.disabled = false; btn.textContent = '💾 Salvar alterações';
-    if(erro){ msg.innerHTML = `<span class="msg-erro">${esc(erro.message)}</span>`; return; }
-    sujos.forEach(l => { l.dirty = false; });
-    msg.innerHTML = `<span class="msg-ok">${sujos.length} registro(s) salvo(s).</span>`; setTimeout(() => { msg.innerHTML = ''; }, 3500);
-  });
-  el.querySelector('#pre-imprimir').addEventListener('click', () => {
-    const janela = window.open('', '_blank');
-    if(!janela){ alert('O navegador bloqueou a janela de impressão. Permita pop-ups para este site e tente de novo.'); return; }
-    const lista = visiveis();
-    const turma = turmaId ? turmas.find(t => t.id === turmaId) : null;
-    janela.document.write(htmlImpressaoPreConselho(lista, anoLetivo, turma, f));
-    janela.document.close();
-  });
-}
-
-function htmlImpressaoPreConselho(lista, ano, turma, filtro){
-  const rotuloFiltro = { risco: 'Risco alto, atenção e indicados', indicados: 'Estudantes indicados', alto: 'Risco alto', todos: 'Todos os estudantes' }[filtro] || '';
-  const linhas = lista.map((l, i) => `<tr>
-      <td style="text-align:center;">${String(i + 1).padStart(2, '0')}</td>
-      <td style="font-weight:700;">${esc(l.r.nome)}</td>
-      <td>${esc(l.r.turma_nome)}</td>
-      <td style="text-align:center;">${l.calc.pct === null ? '—' : l.calc.pct.toFixed(0) + '%'}<br/><span style="font-weight:400;">${l.calc.total} dias</span></td>
-      <td>${esc(l.calc.disc3.join(', ') || '—')}</td>
-      <td>${esc(PRE_RISCO[l.calc.risco].t)}${l.indicado ? '<br/><b>INDICADO</b>' : ''}<div style="font-weight:400;font-size:10px;">${l.calc.motivos.map(esc).join('<br/>')}</div></td>
-      <td>${esc(l.parecer || '')}</td>
-      <td style="text-align:center;">${l.familia ? esc(formatarDataBR(l.familia)) : ''}</td>
-    </tr>`).join('');
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><title>Pré-Conselho ${ano}</title>
-  <style>
-    @page{ size:A4 landscape; margin:8mm; }
-    *{ box-sizing:border-box; } body{ font-family:Arial,Helvetica,sans-serif; color:#000; font-size:11px; margin:0; }
-    table.l{ width:100%; border-collapse:collapse; margin-top:6px; }
-    table.l th, table.l td{ border:0.3mm solid #000; padding:3px 5px; vertical-align:top; color:#000; }
-    table.l th{ background:#e5e5e5; font-size:10.5px; text-align:left; }
-    tr{ page-break-inside:avoid; }
-  </style></head><body>
-  <table style="width:100%;border-collapse:collapse;"><tr>
-    <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
-    <td style="text-align:center;"><div style="font-size:15px;font-weight:800;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
-      <div style="font-size:15px;font-weight:800;margin-top:2px;">PRÉ-CONSELHO DE CLASSE — APÓS A 3ª UNIDADE — ${ano}</div>
-      <div style="font-size:12px;font-weight:700;margin-top:2px;">${turma ? esc(turma.nome) + ' · ' + esc(turma.turno) : 'Toda a escola'} · ${esc(rotuloFiltro)}</div></td>
-    <td style="width:64px;text-align:right;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td></tr></table>
-  <table class="l"><thead><tr><th style="width:3%;">Nº</th><th style="width:17%;">ESTUDANTE</th><th style="width:7%;">TURMA</th><th style="width:7%;">FREQ.</th><th style="width:12%;">RECUPERAÇÃO 3º BIM.</th><th style="width:22%;">SITUAÇÃO / MOTIVOS</th><th style="width:22%;">PARECER / AÇÕES</th><th style="width:10%;">FAMÍLIA INFORMADA</th></tr></thead>
-  <tbody>${linhas || '<tr><td colspan="8" style="text-align:center;padding:12px;">Nenhum estudante neste filtro.</td></tr>'}</tbody></table>
-  <p style="font-size:10.5px;margin-top:6px;">Lista de apoio ao Conselho de Classe da 4ª unidade. A decisão final de aprovação ou retenção é do Conselho de Classe.</p>
-  <script>window.onload=function(){ setTimeout(function(){ window.print(); }, 350); };<\/script></body></html>`;
-}
+// Pré-Conselho = etapa do Conselho de Classe entre a 3ª e a 4ª unidade (guardada com bimestre = 5)
+const BIMESTRE_PRE_CONSELHO = 5;
+const rotuloEtapaConselho = (b) => b === BIMESTRE_PRE_CONSELHO ? 'Pré-Conselho (entre a 3ª e a 4ª unidade)' : `${b}º Bimestre`;
 
 async function renderizarConselhoClasse(el){
-  const modo = ESTADO.conselhoModo === 'pre' ? 'pre' : 'bimestre';
-  el.innerHTML = `
-    <div class="subtabs" style="margin-bottom:12px;">
-      <button class="aba-cadastro ${modo === 'bimestre' ? 'ativa' : ''}" data-modo-conselho="bimestre">Conselho por bimestre</button>
-      <button class="aba-cadastro ${modo === 'pre' ? 'ativa' : ''}" data-modo-conselho="pre">Pré-Conselho (após a 3ª unidade)</button>
-    </div>
-    <div id="conselho-conteudo"></div>`;
-  el.querySelectorAll('[data-modo-conselho]').forEach(b => b.addEventListener('click', () => { ESTADO.conselhoModo = b.dataset.modoConselho; renderizarConselhoClasse(el); }));
-  const alvo = el.querySelector('#conselho-conteudo');
-  if(modo === 'pre') await renderizarPreConselho(alvo);
-  else await renderizarConselhoBimestre(alvo);
-}
-
-async function renderizarConselhoBimestre(el){
   const opcoesTurma = turmasAnoAtual().map(t => `<option value="${t.id}" ${ESTADO.conselhoTurmaId===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.turno)}</option>`).join('');
   el.innerHTML = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
       <div class="campo" style="margin:0;max-width:260px;"><label>Turma</label><select id="conselho-turma"><option value="">Selecione a turma</option>${opcoesTurma}</select></div>
-      <div class="campo" style="margin:0;max-width:160px;"><label>Bimestre</label>
+      <div class="campo" style="margin:0;max-width:340px;"><label>Bimestre / etapa</label>
         <select id="conselho-bimestre">
-          ${[1,2,3,4].map(b => `<option value="${b}" ${ESTADO.conselhoBimestre===b?'selected':''}>${b}º Bimestre</option>`).join('')}
+          ${[1,2,3,BIMESTRE_PRE_CONSELHO,4].map(b => `<option value="${b}" ${ESTADO.conselhoBimestre===b?'selected':''}>${rotuloEtapaConselho(b)}</option>`).join('')}
         </select>
       </div>
       <button class="botao secundario pequeno" id="btn-imprimir-conselho" style="width:auto;" ${ESTADO.conselhoTurmaId?'':'disabled'}>🖨️ Imprimir resumo da turma</button>
     </div>
-    <p style="font-size:12.5px;color:var(--texto-suave);margin:-8px 0 14px;">Marque as disciplinas em que o(a) estudante ficou em recuperação (aparecem em vermelho) e as observações da turma sobre o comportamento/desempenho dele(a) nesse bimestre.</p>
+    ${ESTADO.conselhoBimestre === BIMESTRE_PRE_CONSELHO ? `<div style="border:1px solid #B4432E;background:#FDF3F1;border-radius:10px;padding:10px 14px;margin:-4px 0 14px;font-size:13.5px;color:#111827;line-height:1.5;"><b>Pré-Conselho — entre a 3ª e a 4ª unidade.</b> Marque as <b>disciplinas em que o(a) estudante pode ser reprovado(a) por média</b> (ficam em vermelho). Esses estudantes serão <b>indicados no Conselho da 4ª unidade</b>, com as disciplinas marcadas. A etiqueta <b style="color:#B4432E;">R3</b> mostra a disciplina que estava em recuperação no 3º bimestre (só uma pista; a decisão é da turma). Use <b>Observação</b> para registrar ações e se a família foi informada.</div>` : `<p style="font-size:12.5px;color:var(--texto-suave);margin:-8px 0 14px;">Marque as disciplinas em que o(a) estudante ficou em recuperação (aparecem em vermelho) e as observações da turma sobre o comportamento/desempenho dele(a) nesse bimestre.</p>`}
     <div id="conselho-lista"><p style="color:var(--texto-suave);font-size:13px;">Selecione a turma para começar.</p></div>`;
 
-  document.getElementById('conselho-turma').addEventListener('change', (e) => { ESTADO.conselhoTurmaId = e.target.value; renderizarConselhoBimestre(el); });
-  document.getElementById('conselho-bimestre').addEventListener('change', (e) => { ESTADO.conselhoBimestre = Number(e.target.value); renderizarConselhoBimestre(el); });
+  document.getElementById('conselho-turma').addEventListener('change', (e) => { ESTADO.conselhoTurmaId = e.target.value; renderizarConselhoClasse(el); });
+  document.getElementById('conselho-bimestre').addEventListener('change', (e) => { ESTADO.conselhoBimestre = Number(e.target.value); renderizarConselhoClasse(el); });
   const btnImprimirConselho = document.getElementById('btn-imprimir-conselho');
   if(btnImprimirConselho) btnImprimirConselho.addEventListener('click', () => imprimirResumoConselhoClasse(ESTADO.conselhoTurmaId, ESTADO.conselhoBimestre, btnImprimirConselho));
 
@@ -15050,13 +14827,15 @@ async function carregarListaConselhoClasse(el){
   if(!alunosTurma.length){ alvo.innerHTML = `<p style="color:var(--texto-suave);font-size:13px;">Nenhum estudante nesta turma.</p>`; return; }
 
   const anoLetivo = new Date().getFullYear();
-  const [{ data: registros, error }, { data: vinculos, error: erroVinculos }, { data: freqDados }, { data: preDados }] = await Promise.all([
+  const bimRef = ESTADO.conselhoBimestre === BIMESTRE_PRE_CONSELHO ? 3 : ESTADO.conselhoBimestre === 4 ? BIMESTRE_PRE_CONSELHO : null;
+  const [{ data: registros, error }, { data: vinculos, error: erroVinculos }, { data: freqDados }, { data: refDados }] = await Promise.all([
     supabase.from('conselho_classe').select('*').eq('turma_id', ESTADO.conselhoTurmaId).eq('bimestre', ESTADO.conselhoBimestre).eq('ano_letivo', anoLetivo),
     supabase.from('turma_professor_disciplina').select('disciplina').eq('turma_id', ESTADO.conselhoTurmaId),
     supabase.from('frequencia').select('aluno_id, status').eq('turma_id', ESTADO.conselhoTurmaId).gte('data', `${anoLetivo}-01-01`).lte('data', `${anoLetivo}-12-31`),
-    ESTADO.conselhoBimestre === 4 ? supabase.from('pre_conselho').select('*').eq('turma_id', ESTADO.conselhoTurmaId).eq('ano_letivo', anoLetivo).eq('indicado', true) : Promise.resolve({ data: [] }),
+    bimRef ? supabase.from('conselho_classe').select('aluno_id, disciplinas_recuperacao, observacoes').eq('turma_id', ESTADO.conselhoTurmaId).eq('bimestre', bimRef).eq('ano_letivo', anoLetivo) : Promise.resolve({ data: [] }),
   ]);
-  const preIndicados = {}; (preDados || []).forEach(x => { preIndicados[x.aluno_id] = x; });
+  const refPorAluno = {}; (refDados || []).forEach(x => { refPorAluno[x.aluno_id] = x; });
+  const rotulosObsConselho = Object.fromEntries(OBSERVACOES_CONSELHO.map(o => [o.chave, o.rotulo]));
   if(error){ alvo.innerHTML = `<div class="msg-erro">${esc(error.message)}</div>`; return; }
   if(erroVinculos){ alvo.innerHTML = `<div class="msg-erro">${esc(erroVinculos.message)}</div>`; return; }
   const disciplinasTurma = Array.from(new Set((vinculos||[]).map(v => v.disciplina))).sort((a,b) => a.localeCompare(b, 'pt-BR'));
@@ -15077,12 +14856,13 @@ async function carregarListaConselhoClasse(el){
     return;
   }
 
-  const listaPre = alunosTurma.filter(a => preIndicados[a.id]);
-  const avisoPre = ESTADO.conselhoBimestre === 4 ? (listaPre.length ? `
+  // 4ª unidade: quem foi indicado no Pré-Conselho (disciplinas marcadas) aparece em destaque
+  const indicadosPre = ESTADO.conselhoBimestre === 4 ? alunosTurma.filter(a => (refPorAluno[a.id]?.disciplinas_recuperacao || []).length) : [];
+  const avisoPre = ESTADO.conselhoBimestre === 4 ? (indicadosPre.length ? `
     <div style="border:2px solid #B4432E;background:#FBE0DC;border-radius:10px;padding:10px 14px;margin-bottom:10px;color:#111827;font-size:13.5px;line-height:1.5;">
-      <b>⚠ Indicados no Pré-Conselho (risco de retenção): ${listaPre.length}</b>
-      ${listaPre.map(a => { const x = preIndicados[a.id]; const mot = ((x.motivos || {}).texto || []).join('; '); return `<div style="margin-top:4px;"><b>${esc(a.nome)}</b>${mot ? ' — ' + esc(mot) : ''}${x.parecer ? `<br/><i>Parecer:</i> ${esc(x.parecer)}` : ''}${x.familia_informada_em ? `<br/><i>Família informada em ${esc(formatarDataBR(x.familia_informada_em))}</i>` : '<br/><i>Família ainda não registrada como informada.</i>'}</div>`; }).join('')}
-    </div>` : `<div style="font-size:12.5px;color:#374151;margin-bottom:8px;">Nenhum estudante desta turma foi indicado no Pré-Conselho.</div>`) : '';
+      <b>⚠ Indicados no Pré-Conselho — podem ser reprovados por média (${indicadosPre.length}):</b>
+      ${indicadosPre.map(a => { const x = refPorAluno[a.id]; const obs = (x.observacoes || []).map(o => o.chave === 'outros' ? (o.texto || 'Outros') : rotulosObsConselho[o.chave]).filter(Boolean).join(', '); return `<div style="margin-top:4px;"><b>${esc(a.nome)}</b> — ${esc(x.disciplinas_recuperacao.join(', '))}${obs ? `<br/><i>Observação do Pré-Conselho:</i> ${esc(obs)}` : ''}</div>`; }).join('')}
+    </div>` : `<div style="font-size:12.5px;color:var(--texto-suave);margin-bottom:8px;">Nenhum estudante desta turma foi indicado no Pré-Conselho.</div>`) : '';
 
   alvo.innerHTML = `
     ${avisoPre}
@@ -15099,7 +14879,7 @@ async function carregarListaConselhoClasse(el){
           <th style="text-align:left;padding:6px 8px;position:sticky;top:0;z-index:10;background:var(--areia-escura);">Observação</th>
           ${ESTADO.conselhoBimestre === 4 ? `<th style="text-align:left;padding:6px 8px;position:sticky;top:0;z-index:10;background:var(--areia-escura);" title="Usado pra decidir a turma na Renovação de Matrícula">Resultado</th>` : ''}
         </tr></thead>
-        <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id], disciplinasTurma, frequenciaPorAluno[a.id], preIndicados[a.id])).join('')}</tbody>
+        <tbody>${alunosTurma.map(a => montarLinhaConselhoAluno(a, porAluno[a.id], disciplinasTurma, frequenciaPorAluno[a.id], refPorAluno[a.id])).join('')}</tbody>
       </table>
     </div>`;
 
@@ -15136,20 +14916,24 @@ async function carregarListaConselhoClasse(el){
   });
 }
 
-function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma, frequenciaAluno, pre){
+function montarLinhaConselhoAluno(aluno, registro, disciplinasTurma, frequenciaAluno, ref){
   const disciplinasMarcadas = new Set(registro?.disciplinas_recuperacao || []);
   const observacoesMarcadas = new Set((registro?.observacoes || []).map(o => o.chave));
   const outrosSalvo = (registro?.observacoes || []).find(o => o.chave === 'outros');
   const resumoInicial = OBSERVACOES_CONSELHO.filter(o => observacoesMarcadas.has(o.chave)).map(o => o.chave === 'outros' ? (outrosSalvo?.texto ? `Outros: ${outrosSalvo.texto}` : 'Outros') : o.rotulo).join(', ') || 'Selecionar…';
+  // ref: no Pré-Conselho = registro do 3º bimestre (pista "R3"); no 4º bimestre = registro do Pré-Conselho (destaque)
+  const refDisc = new Set(ref?.disciplinas_recuperacao || []);
+  const ehPre = ESTADO.conselhoBimestre === BIMESTRE_PRE_CONSELHO, eh4 = ESTADO.conselhoBimestre === 4;
   const pctFrequencia = frequenciaAluno && frequenciaAluno.total ? Math.round((frequenciaAluno.presentes / frequenciaAluno.total) * 100) : null;
   const corFrequencia = pctFrequencia === null ? 'var(--texto-suave)' : pctFrequencia < 75 ? '#B4432E' : pctFrequencia < 90 ? '#D98A1F' : '#2E7D5B';
   return `
     <tr data-linha-conselho="${aluno.id}" style="border-bottom:1px solid var(--borda);">
-      <td style="padding:5px 10px;font-size:12.5px;white-space:nowrap;">${esc(aluno.nome)}${aluno.aee ? ' <span class="pill azul" style="font-size:10px;padding:1px 6px;">AEE</span>' : ''}${pre ? ' <span title="Indicado no Pré-Conselho para possível retenção" style="display:inline-block;background:#B4432E;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;">PRÉ-CONSELHO</span>' : ''}</td>
+      <td style="padding:5px 10px;font-size:12.5px;white-space:nowrap;">${esc(aluno.nome)}${aluno.aee ? ' <span class="pill azul" style="font-size:10px;padding:1px 6px;">AEE</span>' : ''}${eh4 && refDisc.size ? ' <span title="Indicado no Pré-Conselho: pode ser reprovado por média em ' + esc([...refDisc].join(', ')) + '" style="display:inline-block;background:#B4432E;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;">PRÉ-CONSELHO</span>' : ''}</td>
       <td style="text-align:center;padding:4px;font-size:12px;font-weight:700;color:${corFrequencia};" title="Frequência no ano letivo">${pctFrequencia === null ? '—' : pctFrequencia + '%'}</td>
       ${disciplinasTurma.map(d => `
-        <td style="text-align:center;padding:4px;${disciplinasMarcadas.has(d) ? 'background:#FBE0DC;' : ''}">
+        <td style="text-align:center;padding:4px;${disciplinasMarcadas.has(d) ? 'background:#FBE0DC;' : ''}${eh4 && refDisc.has(d) ? 'box-shadow:inset 0 0 0 2px #B4432E;' : ''}"${eh4 && refDisc.has(d) ? ' title="Indicada no Pré-Conselho (risco de reprovação por média)"' : ''}>
           <input type="checkbox" class="chk-disciplina-recuperacao" data-disciplina="${esc(d)}" ${disciplinasMarcadas.has(d)?'checked':''} style="width:14px;height:14px;" />
+          ${ehPre && refDisc.has(d) ? '<div title="Estava em recuperação no 3º bimestre" style="font-size:9px;font-weight:800;color:#B4432E;line-height:1;">R3</div>' : ''}${eh4 && refDisc.has(d) ? '<div style="font-size:9px;font-weight:800;color:#B4432E;line-height:1;">PC</div>' : ''}
         </td>`).join('')}
       <td style="padding:4px 6px;">
         <button type="button" class="btn-obs-conselho" data-nome-aluno="${esc(aluno.nome)}" style="cursor:pointer;font-size:12px;padding:4px 8px;border:1px solid var(--borda);border-radius:5px;max-width:220px;white-space:normal;text-align:left;background:#fff;">${esc(resumoInicial)}</button>
@@ -15254,7 +15038,7 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
           <td style="width:64px;"><img src="${LOGO_PREFEITURA_URL}" style="width:56px;height:56px;" /></td>
           <td style="text-align:center;">
             <div style="font-size:15px;font-weight:800;color:#1D4E9B;">ESCOLA MUNICIPAL JAIME GONÇALVES BOLD</div>
-            <div style="font-size:15px;font-weight:800;color:#111;margin-top:2px;">CONSELHO DE CLASSE — ${bimestre}º BIMESTRE DE ${anoLetivo}</div>
+            <div style="font-size:15px;font-weight:800;color:#111;margin-top:2px;">${bimestre === BIMESTRE_PRE_CONSELHO ? 'PRÉ-CONSELHO DE CLASSE — ENTRE A 3ª E A 4ª UNIDADE' : `CONSELHO DE CLASSE — ${bimestre}º BIMESTRE`} DE ${anoLetivo}</div>
           </td>
           <td style="width:64px;"><img src="${LOGO_ESCOLA_URL}" style="width:56px;height:56px;" /></td>
         </tr>
@@ -15264,7 +15048,7 @@ async function imprimirResumoConselhoClasse(turmaId, bimestre, btn){
         <thead><tr>
           <th style="width:4%;">NUM</th>
           <th style="width:23%;">NOME</th>
-          <th style="width:18%;">DISCIPLINAS EM RECUPERAÇÃO</th>
+          <th style="width:18%;">${bimestre === BIMESTRE_PRE_CONSELHO ? 'RISCO DE REPROVAÇÃO POR MÉDIA' : 'DISCIPLINAS EM RECUPERAÇÃO'}</th>
           <th style="width:55%;">OBSERVAÇÕES</th>
         </tr></thead>
         <tbody>${linhas || `<tr><td colspan="4" style="text-align:center;padding:14px;">Nenhum estudante nesta turma.</td></tr>`}</tbody>
